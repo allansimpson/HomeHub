@@ -123,6 +123,7 @@ export interface CalendarEventDto {
   notes: string | null
   ownerIds: number[]
   source: string
+  version: number
 }
 
 export interface CalendarEventInput {
@@ -144,6 +145,7 @@ export interface TaskItemDto {
   dueUtc: string | null
   completed: boolean
   source: string
+  version: number
 }
 
 export interface TaskCreateInput {

@@ -13,6 +13,11 @@ public interface ITaskProvider
     Task<IReadOnlyList<TaskItem>> ListAsync(int? profileId, CancellationToken ct);
     Task<TaskItem?> GetAsync(int id, CancellationToken ct);
     Task<TaskItem> CreateAsync(TaskCreateInput input, CancellationToken ct);
-    Task<TaskItem?> SetCompletedAsync(int id, bool completed, CancellationToken ct);
-    Task<bool> DeleteAsync(int id, CancellationToken ct);
+
+    /// <summary>Complete/uncomplete a task. When <paramref name="baseVersion"/> is given and doesn't
+    /// match, throws <see cref="Data.ConcurrencyConflictException"/> (409).</summary>
+    Task<TaskItem?> SetCompletedAsync(int id, bool completed, int? baseVersion, CancellationToken ct);
+
+    /// <summary>Delete a task, with the same optional optimistic-concurrency check.</summary>
+    Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct);
 }

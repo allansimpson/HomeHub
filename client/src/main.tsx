@@ -12,6 +12,7 @@ import { CalendarProvider } from './app/CalendarProvider'
 import { TasksProvider } from './app/TasksProvider'
 import { ClimateProvider } from './app/ClimateProvider'
 import { VoiceProvider } from './app/VoiceProvider'
+import { WriteQueueProvider } from './app/WriteQueueProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -20,15 +21,17 @@ createRoot(document.getElementById('root')!).render(
       <SessionProvider>
         <SensorsProvider>
           <WeatherProvider>
-            <CalendarProvider>
-              <TasksProvider>
-                <ClimateProvider>
-                  <VoiceProvider>
-                    <App />
-                  </VoiceProvider>
-                </ClimateProvider>
-              </TasksProvider>
-            </CalendarProvider>
+            <WriteQueueProvider>
+              <CalendarProvider>
+                <TasksProvider>
+                  <ClimateProvider>
+                    <VoiceProvider>
+                      <App />
+                    </VoiceProvider>
+                  </ClimateProvider>
+                </TasksProvider>
+              </CalendarProvider>
+            </WriteQueueProvider>
           </WeatherProvider>
         </SensorsProvider>
       </SessionProvider>

@@ -29,4 +29,8 @@ public class TaskItem
 
     public DateTime CreatedUtc { get; set; }
     public DateTime UpdatedUtc { get; set; }
+
+    /// <summary>Optimistic-concurrency token: bumped on every change. Used by the offline write-queue
+    /// to detect conflicts (Stage 9b).</summary>
+    public int Version { get; set; } = 1;
 }

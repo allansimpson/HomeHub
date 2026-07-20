@@ -44,9 +44,12 @@ export function CalendarProvider({ children }: { children: ReactNode }) {
     }
     void tick()
     const id = window.setInterval(tick, POLL_MS)
+    const onSync = () => void refresh()
+    window.addEventListener('homehub:sync', onSync)
     return () => {
       cancelled = true
       window.clearInterval(id)
+      window.removeEventListener('homehub:sync', onSync)
     }
   }, [refresh])
 

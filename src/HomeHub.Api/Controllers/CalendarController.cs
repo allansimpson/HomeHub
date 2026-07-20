@@ -1,6 +1,7 @@
 namespace HomeHub.Api.Controllers;
 
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Data;
 using Microsoft.AspNetCore.Mvc;
 
 /// <summary>
@@ -57,18 +58,32 @@ public class CalendarController : ControllerBase
     }
 
     [HttpPut("events/{id:int}")]
-    public async Task<ActionResult<CalendarEventDto>> Update(int id, CalendarEventInput input, CancellationToken ct)
+    public async Task<ActionResult<CalendarEventDto>> Update(int id, CalendarEventInput input, [FromQuery] int? baseVersion, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(input.Title)) return BadRequest("Title is required.");
         if (input.EndUtc <= input.StartUtc) return BadRequest("End must be after start.");
-        var updated = await _calendar.UpdateAsync(id, input, ct);
-        return updated is null ? NotFound() : CalendarEventDto.From(updated);
+        try
+        {
+            var updated = await _calendar.UpdateAsync(id, input, baseVersion, ct);
+            return updated is null ? NotFound() : CalendarEventDto.From(updated);
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Conflict(ex.Current);
+        }
     }
 
     [HttpDelete("events/{id:int}")]
-    public async Task<IActionResult> Delete(int id, CancellationToken ct)
+    public async Task<IActionResult> Delete(int id, [FromQuery] int? baseVersion, CancellationToken ct)
     {
-        var ok = await _calendar.DeleteAsync(id, ct);
-        return ok ? NoContent() : NotFound();
+        try
+        {
+            var ok = await _calendar.DeleteAsync(id, baseVersion, ct);
+            return ok ? NoContent() : NotFound();
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Conflict(ex.Current);
+        }
     }
 }

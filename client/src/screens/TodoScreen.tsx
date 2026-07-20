@@ -4,7 +4,6 @@ import { DrillInHeader, ScreenShell, ScrollArea, Chip } from '../components'
 import { Icon } from '../icons/Icon'
 import { useSession } from '../app/SessionProvider'
 import { useTasks } from '../app/TasksProvider'
-import { api, ApiError } from '../api/client'
 import type { ProfileDto, TaskItemDto } from '../api/types'
 
 /** Relative due-date meta for a task row. */
@@ -30,7 +29,7 @@ function dueMeta(task: TaskItemDto): string {
 export function TodoScreen() {
   const navigate = useNavigate()
   const { profiles, activeProfile } = useSession()
-  const { tasks, refresh } = useTasks()
+  const { tasks, toggleTask, deleteTask, createTask } = useTasks()
   const [filter, setFilter] = useState<number | 'all'>('all')
 
   const [adding, setAdding] = useState(false)
@@ -45,34 +44,14 @@ export function TodoScreen() {
 
   const owner = draftOwner ?? (filter !== 'all' ? filter : activeProfile?.id ?? profiles[0]?.id ?? null)
 
-  const toggle = async (task: TaskItemDto) => {
-    try {
-      await api.completeTask(task.id, !task.completed)
-      await refresh()
-    } catch (err) {
-      if (!(err instanceof ApiError)) throw err
-    }
-  }
-
-  const remove = async (task: TaskItemDto) => {
-    try {
-      await api.deleteTask(task.id)
-      await refresh()
-    } catch (err) {
-      if (!(err instanceof ApiError)) throw err
-    }
-  }
+  const toggle = (task: TaskItemDto) => void toggleTask(task)
+  const remove = (task: TaskItemDto) => void deleteTask(task)
 
   const add = async () => {
     if (!draftTitle.trim() || owner == null) return
-    try {
-      await api.createTask({ profileId: owner, title: draftTitle.trim(), note: null, dueUtc: null })
-      setDraftTitle('')
-      setAdding(false)
-      await refresh()
-    } catch (err) {
-      if (!(err instanceof ApiError)) throw err
-    }
+    await createTask({ profileId: owner, title: draftTitle.trim(), note: null, dueUtc: null })
+    setDraftTitle('')
+    setAdding(false)
   }
 
   return (

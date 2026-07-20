@@ -1,5 +1,6 @@
 namespace HomeHub.Api.Controllers;
 
+using HomeHub.Api.Data;
 using HomeHub.Api.Tasks;
 using Microsoft.AspNetCore.Mvc;
 
@@ -34,16 +35,30 @@ public class TasksController : ControllerBase
     }
 
     [HttpPatch("{id:int}/complete")]
-    public async Task<ActionResult<TaskItemDto>> Complete(int id, TaskCompleteInput input, CancellationToken ct)
+    public async Task<ActionResult<TaskItemDto>> Complete(int id, TaskCompleteInput input, [FromQuery] int? baseVersion, CancellationToken ct)
     {
-        var updated = await _tasks.SetCompletedAsync(id, input.Completed, ct);
-        return updated is null ? NotFound() : TaskItemDto.From(updated);
+        try
+        {
+            var updated = await _tasks.SetCompletedAsync(id, input.Completed, baseVersion, ct);
+            return updated is null ? NotFound() : TaskItemDto.From(updated);
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Conflict(ex.Current);
+        }
     }
 
     [HttpDelete("{id:int}")]
-    public async Task<IActionResult> Delete(int id, CancellationToken ct)
+    public async Task<IActionResult> Delete(int id, [FromQuery] int? baseVersion, CancellationToken ct)
     {
-        var ok = await _tasks.DeleteAsync(id, ct);
-        return ok ? NoContent() : NotFound();
+        try
+        {
+            var ok = await _tasks.DeleteAsync(id, baseVersion, ct);
+            return ok ? NoContent() : NotFound();
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Conflict(ex.Current);
+        }
     }
 }

@@ -28,4 +28,8 @@ public class CalendarEvent
     public string OwnerTags { get; set; } = "";
 
     public DateTime UpdatedUtc { get; set; }
+
+    /// <summary>Optimistic-concurrency token: bumped on every update. Used by the offline write-queue
+    /// to detect edit-vs-edit conflicts (Stage 9b).</summary>
+    public int Version { get; set; } = 1;
 }

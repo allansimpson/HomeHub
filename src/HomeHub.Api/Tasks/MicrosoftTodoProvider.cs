@@ -90,13 +90,15 @@ public sealed class MicrosoftTodoProvider : ITaskProvider
         return task;
     }
 
-    public async Task<TaskItem?> SetCompletedAsync(int id, bool completed, CancellationToken ct)
+    public async Task<TaskItem?> SetCompletedAsync(int id, bool completed, int? baseVersion, CancellationToken ct)
     {
         var task = await _db.Tasks.FindAsync([id], ct);
         if (task is null) return null;
+        if (baseVersion is { } v && v != task.Version) throw new ConcurrencyConflictException(TaskItemDto.From(task));
         task.Completed = completed;
         task.CompletedAtUtc = completed ? DateTime.UtcNow : null;
         task.UpdatedUtc = DateTime.UtcNow;
+        task.Version++;
 
         var link = await _db.MicrosoftAccountLinks.FindAsync([task.ProfileId], ct);
         if (link is not null && !string.IsNullOrEmpty(task.GraphId))
@@ -110,10 +112,11 @@ public sealed class MicrosoftTodoProvider : ITaskProvider
         return task;
     }
 
-    public async Task<bool> DeleteAsync(int id, CancellationToken ct)
+    public async Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct)
     {
         var task = await _db.Tasks.FindAsync([id], ct);
         if (task is null) return false;
+        if (baseVersion is { } v && v != task.Version) throw new ConcurrencyConflictException(TaskItemDto.From(task));
 
         var link = await _db.MicrosoftAccountLinks.FindAsync([task.ProfileId], ct);
         if (link is not null && !string.IsNullOrEmpty(task.GraphId))

@@ -8,10 +8,11 @@ public record TaskItemDto(
     string? Note,
     DateTime? DueUtc,
     bool Completed,
-    string Source)
+    string Source,
+    int Version)
 {
     public static TaskItemDto From(TaskItem t) =>
-        new(t.Id, t.ProfileId, t.Title, t.Note, t.DueUtc, t.Completed, t.Source);
+        new(t.Id, t.ProfileId, t.Title, t.Note, t.DueUtc, t.Completed, t.Source, t.Version);
 }
 
 /// <summary>Create payload — a new task belongs to a profile and starts not-completed.</summary>

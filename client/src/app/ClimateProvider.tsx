@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { api, ApiError } from '../api/client'
 import type { ClimateModeName, ClimateZoneDto } from '../api/types'
+import { useWriteQueue } from './WriteQueueProvider'
 
 const MIN_SETPOINT = 60
 const MAX_SETPOINT = 85
@@ -26,10 +27,13 @@ const ClimateContext = createContext<ClimateState | null>(null)
 const POLL_MS = 15_000
 
 export function ClimateProvider({ children }: { children: ReactNode }) {
+  const { run } = useWriteQueue()
   const [zones, setZones] = useState<ClimateZoneDto[]>([])
   const [offline, setOffline] = useState(false)
   const pending = useRef<Map<number, number>>(new Map()) // zoneId -> debounce timer
   const hasPending = useRef(false)
+  const zonesRef = useRef<ClimateZoneDto[]>([])
+  zonesRef.current = zones
 
   const refresh = useCallback(async () => {
     if (hasPending.current) return // don't reconcile mid-adjustment
@@ -50,12 +54,16 @@ export function ClimateProvider({ children }: { children: ReactNode }) {
     }
     void tick()
     const id = window.setInterval(tick, POLL_MS)
+    const onSync = () => void refresh()
+    window.addEventListener('homehub:sync', onSync)
     return () => {
       cancelled = true
       window.clearInterval(id)
+      window.removeEventListener('homehub:sync', onSync)
     }
   }, [refresh])
 
+  // Climate is transient state → last-write-wins (no version); queued when offline.
   const adjustSetPoint = useCallback((id: number, delta: number) => {
     hasPending.current = true
     let nextValue = 0
@@ -71,28 +79,36 @@ export function ClimateProvider({ children }: { children: ReactNode }) {
     timers.set(
       id,
       window.setTimeout(async () => {
-        try {
-          await api.setClimateSetPoint(id, nextValue)
-        } catch (err) {
-          if (!(err instanceof ApiError)) throw err
-        } finally {
-          timers.delete(id)
-          if (timers.size === 0) hasPending.current = false
-          await refresh()
-        }
+        const zone = zonesRef.current.find((z) => z.id === id)
+        const outcome = await run({
+          domain: 'climate',
+          method: 'PUT',
+          path: `/climate/zones/${id}/setpoint`,
+          body: { setPointF: nextValue },
+          label: `Set ${zone?.name ?? 'zone'} to ${nextValue}°`,
+        })
+        timers.delete(id)
+        if (timers.size === 0) hasPending.current = false
+        if (outcome.kind === 'ok') await refresh()
       }, 500),
     )
-  }, [refresh])
+  }, [run, refresh])
 
-  const setMode = useCallback(async (id: number, mode: ClimateModeName) => {
-    setZones((cur) => cur.map((z) => (z.id === id ? { ...z, mode, running: mode !== 'Off', setPointF: mode === 'Off' ? null : z.setPointF } : z)))
-    try {
-      await api.setClimateMode(id, mode)
-      await refresh()
-    } catch (err) {
-      if (!(err instanceof ApiError)) throw err
-    }
-  }, [refresh])
+  const setMode = useCallback(
+    async (id: number, mode: ClimateModeName) => {
+      setZones((cur) => cur.map((z) => (z.id === id ? { ...z, mode, running: mode !== 'Off', setPointF: mode === 'Off' ? null : z.setPointF } : z)))
+      const zone = zonesRef.current.find((z) => z.id === id)
+      const outcome = await run({
+        domain: 'climate',
+        method: 'PUT',
+        path: `/climate/zones/${id}/mode`,
+        body: { mode },
+        label: `Set ${zone?.name ?? 'zone'} to ${mode}`,
+      })
+      if (outcome.kind === 'ok') await refresh()
+    },
+    [run, refresh],
+  )
 
   const applyScene = useCallback(async (scene: 'evening' | 'all-off') => {
     try {

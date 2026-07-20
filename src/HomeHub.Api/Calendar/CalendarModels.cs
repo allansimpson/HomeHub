@@ -9,10 +9,11 @@ public record CalendarEventDto(
     string? Location,
     string? Notes,
     IReadOnlyList<int> OwnerIds,
-    string Source)
+    string Source,
+    int Version)
 {
     public static CalendarEventDto From(CalendarEvent e) => new(
-        e.Id, e.Title, e.StartUtc, e.EndUtc, e.Location, e.Notes, ParseOwners(e.OwnerTags), e.Source);
+        e.Id, e.Title, e.StartUtc, e.EndUtc, e.Location, e.Notes, ParseOwners(e.OwnerTags), e.Source, e.Version);
 
     public static IReadOnlyList<int> ParseOwners(string csv) =>
         string.IsNullOrWhiteSpace(csv)

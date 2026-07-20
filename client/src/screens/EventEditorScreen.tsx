@@ -4,6 +4,7 @@ import { ScreenShell, SectionLabel, Stepper } from '../components'
 import { Icon } from '../icons/Icon'
 import { useSession } from '../app/SessionProvider'
 import { useCalendar } from '../app/CalendarProvider'
+import { useWriteQueue } from '../app/WriteQueueProvider'
 import { api, ApiError } from '../api/client'
 import { formatTime, snapMinutes, weekdayName, monthName } from '../app/dates'
 
@@ -26,6 +27,7 @@ export function EventEditorScreen() {
   const editId = id ? Number(id) : null
   const { profiles } = useSession()
   const { refresh } = useCalendar()
+  const { run } = useWriteQueue()
 
   const [title, setTitle] = useState('')
   const [start, setStart] = useState<Date>(() => nextHour())
@@ -33,6 +35,7 @@ export function EventEditorScreen() {
   const [ownerIds, setOwnerIds] = useState<number[]>([])
   const [location, setLocation] = useState('')
   const [notes, setNotes] = useState('')
+  const [version, setVersion] = useState(1)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -48,6 +51,7 @@ export function EventEditorScreen() {
         setOwnerIds(e.ownerIds)
         setLocation(e.location ?? '')
         setNotes(e.notes ?? '')
+        setVersion(e.version)
       } catch (err) {
         if (!(err instanceof ApiError)) throw err
       }
@@ -94,27 +98,22 @@ export function EventEditorScreen() {
       notes: notes.trim() || null,
       ownerIds,
     }
-    try {
-      if (editId == null) await api.createEvent(input)
-      else await api.updateEvent(editId, input)
-      await refresh()
-      navigate('/calendar')
-    } catch (err) {
-      setSaving(false)
-      if (!(err instanceof ApiError)) throw err
+    // Route through the offline write-queue: succeeds now, queues if offline, surfaces conflicts.
+    if (editId == null) {
+      await run({ domain: 'calendar', method: 'POST', path: '/calendar/events', body: input, label: `Add “${input.title}”` })
+    } else {
+      await run({ domain: 'calendar', method: 'PUT', path: `/calendar/events/${editId}`, body: input, baseVersion: version, label: `Edit “${input.title}”` })
     }
-  }, [title, start, end, location, notes, ownerIds, editId, saving, refresh, navigate])
+    await refresh()
+    navigate('/calendar')
+  }, [title, start, end, location, notes, ownerIds, editId, version, saving, run, refresh, navigate])
 
   const remove = useCallback(async () => {
     if (editId == null) return
-    try {
-      await api.deleteEvent(editId)
-      await refresh()
-      navigate('/calendar')
-    } catch (err) {
-      if (!(err instanceof ApiError)) throw err
-    }
-  }, [editId, refresh, navigate])
+    await run({ domain: 'calendar', method: 'DELETE', path: `/calendar/events/${editId}`, baseVersion: version, label: `Delete “${title}”` })
+    await refresh()
+    navigate('/calendar')
+  }, [editId, version, title, run, refresh, navigate])
 
   const startT = formatTime(start)
   const endT = formatTime(end)

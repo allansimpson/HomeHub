@@ -3,6 +3,8 @@ namespace HomeHub.Api.Calendar;
 using HomeHub.Api.Data;
 using Microsoft.EntityFrameworkCore;
 
+
+
 /// <summary>
 /// Local, SQL-backed calendar. Used until Google OAuth is configured — the panel is fully
 /// usable (create/edit/delete persist) without any external account. When Google is wired in,
@@ -46,10 +48,11 @@ public sealed class SqlCalendarProvider : ICalendarProvider
         return e;
     }
 
-    public async Task<CalendarEvent?> UpdateAsync(int id, CalendarEventInput input, CancellationToken ct)
+    public async Task<CalendarEvent?> UpdateAsync(int id, CalendarEventInput input, int? baseVersion, CancellationToken ct)
     {
         var e = await _db.CalendarEvents.FindAsync([id], ct);
         if (e is null) return null;
+        if (baseVersion is { } v && v != e.Version) throw new ConcurrencyConflictException(CalendarEventDto.From(e));
 
         e.Title = input.Title.Trim();
         e.StartUtc = input.StartUtc;
@@ -58,14 +61,16 @@ public sealed class SqlCalendarProvider : ICalendarProvider
         e.Notes = input.Notes;
         e.OwnerTags = input.OwnersCsv;
         e.UpdatedUtc = DateTime.UtcNow;
+        e.Version++;
         await _db.SaveChangesAsync(ct);
         return e;
     }
 
-    public async Task<bool> DeleteAsync(int id, CancellationToken ct)
+    public async Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct)
     {
         var e = await _db.CalendarEvents.FindAsync([id], ct);
         if (e is null) return false;
+        if (baseVersion is { } v && v != e.Version) throw new ConcurrencyConflictException(CalendarEventDto.From(e));
         _db.CalendarEvents.Remove(e);
         await _db.SaveChangesAsync(ct);
         return true;

@@ -89,10 +89,11 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
         return entity;
     }
 
-    public async Task<CalendarEvent?> UpdateAsync(int id, CalendarEventInput input, CancellationToken ct)
+    public async Task<CalendarEvent?> UpdateAsync(int id, CalendarEventInput input, int? baseVersion, CancellationToken ct)
     {
         var entity = await _db.CalendarEvents.FindAsync([id], ct);
         if (entity is null) return null;
+        if (baseVersion is { } v && v != entity.Version) throw new ConcurrencyConflictException(CalendarEventDto.From(entity));
 
         entity.Title = input.Title.Trim();
         entity.StartUtc = input.StartUtc;
@@ -101,6 +102,7 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
         entity.Notes = input.Notes;
         entity.OwnerTags = input.OwnersCsv;
         entity.UpdatedUtc = DateTime.UtcNow;
+        entity.Version++;
 
         if (!string.IsNullOrEmpty(entity.GoogleId))
         {
@@ -112,10 +114,11 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
         return entity;
     }
 
-    public async Task<bool> DeleteAsync(int id, CancellationToken ct)
+    public async Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct)
     {
         var entity = await _db.CalendarEvents.FindAsync([id], ct);
         if (entity is null) return false;
+        if (baseVersion is { } v && v != entity.Version) throw new ConcurrencyConflictException(CalendarEventDto.From(entity));
 
         if (!string.IsNullOrEmpty(entity.GoogleId))
         {

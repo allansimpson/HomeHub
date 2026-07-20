@@ -32,6 +32,9 @@ export function CalendarScreen() {
 
   useEffect(() => {
     void load()
+    const onSync = () => void load()
+    window.addEventListener('homehub:sync', onSync)
+    return () => window.removeEventListener('homehub:sync', onSync)
   }, [load])
 
   const eventDays = useMemo(() => new Set(events.map((e) => dayKey(new Date(e.startUtc)))), [events])

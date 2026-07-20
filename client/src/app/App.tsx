@@ -5,6 +5,7 @@ import { ScreenTransition } from './ScreenTransition'
 import { useSession } from './SessionProvider'
 import { useVoice } from './VoiceProvider'
 import { useConnection } from './ConnectionProvider'
+import { useWriteQueue } from './WriteQueueProvider'
 import { useIdleReset } from './useIdleReset'
 import { DashboardScreen } from '../screens/DashboardScreen'
 import { CalendarScreen } from '../screens/CalendarScreen'
@@ -23,6 +24,7 @@ export function App() {
 
   const { locked } = useSession()
   const { online } = useConnection()
+  const { pendingCount, conflicts, resolveConflict } = useWriteQueue()
   const location = useLocation()
   useIdleReset()
 
@@ -44,6 +46,26 @@ export function App() {
           <div className="ml-reconnect" role="status">
             <span className="ml-reconnect__dot" aria-hidden="true" />
             <span className="ml-reconnect__text">Reconnecting — showing last known</span>
+          </div>
+        )}
+        {!showLock && conflicts.length > 0 && (
+          <div className="ml-conflict" role="alert">
+            <span className="ml-conflict__title">Sync conflict — changed on another device</span>
+            {conflicts.map((c) => (
+              <div key={c.op.id} className="ml-conflict__row">
+                <span className="ml-conflict__label">{c.op.label}</span>
+                <span className="ml-conflict__actions">
+                  <button type="button" className="ml-linkbtn" onClick={() => resolveConflict(c.op.id, 'discard')}>Use server</button>
+                  <button type="button" className="ml-linkbtn" onClick={() => resolveConflict(c.op.id, 'keep-mine')}>Keep mine</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {!showLock && conflicts.length === 0 && pendingCount > 0 && (
+          <div className="ml-queuebar" role="status">
+            <span className="ml-queuebar__dot" aria-hidden="true" />
+            <span className="ml-queuebar__text">{`${pendingCount} change${pendingCount === 1 ? '' : 's'} pending — will sync when back online`}</span>
           </div>
         )}
         <div className="app-viewport">

@@ -50,21 +50,24 @@ public sealed class SqlTaskProvider : ITaskProvider
         return task;
     }
 
-    public async Task<TaskItem?> SetCompletedAsync(int id, bool completed, CancellationToken ct)
+    public async Task<TaskItem?> SetCompletedAsync(int id, bool completed, int? baseVersion, CancellationToken ct)
     {
         var task = await _db.Tasks.FindAsync([id], ct);
         if (task is null) return null;
+        if (baseVersion is { } v && v != task.Version) throw new ConcurrencyConflictException(TaskItemDto.From(task));
         task.Completed = completed;
         task.CompletedAtUtc = completed ? DateTime.UtcNow : null;
         task.UpdatedUtc = DateTime.UtcNow;
+        task.Version++;
         await _db.SaveChangesAsync(ct);
         return task;
     }
 
-    public async Task<bool> DeleteAsync(int id, CancellationToken ct)
+    public async Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct)
     {
         var task = await _db.Tasks.FindAsync([id], ct);
         if (task is null) return false;
+        if (baseVersion is { } v && v != task.Version) throw new ConcurrencyConflictException(TaskItemDto.From(task));
         _db.Tasks.Remove(task);
         await _db.SaveChangesAsync(ct);
         return true;

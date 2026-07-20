@@ -174,13 +174,23 @@ automatic: the next successful probe clears `online`/`stale` and the providers' 
 data. 50 backend tests green (no backend change); client builds. Offline/recovery is
 browser-runtime (probe against a stopped server) — logic is deterministic + typechecked.
 
-**Stage 9b — optimistic write-queue: ⬜ deliberately deferred (confirm before building).** Per the
-spec it's the riskiest piece and should not destabilize a working app; it also only has meaning
-against **real** external integrations (Google/Microsoft/HA), which aren't wired here — the local
-providers write straight to SQL. Recommended to build it once real creds are configured, with a
-conservative surface-conflicts policy (default). Ask to proceed when ready.
+**Stage 9b — optimistic write-queue + conflict resolution: ✅ COMPLETE.** The offline axis here is
+client→server (a blip), since providers persist to SQL / forward to the real services. Backend:
+optimistic-concurrency `Version` on `CalendarEvent` + `TaskItem` (bumped per write); conditional
+update/delete/complete take `?baseVersion=` → **409** (with current server state) on mismatch,
+**404** on missing, last-write-wins when omitted; `ConcurrencyConflictException` → 409; migration
+`Stage9b_Concurrency`. Client: persisted `writeQueue` (localStorage) + `WriteQueueProvider` —
+mutations apply **optimistically**, run immediately when online, **queue** when the server is
+unreachable, and **replay in order on reconnect** (fires `homehub:sync` so providers reconcile).
+A 409 surfaces a **conflict strip** (conservative policy): *Keep mine* (force overwrite) or *Use
+server* (discard) — never a silent overwrite. Tasks fully optimistic (create/complete/delete via
+the provider); calendar create/edit/delete and climate set-point/mode routed through the queue; a
+pending-count bar shows queued work. 55 backend tests green (incl. 5 concurrency). **Verified live
+on LocalDB** (real SQL Server): create→v1, conditional update→v2, stale write→409, keep-mine
+force→v3 — for both tasks and calendar. Offline-queue/replay is browser-runtime (lose/regain
+connection), like 9a.
 
-**Build complete: Stages 0–9a shipped (9b optional follow-on).**
+**🏁 Build complete: Stages 0–9 all shipped.**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -243,8 +253,8 @@ and don't recreate the design system that's already built.
   Milestone: tap→speak→spoken reply; banner shows on any screen when mic is live.
 - ✅ **9a Offline Hardening (reads)** — cached reads + reconnecting state everywhere; grey stale
   values after 5 min. Milestone: disconnect → cached data + chip, recovers cleanly.
-- ⬜ **9b Offline write-queue** — optimistic write-queue + conflict resolution (explicit, last;
-  deferred pending confirmation + real integrations).
+- ✅ **9b Offline write-queue** — optimistic write-queue + conflict resolution (server-side
+  version checks → 409; surface conflicts, keep-mine/use-server; replay on reconnect).
 
 ## Inputs needed from the human (line up before the stage)
 - S2 SensorPush creds + sensor→zone map + thresholds/durations
@@ -260,11 +270,11 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-**Core build complete (Stages 0–9a).** Optional remaining work:
-- **Stage 9b** (offline write-queue + conflict resolution) — build once real integration creds are
-  configured; confirm the conflict policy first (default: surface conflicts, don't overwrite).
+**All planned stages (0–9) complete.** Remaining is go-live + optional future workstreams:
 - **Go-live wiring** — drop in the config secrets below and run against SQL Server to activate the
-  real providers, replacing the simulated/local fallbacks. Then re-verify each real integration.
+  real providers, replacing the simulated/local fallbacks. Then re-verify each real integration
+  end-to-end (SensorPush readings, Google round-trip, MS To Do round-trip, HA unit control, OpenAI
+  answers + CLOUD tag, spoken voice loop on the Pi).
 - Out-of-scope future workstreams (per the roadmap): cameras/camera-AI, shopping list, message
   board, lighting/locks/leak sensors, local-vision.
 
