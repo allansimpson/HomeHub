@@ -168,6 +168,25 @@ export interface ClimateZoneDto {
   source: string
 }
 
+// ---- Stage 7: AI assistant ----
+
+export type AssistantOriginName = 'Local' | 'Cloud'
+
+export interface AssistantChatRequest {
+  history: { role: string; text: string }[]
+  prompt: string
+  imageBase64?: string | null
+  imageMediaType?: string | null
+  force?: string | null
+}
+
+export interface AssistantChatResponse {
+  text: string
+  origin: AssistantOriginName
+  escalated: boolean
+  model: string | null
+}
+
 export interface VerifyPinResult {
   success: boolean
   /** Present when the profile is in a lockout cooldown. */

@@ -13,6 +13,8 @@ import type {
   TaskCreateInput,
   ClimateZoneDto,
   ClimateModeName,
+  AssistantChatRequest,
+  AssistantChatResponse,
 } from './types'
 
 /**
@@ -114,4 +116,8 @@ export const api = {
     request<ClimateZoneDto>(`/climate/zones/${id}/mode`, { method: 'PUT', ...json({ mode }) }),
   applyClimateScene: (scene: 'evening' | 'all-off') =>
     request<void>('/climate/scene', { method: 'POST', ...json({ scene }) }),
+
+  // ---- Assistant ----
+  askAssistant: (body: AssistantChatRequest) =>
+    request<AssistantChatResponse>('/assistant/chat', { method: 'POST', ...json(body) }),
 }

@@ -121,7 +121,28 @@ decision default (the seam makes it additive later).
 implemented (REST + polling) but untested until configured. WebSocket push is a later
 enhancement (currently poll-based, like sensors/weather).
 
-**Next: Stage 7.**
+**Stage 7 — AI Assistant (hybrid local/cloud, text + image): ✅ COMPLETE (simulated fallback;
+OpenAI/local behind the seam, awaiting keys).** Added `IAssistantProvider` seam +
+`AssistantRouter` (task-based routing via tunable hint lists, low-confidence escalation
+local→cloud, force override, image→cloud) per `docs/hybrid-ai-routing.md`. Providers:
+`LocalAssistantProvider` (Ollama `/api/chat`, `Ai:LocalEndpoint`), `OpenAIAssistantProvider`
+(chat completions + vision, `Ai:OpenAiApiKey`), `SimulatedAssistantProvider` (built-in
+on-device fallback, always available). Response carries origin (Local/Cloud) + escalated flag;
+keyed DI so the router depends only on the seam. `AssistantController` POST /chat (text+image,
+session context passed per turn — nothing persisted). Assistant needs no DB (works even without
+a connection string). Client: Assistant screen (spec 09: idle emblem + TRY ASKING suggestions,
+conversation transcript with user/assistant left-rules, per-turn LOCAL/CLOUD tag, text input,
+image upload). Scope: Q&A + image analysis (action-wiring deferred, seams make it additive);
+transcript session-only. 48 backend tests green (7 router + 2 endpoint). **Verified live
+(no DB)**: task routing (conversion/command→local, open-ended→cloud), force, history passthrough,
+simulated fallback. Router unit tests cover cloud routing + escalation with provider fakes.
+
+**Note:** real answers + the CLOUD indicator need `Ai:OpenAiApiKey` (+ model) and/or a local
+model at `Ai:LocalEndpoint`; those providers are implemented but untested until configured.
+**Privacy:** cloud-routed turns leave the LAN; local/simulated stay on-LAN. Camera→AI stays out
+of scope (only deliberate uploads go out).
+
+**Next: Stage 8.**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -170,10 +191,12 @@ and don't recreate the design system that's already built.
   done + verified; HA REST control implemented behind the seam, awaiting URL+token. WebSocket
   live push + Govee sensors deferred.)
   Milestone: adjust a unit from the panel; live state reconciles.
-- ⬜ **7 AI Assistant (hybrid local/cloud)** — `IAssistantProvider` seam + router; text +
+- ✅ **7 AI Assistant (hybrid local/cloud)** — `IAssistantProvider` seam + router; text +
   image. See `docs/hybrid-ai-routing.md`. Task-based routing (commands/conversions/quick
   lookups→local; recipes/open-ended→cloud) + confidence fallback (weak local→cloud);
-  LOCAL/CLOUD indicator on each turn. Local model runs on the SERVER, not the Pi.
+  LOCAL/CLOUD indicator on each turn. Local model runs on the SERVER, not the Pi. (Routing +
+  simulated fallback done + verified; OpenAI/local providers implemented behind the seam,
+  awaiting keys. Action-wiring deferred.)
   Milestone: local-routed answers local, cloud-routed answers cloud, low-confidence escalates.
 - ⬜ **8 Voice** — push-to-talk, 5s trailing-silence auto-stop (resets on speech) + manual
   stop; STT (prefer local/Whisper on the server) → Stage 7 router → TTS; global mic-live
@@ -197,16 +220,17 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-Start Stage 7 (`stage-7-ai-assistant-text.md`): confirm its Decisions-to-confirm with the human
-(OpenAI key + model; SERVER SPECS to choose the local model + routing thresholds, or cloud-only).
-Build the `IAssistantProvider` seam + hybrid router (task-based routing local vs cloud + confidence
-fallback) per `docs/hybrid-ai-routing.md`, text + image, with a LOCAL/CLOUD indicator per turn.
-Local model runs on the SERVER, not the Pi. As before, build behind the seam with a local/echo
-fallback so it's demoable without keys; drop in the OpenAI key later. Build to the milestone,
-verify, tick the roadmap, then Stage 8.
+Start Stage 8 (`stage-8-voice.md`): confirm its Decisions-to-confirm with the human (confirmed
+mic/speaker on the Pi + STT/TTS choice). Push-to-talk with 5s trailing-silence auto-stop (resets
+on speech) + manual stop; STT (prefer local/Whisper on the server) → the Stage 7 router → TTS;
+global mic-live banner whenever the mic is open (privacy-forward, cannot be disabled). Voice
+inherits the hybrid routing + LOCAL/CLOUD indicator automatically. As before, build behind a seam
+with a browser/simulated fallback so it's demoable; drop in server STT/TTS later. Build to the
+milestone, verify, tick the roadmap, then Stage 9.
 
 Config to go live later: sensors `SensorPush:Email`/`Password` (+ sensor→zone map); weather
 `Weather:Latitude`/`Longitude` (default Minneapolis); calendar `Google:ClientId`/`ClientSecret`/
 `RefreshToken` (+ optional `CalendarId`); tasks `Microsoft:ClientId`/`ClientSecret` (+ per-profile
-refresh tokens); climate `HomeAssistant:BaseUrl`/`Token` (+ optional `EveningScene`/`ZoneNames`).
+refresh tokens); climate `HomeAssistant:BaseUrl`/`Token` (+ optional `EveningScene`/`ZoneNames`);
+assistant `Ai:OpenAiApiKey`/`OpenAiModel` and/or `Ai:LocalEndpoint`/`LocalModel` (+ `Ai:Routing:*`).
 Run live with a SQL Server / LocalDB connection string in `ConnectionStrings__HomeHub`.

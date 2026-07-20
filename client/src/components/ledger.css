@@ -1020,6 +1020,183 @@
   color: var(--alert);
 }
 
+/* ---------- Assistant screen ---------- */
+.ml-assistant {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ml-assistant__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.ml-assistant__scroll::-webkit-scrollbar {
+  display: none;
+}
+/* Idle emblem */
+.ml-assistant__idle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ml-emblem {
+  margin: 2rem 0 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ml-emblem__ring {
+  width: 10.625rem; /* 170px */
+  height: 10.625rem;
+  border: var(--control-border) solid var(--brass-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ml-emblem__core {
+  width: 8.375rem; /* 134px */
+  height: 8.375rem;
+  border: 0.125rem solid var(--brass);
+  background: var(--bg-profile-selected);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  color: var(--brass-bright);
+}
+.ml-emblem__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-emblem__caption {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+  margin-bottom: 1rem;
+}
+.ml-assistant__idle .ml-section {
+  align-self: stretch;
+}
+.ml-suggestion {
+  width: 100%;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+/* Transcript */
+.ml-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem; /* 18px */
+  padding: 1rem var(--gutter) 1.5rem;
+}
+.ml-turn {
+  border-left: 0.1875rem solid var(--rule-major);
+  padding-left: 0.875rem;
+}
+.ml-turn--user {
+  border-left-color: var(--brass);
+}
+.ml-turn--assistant {
+  border-left-color: var(--brass-dim);
+}
+.ml-turn__label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.375rem;
+}
+.ml-turn__text {
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+.ml-turn--user .ml-turn__text {
+  color: var(--text-primary);
+}
+.ml-turn__thinking {
+  color: var(--text-disabled);
+}
+/* LOCAL / CLOUD indicator */
+.ml-origin {
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.24em;
+  padding: 0.15rem 0.4rem;
+  border: var(--control-border) solid currentColor;
+}
+.ml-origin--local {
+  color: var(--brass-dim);
+}
+.ml-origin--cloud {
+  color: var(--live-text);
+}
+/* Input bar */
+.ml-assistant__inputbar {
+  flex: 0 0 auto;
+  border-top: var(--hairline-px) solid var(--rule-major);
+  padding: 0.5rem var(--gutter) 0.75rem;
+}
+.ml-assistant__attached {
+  font-size: 0.6875rem;
+  color: var(--live-text);
+  padding: 0.25rem 0 0.5rem;
+}
+.ml-assistant__inputrow {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.ml-assistant__imgbtn {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ml-assistant__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.75rem;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  caret-color: var(--brass-bright);
+}
+.ml-assistant__input::placeholder {
+  color: var(--text-disabled);
+}
+.ml-assistant__send {
+  flex: 0 0 auto;
+  padding: 0.75rem 1.25rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-assistant__send:disabled {
+  border-color: var(--border-inactive);
+  background: transparent;
+  color: var(--text-disabled);
+}
+
 /* ---------- Climate screen ---------- */
 .ml-climatezone {
   border-top: var(--hairline-px) solid var(--rule-minor);

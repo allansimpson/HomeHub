@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using HomeHub.Api.Ai;
 using HomeHub.Api.Alerts;
 using HomeHub.Api.Calendar;
 using HomeHub.Api.Climate;
@@ -83,6 +84,19 @@ if (homeAssistant?.IsConfigured == true)
 {
     builder.Services.AddHttpClient<HomeAssistantClimateProvider>();
 }
+
+// --- Stage 7: AI assistant (hybrid local/cloud) ---
+// The router routes each turn between the local server model and OpenAI, falling back to a
+// built-in simulated on-device assistant when neither is configured. No database needed, so this
+// is available even without a connection string. UI depends only on the router.
+builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.Section));
+builder.Services.AddHttpClient<LocalAssistantProvider>();
+builder.Services.AddHttpClient<OpenAIAssistantProvider>();
+// Expose the three providers behind the seam under keys the router resolves.
+builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.LocalKey, (sp, _) => sp.GetRequiredService<LocalAssistantProvider>());
+builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.CloudKey, (sp, _) => sp.GetRequiredService<OpenAIAssistantProvider>());
+builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.SimulatedKey, (sp, _) => new SimulatedAssistantProvider());
+builder.Services.AddScoped<AssistantRouter>();
 
 // The pollers write owned history / cache + evaluate alerts, and the calendar/task providers
 // need a DB. All are registered only alongside a database; without a connection string the shell
