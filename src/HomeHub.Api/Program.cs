@@ -98,6 +98,12 @@ builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.CloudKey, (s
 builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.SimulatedKey, (sp, _) => new SimulatedAssistantProvider());
 builder.Services.AddScoped<AssistantRouter>();
 
+// --- Stage 8: voice (server STT seam) ---
+// Browser on-device STT+TTS is the demoable default; this server path (Whisper) is used when
+// configured. TTS is done in the browser. No database needed.
+builder.Services.AddHttpClient<OpenAISpeechToText>();
+builder.Services.AddScoped<ISpeechToText>(sp => sp.GetRequiredService<OpenAISpeechToText>());
+
 // The pollers write owned history / cache + evaluate alerts, and the calendar/task providers
 // need a DB. All are registered only alongside a database; without a connection string the shell
 // still serves (offline-first) and these data endpoints simply return errors until a DB exists.

@@ -10,6 +10,7 @@ import { WeatherProvider } from './app/WeatherProvider'
 import { CalendarProvider } from './app/CalendarProvider'
 import { TasksProvider } from './app/TasksProvider'
 import { ClimateProvider } from './app/ClimateProvider'
+import { VoiceProvider } from './app/VoiceProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -20,7 +21,9 @@ createRoot(document.getElementById('root')!).render(
             <CalendarProvider>
               <TasksProvider>
                 <ClimateProvider>
-                  <App />
+                  <VoiceProvider>
+                    <App />
+                  </VoiceProvider>
                 </ClimateProvider>
               </TasksProvider>
             </CalendarProvider>

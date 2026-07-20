@@ -142,7 +142,27 @@ model at `Ai:LocalEndpoint`; those providers are implemented but untested until 
 **Privacy:** cloud-routed turns leave the LAN; local/simulated stay on-LAN. Camera→AI stays out
 of scope (only deliberate uploads go out).
 
-**Next: Stage 8.**
+**Stage 8 — Voice: ✅ COMPLETE (browser STT+TTS, demoable; server Whisper behind the seam).**
+Push-to-talk voice on the assistant. Frontend: swappable `speech.ts` engine (browser Web Speech
+API recognizer + on-device `speechSynthesis`), `VoiceProvider` global mic state (micLive,
+listening, live partial transcript) with **5s trailing-silence auto-stop that resets on speech**
++ manual stop, push-to-talk only (no wake word / always-listening). The global verdigris
+**mic-live banner** now shows on ANY screen whenever the mic is open (App reads `useVoice().micLive`).
+Assistant screen: functional emblem (tap to speak), Listening state (HEARING… partial +
+animated waveform + square stop + "stops after 5s of quiet"), mic button in the input bar;
+transcript flows through the **Stage 7 router** (inheriting LOCAL/CLOUD routing) and replies are
+**spoken**. Backend: `ISpeechToText` seam + `OpenAISpeechToText` (Whisper) + `VoiceController`
+(`/capabilities`, `/transcribe`) — server STT path used when configured, else the client uses the
+browser recognizer. 50 backend tests green. **Verified**: voice endpoints (capabilities=serverStt
+false without key, transcribe→501); client builds; graceful degrade to text when the browser has
+no recognizer.
+
+**Note:** the spoken end-to-end loop (tap→banner→speak→auto-stop→spoken reply) is browser-runtime
+and needs a real mic/speaker in the kiosk's Chromium — implemented against the Web Speech API, not
+driveable in headless CI. Server Whisper STT awaits `Ai:OpenAiApiKey`. Requires Pi mic/speaker +
+Chromium mic-permission/autoplay flags per the stage decisions.
+
+**Next: Stage 9 (final).**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -198,9 +218,10 @@ and don't recreate the design system that's already built.
   simulated fallback done + verified; OpenAI/local providers implemented behind the seam,
   awaiting keys. Action-wiring deferred.)
   Milestone: local-routed answers local, cloud-routed answers cloud, low-confidence escalates.
-- ⬜ **8 Voice** — push-to-talk, 5s trailing-silence auto-stop (resets on speech) + manual
+- ✅ **8 Voice** — push-to-talk, 5s trailing-silence auto-stop (resets on speech) + manual
   stop; STT (prefer local/Whisper on the server) → Stage 7 router → TTS; global mic-live
-  banner whenever mic is open (privacy-forward, cannot be disabled).
+  banner whenever mic is open (privacy-forward, cannot be disabled). (Browser STT+TTS done +
+  builds; server Whisper behind the seam, awaiting key. Spoken loop needs a real mic/speaker.)
   Milestone: tap→speak→spoken reply; banner shows on any screen when mic is live.
 - ⬜ **9 Offline Hardening** — 9a cached reads + reconnecting state everywhere; 9b optimistic
   write-queue + conflict resolution (explicit, last). Milestone: disconnect → cached data +
@@ -220,13 +241,12 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-Start Stage 8 (`stage-8-voice.md`): confirm its Decisions-to-confirm with the human (confirmed
-mic/speaker on the Pi + STT/TTS choice). Push-to-talk with 5s trailing-silence auto-stop (resets
-on speech) + manual stop; STT (prefer local/Whisper on the server) → the Stage 7 router → TTS;
-global mic-live banner whenever the mic is open (privacy-forward, cannot be disabled). Voice
-inherits the hybrid routing + LOCAL/CLOUD indicator automatically. As before, build behind a seam
-with a browser/simulated fallback so it's demoable; drop in server STT/TTS later. Build to the
-milestone, verify, tick the roadmap, then Stage 9.
+Start Stage 9 (`stage-9-offline.md`), the final stage: **9a** cached reads + honest "reconnecting"
+state everywhere (many providers already cache last-known + surface an `offline` flag — formalize
+the pattern, add the reconnecting chip/banner consistently, and grey stale values); **9b** (higher
+risk, last) optimistic write-queue + conflict resolution for mutations while disconnected. Build
+to the milestone (disconnect → cached data + chip, recovers cleanly), verify, tick the roadmap.
+This completes the build.
 
 Config to go live later: sensors `SensorPush:Email`/`Password` (+ sensor→zone map); weather
 `Weather:Latitude`/`Longitude` (default Minneapolis); calendar `Google:ClientId`/`ClientSecret`/

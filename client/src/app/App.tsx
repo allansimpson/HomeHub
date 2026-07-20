@@ -3,6 +3,7 @@ import { IconSprite } from '../icons/IconSprite'
 import { MicLiveBanner } from '../components'
 import { ScreenTransition } from './ScreenTransition'
 import { useSession } from './SessionProvider'
+import { useVoice } from './VoiceProvider'
 import { useIdleReset } from './useIdleReset'
 import { DashboardScreen } from '../screens/DashboardScreen'
 import { CalendarScreen } from '../screens/CalendarScreen'
@@ -16,8 +17,8 @@ import { EventEditorScreen } from '../screens/EventEditorScreen'
 import { LockScreen } from '../screens/LockScreen'
 
 export function App() {
-  // Global mic state — wired in Stage 7+. The banner must appear on ANY screen when true.
-  const micLive = false
+  // Global mic state (Stage 8): the banner must appear on ANY screen whenever the mic is open.
+  const { micLive } = useVoice()
 
   const { locked } = useSession()
   const location = useLocation()

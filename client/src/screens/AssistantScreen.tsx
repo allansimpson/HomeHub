@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DrillInHeader, ScreenShell } from '../components'
 import { Icon } from '../icons/Icon'
+import { useVoice } from '../app/VoiceProvider'
 import { api, ApiError } from '../api/client'
 import type { AssistantOriginName } from '../api/types'
 
@@ -25,13 +26,14 @@ interface PendingImage {
 }
 
 /**
- * The Attendant (spec 09): idle state (emblem + TRY ASKING) becomes a conversation transcript
- * once a turn exists. Each assistant turn shows a LOCAL / CLOUD tag from the hybrid router. Text
- * is the primary path; an image can be uploaded for analysis. The mic emblem is present but voice
- * is Stage 8 — tapping it focuses the text entry rather than opening the mic.
+ * The Attendant (spec 09): idle → conversation, now with working push-to-talk voice (Stage 8).
+ * Tapping the emblem opens the mic (the global privacy banner shows on every screen); speech is
+ * transcribed on-device, routed through the Stage 7 assistant, and the reply is spoken. Each
+ * assistant turn shows the LOCAL / CLOUD tag. Text + image upload remain available.
  */
 export function AssistantScreen() {
   const navigate = useNavigate()
+  const { supported, listening, partial, startListening, stopListening, speak } = useVoice()
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -44,7 +46,7 @@ export function AssistantScreen() {
   }, [turns])
 
   const send = useCallback(
-    async (promptText: string) => {
+    async (promptText: string, spoken = false) => {
       const prompt = promptText.trim()
       if ((!prompt && !image) || busy) return
       const history = turns.map((t) => ({ role: t.role, text: t.text }))
@@ -62,6 +64,7 @@ export function AssistantScreen() {
           imageMediaType: pendingImage?.mediaType ?? null,
         })
         setTurns((cur) => [...cur, { role: 'assistant', text: res.text, origin: res.origin, escalated: res.escalated }])
+        if (spoken) speak(res.text)
       } catch (err) {
         if (err instanceof ApiError) {
           setTurns((cur) => [...cur, { role: 'assistant', text: 'The assistant is unreachable right now. Please try again.', origin: 'Local' }])
@@ -70,8 +73,13 @@ export function AssistantScreen() {
         setBusy(false)
       }
     },
-    [turns, image, busy],
+    [turns, image, busy, speak],
   )
+
+  const beginVoice = useCallback(() => {
+    if (supported) startListening((text) => send(text, true))
+    else inputRef.current?.focus()
+  }, [supported, startListening, send])
 
   const onPickImage = useCallback((file: File | undefined) => {
     if (!file) return
@@ -79,7 +87,7 @@ export function AssistantScreen() {
     reader.onload = () => {
       const url = String(reader.result)
       const comma = url.indexOf(',')
-      const meta = url.slice(5, url.indexOf(';')) // after "data:"
+      const meta = url.slice(5, url.indexOf(';'))
       setImage({ base64: url.slice(comma + 1), mediaType: meta || 'image/jpeg', name: file.name })
     }
     reader.readAsDataURL(file)
@@ -88,20 +96,22 @@ export function AssistantScreen() {
   const idle = turns.length === 0
 
   return (
-    <ScreenShell header={<DrillInHeader title="The Attendant" status="Mic off" onBack={() => navigate('/')} />}>
+    <ScreenShell header={<DrillInHeader title="The Attendant" status={listening ? 'Listening' : 'Mic off'} onBack={() => navigate('/')} />}>
       <div className="ml-assistant">
         <div className="ml-assistant__scroll" ref={scrollRef}>
-          {idle ? (
+          {listening ? (
+            <ListeningView partial={partial} onStop={stopListening} />
+          ) : idle ? (
             <div className="ml-assistant__idle">
-              <button type="button" className="ml-emblem" onClick={() => inputRef.current?.focus()} aria-label="Voice arrives in Stage 8; tap to type">
+              <button type="button" className="ml-emblem" onClick={beginVoice} aria-label={supported ? 'Tap to speak' : 'Tap to type'}>
                 <span className="ml-emblem__ring">
                   <span className="ml-emblem__core">
                     <Icon id="ico-assist" size="2.375rem" />
-                    <span className="ml-emblem__label">Tap to Type</span>
+                    <span className="ml-emblem__label">{supported ? 'Tap to Speak' : 'Tap to Type'}</span>
                   </span>
                 </span>
               </button>
-              <div className="ml-emblem__caption">Microphone stays off until Stage 8</div>
+              <div className="ml-emblem__caption">Microphone stays off until tapped</div>
 
               <div className="ml-section">
                 <span className="ml-section__tick" aria-hidden="true" />
@@ -133,27 +143,56 @@ export function AssistantScreen() {
           )}
         </div>
 
-        <div className="ml-assistant__inputbar">
-          {image && <div className="ml-assistant__attached">📎 {image.name}</div>}
-          <div className="ml-assistant__inputrow">
-            <label className="ml-assistant__imgbtn" aria-label="Attach an image">
-              <Icon id="ico-add" size="1.25rem" />
-              <input type="file" accept="image/*" hidden onChange={(e) => onPickImage(e.target.files?.[0])} />
-            </label>
-            <input
-              ref={inputRef}
-              className="ml-assistant__input"
-              value={input}
-              placeholder="Ask anything…"
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && send(input)}
-            />
-            <button type="button" className="ml-assistant__send" onClick={() => send(input)} disabled={busy || (!input.trim() && !image)}>
-              Ask
-            </button>
+        {!listening && (
+          <div className="ml-assistant__inputbar">
+            {image && <div className="ml-assistant__attached">📎 {image.name}</div>}
+            <div className="ml-assistant__inputrow">
+              {supported && (
+                <button type="button" className="ml-assistant__imgbtn" onClick={beginVoice} aria-label="Speak">
+                  <Icon id="ico-assist" size="1.25rem" />
+                </button>
+              )}
+              <label className="ml-assistant__imgbtn" aria-label="Attach an image">
+                <Icon id="ico-add" size="1.25rem" />
+                <input type="file" accept="image/*" hidden onChange={(e) => onPickImage(e.target.files?.[0])} />
+              </label>
+              <input
+                ref={inputRef}
+                className="ml-assistant__input"
+                value={input}
+                placeholder="Ask anything…"
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && send(input)}
+              />
+              <button type="button" className="ml-assistant__send" onClick={() => send(input)} disabled={busy || (!input.trim() && !image)}>
+                Ask
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </ScreenShell>
+  )
+}
+
+/** Listening state (spec 09b): live partial transcript, waveform, square stop control. */
+function ListeningView({ partial, onStop }: { partial: string; onStop: () => void }) {
+  return (
+    <div className="ml-listening">
+      <div className="ml-listening__hearing">Hearing…</div>
+      <div className="ml-listening__partial">{partial || '…'}</div>
+
+      <div className="ml-waveform" aria-hidden="true">
+        {[12, 26, 36, 20, 30, 14, 24].map((h, i) => (
+          <span key={i} className="ml-waveform__bar" style={{ ['--h' as string]: `${h}px`, animationDelay: `${i * 90}ms` }} />
+        ))}
+      </div>
+
+      <button type="button" className="ml-listening__stop" onClick={onStop}>
+        <span className="ml-listening__stopglyph" aria-hidden="true" />
+        <span>Tap to Stop</span>
+      </button>
+      <div className="ml-emblem__caption">Stops by itself after 5 seconds of quiet</div>
+    </div>
   )
 }
