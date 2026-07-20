@@ -389,6 +389,36 @@
   background: repeating-linear-gradient(-45deg, #d08a2e 0 10px, #171207 10px 20px);
 }
 
+/* ---------- Reconnecting bar (global; Stage 9a) ---------- */
+.ml-reconnect {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem var(--gutter);
+  background: #1e1a12; /* dim amber-tinted */
+  border-bottom: var(--hairline-px) solid var(--alert);
+  flex: 0 0 auto;
+}
+.ml-reconnect__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--alert);
+  flex: 0 0 auto;
+}
+.ml-reconnect__text {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #a08a5c; /* muted brass */
+}
+
+/* Stale live values grey to disabled once offline past the staleness threshold. */
+.ml-stale,
+.ml-stale * {
+  color: var(--text-disabled) !important;
+  transition: color 400ms ease;
+}
+
 /* ---------- Mic-live banner (verdigris; global) ---------- */
 .ml-miclive {
   display: flex;

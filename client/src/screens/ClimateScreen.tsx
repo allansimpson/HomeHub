@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DrillInHeader, ScreenShell, ScrollArea, Stepper } from '../components'
 import { useClimate } from '../app/ClimateProvider'
+import { useConnection } from '../app/ConnectionProvider'
 import type { ClimateModeName, ClimateZoneDto } from '../api/types'
 
 const MODES: ClimateModeName[] = ['Cool', 'Heat', 'Fan', 'Auto', 'Off']
@@ -25,6 +26,7 @@ function statusLine(z: ClimateZoneDto): string {
 export function ClimateScreen() {
   const navigate = useNavigate()
   const { zones, adjustSetPoint, setMode, applyScene } = useClimate()
+  const { stale } = useConnection()
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
   const running = zones.filter((z) => z.running).length
@@ -45,6 +47,7 @@ export function ClimateScreen() {
   return (
     <ScreenShell header={header}>
       <ScrollArea>
+        <div className={stale ? 'ml-stale' : undefined}>
         {zones.map((z) => (
           <ZoneRow
             key={z.id}
@@ -55,6 +58,7 @@ export function ClimateScreen() {
             onMode={(m) => setMode(z.id, m)}
           />
         ))}
+        </div>
       </ScrollArea>
 
       <div className="ml-climate__actions">

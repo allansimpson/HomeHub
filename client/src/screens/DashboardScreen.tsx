@@ -7,6 +7,7 @@ import { useWeather } from '../app/WeatherProvider'
 import { useCalendar } from '../app/CalendarProvider'
 import { useTasks } from '../app/TasksProvider'
 import { useClimate } from '../app/ClimateProvider'
+import { useConnection } from '../app/ConnectionProvider'
 import { Stepper } from '../components'
 import { formatTime } from '../app/dates'
 import type { ZoneReadingDto, CalendarEventDto, TaskItemDto, ProfileDto, ClimateZoneDto } from '../api/types'
@@ -39,6 +40,7 @@ export function DashboardScreen() {
   const { upcoming } = useCalendar()
   const { tasks } = useTasks()
   const { zones: climateZones, adjustSetPoint } = useClimate()
+  const { online, stale } = useConnection()
 
   // The dashboard strip controls the Living Room zone (or the first zone).
   const climateZone = climateZones.find((z) => z.name === 'Living Room') ?? climateZones[0] ?? null
@@ -68,7 +70,7 @@ export function DashboardScreen() {
           clock={time}
           date={date}
           conditions={conditions}
-          offline={weatherOffline && !current}
+          offline={!online || (weatherOffline && !current)}
           profileInitial={activeProfile?.initial ?? '?'}
           onSwitchProfile={() => navigate('/lock')}
         />
@@ -121,7 +123,7 @@ export function DashboardScreen() {
             onClick={() => navigate('/sensor')}
           />
         ) : (
-          preview.map((z) => <HouseRow key={z.id} zone={z} onClick={() => navigate(`/sensor?zone=${z.id}`)} />)
+          preview.map((z) => <HouseRow key={z.id} zone={z} stale={stale} onClick={() => navigate(`/sensor?zone=${z.id}`)} />)
         )}
         {hidden > 0 && (
           <LedgerRow
@@ -153,7 +155,7 @@ export function DashboardScreen() {
 
         {/* Climate strip pinned to the bottom of the (non-scrolling) content. */}
         <div style={{ marginTop: 'auto' }}>
-          <ClimateStrip zone={climateZone} onOpen={() => navigate('/climate')} onStep={(d) => climateZone && adjustSetPoint(climateZone.id, d)} />
+          <ClimateStrip zone={climateZone} stale={stale} onOpen={() => navigate('/climate')} onStep={(d) => climateZone && adjustSetPoint(climateZone.id, d)} />
         </div>
       </div>
     </ScreenShell>
@@ -189,7 +191,7 @@ function NextRow({ event, hero, onClick }: { event: CalendarEventDto; hero: bool
 }
 
 /** Dashboard climate strip: tappable label (→ Climate) + working ± set-point steppers. */
-function ClimateStrip({ zone, onOpen, onStep }: { zone: ClimateZoneDto | null; onOpen: () => void; onStep: (delta: number) => void }) {
+function ClimateStrip({ zone, stale, onOpen, onStep }: { zone: ClimateZoneDto | null; stale: boolean; onOpen: () => void; onStep: (delta: number) => void }) {
   const running = zone?.running ?? false
   const status = !zone
     ? 'Not connected'
@@ -202,7 +204,7 @@ function ClimateStrip({ zone, onOpen, onStep }: { zone: ClimateZoneDto | null; o
     <div className="ml-row ml-row--major ml-climatestrip">
       <button type="button" className="ml-climatestrip__body" onClick={onOpen}>
         <span className="label ml-climatestrip__label">Climate · {zone?.name ?? '—'}</span>
-        <span className="ml-climatestrip__status">
+        <span className={'ml-climatestrip__status' + (stale ? ' ml-stale' : '')}>
           {status}
           {running && zone?.setPointF != null && <span style={{ color: 'var(--brass-bright)' }}>{` ${zone.setPointF}°`}</span>}
         </span>
@@ -229,13 +231,13 @@ function TaskLine({ task, profiles, onClick }: { task: TaskItemDto; profiles: Pr
 }
 
 /** One room row: name left; humidity + big temp right. */
-function HouseRow({ zone, onClick }: { zone: ZoneReadingDto; onClick: () => void }) {
+function HouseRow({ zone, stale, onClick }: { zone: ZoneReadingDto; stale: boolean; onClick: () => void }) {
   return (
     <button className="ml-row ml-row--tappable" onClick={onClick} type="button">
       <div className="ml-row__main">
         <div className="ml-row__title" style={{ color: 'var(--text-secondary)' }}>{zone.name}</div>
       </div>
-      <div className="ml-house__reading">
+      <div className={'ml-house__reading' + (stale ? ' ml-stale' : '')}>
         <span className="ml-house__humidity">{zone.humidity == null ? '—' : `${Math.round(zone.humidity)}%`}</span>
         <span className="ml-house__temp serif">{zone.tempF == null ? '—' : `${Math.round(zone.tempF)}°`}</span>
       </div>

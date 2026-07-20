@@ -162,7 +162,25 @@ and needs a real mic/speaker in the kiosk's Chromium — implemented against the
 driveable in headless CI. Server Whisper STT awaits `Ai:OpenAiApiKey`. Requires Pi mic/speaker +
 Chromium mic-permission/autoplay flags per the stage decisions.
 
-**Next: Stage 9 (final).**
+**Stage 9a — Offline read resilience & honest state: ✅ COMPLETE.** Added `ConnectionProvider`
+(app-wide `online`/`stale` from a 10s `/api/health` probe with a 4s timeout; `stale` = offline
+> 5 min per the default). App-wide **reconnecting bar** on non-dashboard screens; the dashboard
+header **offline chip** (built Stage 0) now driven by real connection state. Every provider
+already retained last-known data on failure (only flips its `offline` flag) — so cached reads
+stay visible on every screen and there are **no blocking error screens**. Prominent live values
+(dashboard house temps + climate strip, and the current readings on Sensor/Weather/Climate
+screens) **grey to disabled** via `ml-stale` once past the 5-min threshold. Recovery is
+automatic: the next successful probe clears `online`/`stale` and the providers' own polls refresh
+data. 50 backend tests green (no backend change); client builds. Offline/recovery is
+browser-runtime (probe against a stopped server) — logic is deterministic + typechecked.
+
+**Stage 9b — optimistic write-queue: ⬜ deliberately deferred (confirm before building).** Per the
+spec it's the riskiest piece and should not destabilize a working app; it also only has meaning
+against **real** external integrations (Google/Microsoft/HA), which aren't wired here — the local
+providers write straight to SQL. Recommended to build it once real creds are configured, with a
+conservative surface-conflicts policy (default). Ask to proceed when ready.
+
+**Build complete: Stages 0–9a shipped (9b optional follow-on).**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -223,9 +241,10 @@ and don't recreate the design system that's already built.
   banner whenever mic is open (privacy-forward, cannot be disabled). (Browser STT+TTS done +
   builds; server Whisper behind the seam, awaiting key. Spoken loop needs a real mic/speaker.)
   Milestone: tap→speak→spoken reply; banner shows on any screen when mic is live.
-- ⬜ **9 Offline Hardening** — 9a cached reads + reconnecting state everywhere; 9b optimistic
-  write-queue + conflict resolution (explicit, last). Milestone: disconnect → cached data +
-  chip, recovers cleanly.
+- ✅ **9a Offline Hardening (reads)** — cached reads + reconnecting state everywhere; grey stale
+  values after 5 min. Milestone: disconnect → cached data + chip, recovers cleanly.
+- ⬜ **9b Offline write-queue** — optimistic write-queue + conflict resolution (explicit, last;
+  deferred pending confirmation + real integrations).
 
 ## Inputs needed from the human (line up before the stage)
 - S2 SensorPush creds + sensor→zone map + thresholds/durations
@@ -241,12 +260,21 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-Start Stage 9 (`stage-9-offline.md`), the final stage: **9a** cached reads + honest "reconnecting"
-state everywhere (many providers already cache last-known + surface an `offline` flag — formalize
-the pattern, add the reconnecting chip/banner consistently, and grey stale values); **9b** (higher
-risk, last) optimistic write-queue + conflict resolution for mutations while disconnected. Build
-to the milestone (disconnect → cached data + chip, recovers cleanly), verify, tick the roadmap.
-This completes the build.
+**Core build complete (Stages 0–9a).** Optional remaining work:
+- **Stage 9b** (offline write-queue + conflict resolution) — build once real integration creds are
+  configured; confirm the conflict policy first (default: surface conflicts, don't overwrite).
+- **Go-live wiring** — drop in the config secrets below and run against SQL Server to activate the
+  real providers, replacing the simulated/local fallbacks. Then re-verify each real integration.
+- Out-of-scope future workstreams (per the roadmap): cameras/camera-AI, shopping list, message
+  board, lighting/locks/leak sensors, local-vision.
+
+Config to go live: sensors `SensorPush:Email`/`Password` (+ sensor→zone map); weather
+`Weather:Latitude`/`Longitude` (default Minneapolis); calendar `Google:ClientId`/`ClientSecret`/
+`RefreshToken` (+ optional `CalendarId`); tasks `Microsoft:ClientId`/`ClientSecret` (+ per-profile
+refresh tokens); climate `HomeAssistant:BaseUrl`/`Token` (+ optional `EveningScene`/`ZoneNames`);
+assistant `Ai:OpenAiApiKey`/`OpenAiModel` and/or `Ai:LocalEndpoint`/`LocalModel` (+ `Ai:Routing:*`).
+Run live with a SQL Server / LocalDB connection string in `ConnectionStrings__HomeHub` (Linux/Pi
+needs `libicu`). Deploy per `README.md`, `deploy/server-systemd.md`, `deploy/pi-kiosk.md`.
 
 Config to go live later: sensors `SensorPush:Email`/`Password` (+ sensor→zone map); weather
 `Weather:Latitude`/`Longitude` (default Minneapolis); calendar `Google:ClientId`/`ClientSecret`/

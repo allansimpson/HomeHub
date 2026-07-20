@@ -4,6 +4,7 @@ import { MicLiveBanner } from '../components'
 import { ScreenTransition } from './ScreenTransition'
 import { useSession } from './SessionProvider'
 import { useVoice } from './VoiceProvider'
+import { useConnection } from './ConnectionProvider'
 import { useIdleReset } from './useIdleReset'
 import { DashboardScreen } from '../screens/DashboardScreen'
 import { CalendarScreen } from '../screens/CalendarScreen'
@@ -21,6 +22,7 @@ export function App() {
   const { micLive } = useVoice()
 
   const { locked } = useSession()
+  const { online } = useConnection()
   const location = useLocation()
   useIdleReset()
 
@@ -29,11 +31,21 @@ export function App() {
   // back to the dashboard.
   const showLock = locked || location.pathname === '/lock'
 
+  // Honest reconnecting state on every screen. The dashboard carries its own header chip
+  // (design 01), so the app-level bar is shown on the other screens.
+  const showReconnecting = !online && !showLock && location.pathname !== '/'
+
   return (
     <>
       <IconSprite />
       <div className="app-root">
         {micLive && <MicLiveBanner />}
+        {showReconnecting && (
+          <div className="ml-reconnect" role="status">
+            <span className="ml-reconnect__dot" aria-hidden="true" />
+            <span className="ml-reconnect__text">Reconnecting — showing last known</span>
+          </div>
+        )}
         <div className="app-viewport">
           {showLock ? (
             <LockScreen />

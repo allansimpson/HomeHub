@@ -3,6 +3,7 @@ import { DrillInHeader, ScreenShell, ScrollArea, SectionLabel, AlertBanner, Empt
 import { useClock } from '../app/useClock'
 import { useWeather } from '../app/WeatherProvider'
 import { useSensors } from '../app/SensorsProvider'
+import { useConnection } from '../app/ConnectionProvider'
 import type { WeatherSnapshotDto } from '../api/types'
 
 /**
@@ -15,6 +16,7 @@ export function WeatherScreen() {
   const { time, date } = useClock()
   const { weather, offline } = useWeather()
   const { alerts } = useSensors()
+  const { stale } = useConnection()
 
   const weatherAlert = alerts.find((a) => a.source === 'weather')
   const hasData = !!weather?.current && weather.current.tempF != null
@@ -36,20 +38,20 @@ export function WeatherScreen() {
             hint={offline ? 'Reconnecting to the forecast service.' : 'Fetching current conditions from NWS.'}
           />
         ) : (
-          <WeatherBody weather={weather!} />
+          <WeatherBody weather={weather!} stale={stale} />
         )}
       </ScrollArea>
     </ScreenShell>
   )
 }
 
-function WeatherBody({ weather }: { weather: WeatherSnapshotDto }) {
+function WeatherBody({ weather, stale }: { weather: WeatherSnapshotDto; stale: boolean }) {
   const c = weather.current!
   const hourly = weather.hourly.slice(0, 5)
 
   return (
     <>
-      <div className="ml-weather__current">
+      <div className={'ml-weather__current' + (stale ? ' ml-stale' : '')}>
         <span className="ml-weather__temp serif">{c.tempF == null ? '—' : `${Math.round(c.tempF)}°`}</span>
         <div className="ml-weather__stack">
           {c.condition && <span className="ml-weather__cond">{c.condition}</span>}

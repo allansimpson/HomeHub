@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { DrillInHeader, ScreenShell, ScrollArea, Chip, AlertBanner, EmptyState } from '../components'
 import { useSensors } from '../app/SensorsProvider'
+import { useConnection } from '../app/ConnectionProvider'
 import { api, ApiError } from '../api/client'
 import type { ZoneHistoryDto } from '../api/types'
 
@@ -15,6 +16,7 @@ const REFRESH_MS = 30_000
 export function SensorHistoryScreen() {
   const navigate = useNavigate()
   const { zones, alerts } = useSensors()
+  const { stale } = useConnection()
   const [params, setParams] = useSearchParams()
 
   const zoneParam = Number(params.get('zone'))
@@ -82,7 +84,7 @@ export function SensorHistoryScreen() {
           ))}
         </div>
 
-        {history && <CurrentReading history={history} />}
+        {history && <CurrentReading history={history} stale={stale} />}
         {history && <TemperatureChart history={history} />}
         {history && <HumidityMeters history={history} />}
       </ScrollArea>
@@ -90,13 +92,13 @@ export function SensorHistoryScreen() {
   )
 }
 
-function CurrentReading({ history }: { history: ZoneHistoryDto }) {
+function CurrentReading({ history, stale }: { history: ZoneHistoryDto; stale: boolean }) {
   const today =
     history.todayHighF != null && history.todayLowF != null
       ? `Today: high ${history.todayHighF}° at ${history.todayHighAt} · low ${history.todayLowF}° at ${history.todayLowAt}`
       : 'Gathering today’s range…'
   return (
-    <div className="ml-sensor__current">
+    <div className={'ml-sensor__current' + (stale ? ' ml-stale' : '')}>
       <span className="ml-sensor__temp serif">{history.currentTempF == null ? '—' : `${history.currentTempF}°`}</span>
       <div className="ml-sensor__meta">
         <span className="ml-sensor__now">
