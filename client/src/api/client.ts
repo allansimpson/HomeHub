@@ -1,0 +1,60 @@
+import type { ProfileDto, SettingsDto, VerifyPinResult } from './types'
+
+/**
+ * Thin typed wrapper over the HomeHub API. Same-origin in prod; the Vite proxy forwards
+ * `/api` to Kestrel in dev. Non-2xx responses throw {@link ApiError} so callers can show the
+ * calm reconnecting state rather than crashing (offline-first — hardened further in Stage 9).
+ */
+export class ApiError extends Error {
+  readonly status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(`/api${path}`, {
+      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+      ...init,
+    })
+  } catch (cause) {
+    // Network failure (server down / offline) — surface as a 0-status ApiError.
+    throw new ApiError(0, cause instanceof Error ? cause.message : 'Network error')
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new ApiError(res.status, text || res.statusText)
+  }
+  // 204 No Content and other empty bodies decode to undefined.
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) })
+
+export const api = {
+  // ---- Profiles ----
+  listProfiles: () => request<ProfileDto[]>('/profiles'),
+  createProfile: (name: string, initial: string) =>
+    request<ProfileDto>('/profiles', { method: 'POST', ...json({ name, initial }) }),
+  updateProfile: (id: number, patch: Omit<ProfileDto, 'id' | 'hasPin'>) =>
+    request<ProfileDto>(`/profiles/${id}`, { method: 'PUT', ...json(patch) }),
+  deleteProfile: (id: number) => request<void>(`/profiles/${id}`, { method: 'DELETE' }),
+  setPin: (id: number, pin: string) =>
+    request<void>(`/profiles/${id}/pin`, { method: 'PUT', ...json({ pin }) }),
+  clearPin: (id: number) => request<void>(`/profiles/${id}/pin`, { method: 'DELETE' }),
+  verifyPin: (id: number, pin: string) =>
+    request<VerifyPinResult>(`/profiles/${id}/verify-pin`, { method: 'POST', ...json({ pin }) }),
+
+  // ---- Settings ----
+  getSettings: () => request<SettingsDto>('/settings'),
+  updateSettings: (patch: Omit<SettingsDto, 'activeProfileId'>) =>
+    request<SettingsDto>('/settings', { method: 'PUT', ...json(patch) }),
+  setActiveProfile: (profileId: number | null) =>
+    request<SettingsDto>('/settings/active-profile', { method: 'PUT', ...json({ profileId }) }),
+}

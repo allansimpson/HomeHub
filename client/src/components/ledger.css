@@ -124,6 +124,23 @@
   letter-spacing: 0.3em;
   color: var(--brass);
 }
+/* Active-profile switcher badge (top-right of the dashboard header). */
+.ml-profilebadge {
+  width: 2rem; /* 32px */
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+  font-size: 1.125rem; /* 18px */
+  line-height: 1;
+  margin-bottom: 0.15rem;
+}
+.ml-profilebadge:active {
+  background: var(--bg-active);
+  border-color: var(--brass);
+}
 .ml-dash-header__conditions {
   font-size: 0.6875rem;
   letter-spacing: 0.18em;
@@ -439,6 +456,230 @@
   height: 3rem;
   background: linear-gradient(to bottom, transparent, var(--bg-screen));
   pointer-events: none;
+}
+
+/* ---------- Lock / PIN screen (spec 06) ---------- */
+.ml-lock {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.25rem var(--gutter) 1.5rem;
+}
+.ml-lock__labelrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.375rem;
+}
+.ml-lock__who {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.26em;
+  color: var(--brass);
+}
+.ml-lock__hint {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-lock__tiles {
+  display: flex;
+  gap: 1.125rem; /* 18px */
+}
+.ml-lock__tile {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 0;
+  border: var(--control-border) solid var(--rule-major);
+  color: var(--text-disabled);
+}
+.ml-lock__tile--selected {
+  border: 0.125rem solid var(--brass); /* 2px */
+  background: var(--bg-profile-selected);
+  color: var(--brass-bright);
+}
+.ml-lock__tile:active {
+  background: var(--bg-active);
+}
+.ml-lock__tile-initial {
+  font-size: 1.875rem; /* 30px */
+  line-height: 1;
+  color: inherit;
+}
+.ml-lock__tile-name {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: inherit;
+}
+
+/* Entry block (pins + keypad), centered in the space between tiles and footer. */
+.ml-lock__entry {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+}
+.ml-lock__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ml-lock__footer-note {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.28em;
+  color: var(--text-disabled);
+}
+.ml-lock__settings {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* ---------- PIN pad (shared: Lock screen + Settings set-PIN) ---------- */
+.ml-pinpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  width: 100%;
+}
+.ml-pinpad__dots {
+  display: flex;
+  gap: 0.875rem; /* 14px */
+}
+.ml-pinpad__dot {
+  width: 0.875rem; /* 14px */
+  height: 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.ml-pinpad__dot--filled {
+  background: var(--brass);
+  border-color: var(--brass);
+}
+.ml-pinpad__keys {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem; /* 12px */
+  width: 100%;
+}
+.ml-pinpad__key {
+  min-height: 4.875rem; /* 78px */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 1.75rem; /* 28px Marcellus */
+  color: var(--text-primary);
+}
+.ml-pinpad__key:active {
+  background: var(--brass);
+  color: var(--bg-screen);
+  border-color: var(--brass);
+}
+.ml-pinpad__key--fn {
+  border: none;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+.ml-pinpad__key--fn:active {
+  background: transparent;
+  color: var(--brass);
+}
+
+/* Wrong-PIN shake. */
+@keyframes ml-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-0.5rem); }
+  40% { transform: translateX(0.5rem); }
+  60% { transform: translateX(-0.375rem); }
+  80% { transform: translateX(0.375rem); }
+}
+.ml-lock--shake {
+  animation: ml-shake 400ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-lock--shake {
+    animation: none;
+  }
+}
+
+/* ---------- Settings screen ---------- */
+.ml-settings__offline {
+  padding: 0.75rem var(--gutter);
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  color: var(--alert);
+}
+/* Immutable "ALWAYS ON" mic indicator (verdigris, privacy-forward). */
+.ml-alwayson {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+/* Threshold stepper cluster: − value + */
+.ml-threshold {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.ml-threshold__value {
+  min-width: 4.375rem; /* 70px */
+  text-align: center;
+  font-size: 1.5rem; /* 24px */
+  color: var(--brass-bright);
+}
+/* Inline rename input + link-style row actions. */
+.ml-input {
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+  background: var(--bg-active);
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0.25rem 0.5rem;
+  width: 100%;
+}
+.ml-linkname {
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+}
+.ml-rowactions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.ml-linkbtn {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-linkbtn:active {
+  color: var(--brass-bright);
+}
+.ml-linkbtn--danger {
+  font-size: 1.125rem;
+  letter-spacing: 0;
+  color: var(--text-disabled);
+}
+.ml-linkadd {
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass);
 }
 
 /* ---------- Empty state (placeholder screens) ---------- */

@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { DashboardHeader, ScreenShell, SectionLabel, LedgerRow } from '../components'
 import { useClock } from '../app/useClock'
+import { useSession } from '../app/SessionProvider'
 
 /**
  * Dashboard — home AND idle screen. Never scrolls. Stage 0 wires the live clock and the
@@ -10,9 +11,20 @@ import { useClock } from '../app/useClock'
 export function DashboardScreen() {
   const { time, date } = useClock()
   const navigate = useNavigate()
+  const { activeProfile } = useSession()
 
   return (
-    <ScreenShell header={<DashboardHeader clock={time} date={date} />} fixedContent>
+    <ScreenShell
+      header={
+        <DashboardHeader
+          clock={time}
+          date={date}
+          profileInitial={activeProfile?.initial ?? '?'}
+          onSwitchProfile={() => navigate('/lock')}
+        />
+      }
+      fixedContent
+    >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <SectionLabel label="Next" status="No engagements" />
         <LedgerRow
