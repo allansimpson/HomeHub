@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Icon } from '../icons/Icon'
-import { NAV_SECTIONS } from '../app/navConfig'
+import { NAV_SECTIONS, activeSectionPath } from '../app/navConfig'
 
 /**
  * Persistent bottom navigation — 5 deco icons. Active = brass icon + label with an
@@ -10,12 +10,12 @@ import { NAV_SECTIONS } from '../app/navConfig'
 export function BottomNav() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
+  const activePath = activeSectionPath(pathname)
 
   return (
     <nav className="ml-nav">
       {NAV_SECTIONS.map((section) => {
-        const isActive =
-          section.path === '/' ? pathname === '/' : pathname.startsWith(section.path)
+        const isActive = section.path === activePath
         const isHome = section.path === '/'
         return (
           <button

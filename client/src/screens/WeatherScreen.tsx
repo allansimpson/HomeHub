@@ -22,7 +22,7 @@ export function WeatherScreen() {
   const hasData = !!weather?.current && weather.current.tempF != null
 
   return (
-    <ScreenShell header={<DrillInHeader title="Weather" status={`${date} · ${time}`} onBack={() => navigate(-1)} />}>
+    <ScreenShell header={<DrillInHeader title="Weather" status={`${date} · ${time}`} onBack={() => navigate('/')} />}>
       <ScrollArea>
         {weatherAlert && (
           <AlertBanner
@@ -45,9 +45,19 @@ export function WeatherScreen() {
   )
 }
 
+/** When the evening's hourly window turns severe/wet, the amber "Tonight" sub-note (spec 05). */
+function tonightNote(weather: WeatherSnapshotDto): string | null {
+  const hit = weather.hourly.slice(0, 12).find((h) => /storm|thunder|severe|rain|snow|sleet/i.test(h.shortForecast ?? ''))
+  if (!hit) return null
+  const f = (hit.shortForecast ?? '').toLowerCase()
+  const kind = /storm|thunder|severe/.test(f) ? 'Storms' : /snow|sleet/.test(f) ? 'Snow' : 'Rain'
+  return `${kind} near ${hit.label}`
+}
+
 function WeatherBody({ weather, stale }: { weather: WeatherSnapshotDto; stale: boolean }) {
   const c = weather.current!
   const hourly = weather.hourly.slice(0, 5)
+  const note = tonightNote(weather)
 
   return (
     <>
@@ -66,7 +76,7 @@ function WeatherBody({ weather, stale }: { weather: WeatherSnapshotDto; stale: b
         </div>
       </div>
 
-      <SectionLabel label="Tonight" />
+      <SectionLabel label="Tonight" status={note ? <span className="ml-tonight-note">{note}</span> : undefined} />
       <div className="ml-weather__hourly">
         {hourly.map((h, i) => (
           <div key={i} className="ml-weather__hour">

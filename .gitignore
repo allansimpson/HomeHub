@@ -1,8 +1,9 @@
-# ---- Claude design / build packages (root) ----
+# ---- Claude design / build / audit packages (root) ----
 CentralHome_ClaudeCode_BuildPackage/
 CentralHome_ClaudeCode_BuildPackage.zip
 HomeHub_ClaudeDesign/
 HomeHub_ClaudeDesign.zip
+HomeHub_Audit/
 *.zip
 
 # ---- .NET ----

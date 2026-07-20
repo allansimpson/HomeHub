@@ -70,7 +70,7 @@ export const api = {
 
   // ---- Settings ----
   getSettings: () => request<SettingsDto>('/settings'),
-  updateSettings: (patch: { idleTimeoutMinutes: number; idleDimmingEnabled: boolean }) =>
+  updateSettings: (patch: { idleTimeoutMinutes: number; idleDimmingEnabled: boolean; daylightBoost: string }) =>
     request<SettingsDto>('/settings', { method: 'PUT', ...json(patch) }),
   setActiveProfile: (profileId: number | null) =>
     request<SettingsDto>('/settings/active-profile', { method: 'PUT', ...json({ profileId }) }),

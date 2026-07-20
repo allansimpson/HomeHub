@@ -17,22 +17,31 @@ public class SettingsApiTests
         Assert.NotNull(settings);
         Assert.Equal(5, settings!.IdleTimeoutMinutes);
         Assert.True(settings.IdleDimmingEnabled);
+        Assert.Equal("auto", settings.DaylightBoost);
         Assert.Null(settings.ActiveProfileId);
     }
 
     [Fact]
-    public async Task Updates_timeout_and_dimming()
+    public async Task Updates_timeout_dimming_and_daylight()
     {
         using var app = new HubAppFactory();
         var client = app.CreateSeededClient();
 
         var updated = await (await client.PutAsJsonAsync(
             "/api/settings",
-            new UpdateSettingsRequest(10, false)))
+            new UpdateSettingsRequest(10, false, "on")))
             .Content.ReadFromJsonAsync<SettingsDto>();
 
         Assert.Equal(10, updated!.IdleTimeoutMinutes);
         Assert.False(updated.IdleDimmingEnabled);
+        Assert.Equal("on", updated.DaylightBoost);
+
+        // Invalid daylight value falls back to "auto".
+        var coerced = await (await client.PutAsJsonAsync(
+            "/api/settings",
+            new UpdateSettingsRequest(10, false, "nonsense")))
+            .Content.ReadFromJsonAsync<SettingsDto>();
+        Assert.Equal("auto", coerced!.DaylightBoost);
 
         // Persisted across requests.
         var reloaded = await client.GetFromJsonAsync<SettingsDto>("/api/settings");

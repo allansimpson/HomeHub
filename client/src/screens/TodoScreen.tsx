@@ -56,7 +56,7 @@ export function TodoScreen() {
 
   return (
     <ScreenShell
-      header={<DrillInHeader title="Tasks" status={`${done} of ${visible.length} done`} onBack={() => navigate(-1)} />}
+      header={<DrillInHeader title="Tasks" status={`${done} of ${visible.length} done`} onBack={() => navigate('/')} />}
     >
       <div className="ml-todo__tabs">
         <Chip label="Everyone" active={filter === 'all'} onClick={() => setFilter('all')} />

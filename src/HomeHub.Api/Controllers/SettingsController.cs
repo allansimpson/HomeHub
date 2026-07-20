@@ -27,6 +27,7 @@ public class SettingsController : ControllerBase
         var s = await GetOrCreate();
         s.IdleTimeoutMinutes = Math.Clamp(req.IdleTimeoutMinutes, 1, 120);
         s.IdleDimmingEnabled = req.IdleDimmingEnabled;
+        s.DaylightBoost = req.DaylightBoost is "auto" or "on" or "off" ? req.DaylightBoost : "auto";
         await _db.SaveChangesAsync();
         return SettingsDto.From(s);
     }

@@ -13,7 +13,9 @@ import {
 import { useSession } from '../app/SessionProvider'
 import { useSensors } from '../app/SensorsProvider'
 import { api, ApiError } from '../api/client'
-import type { ProfileDto, ThresholdDto } from '../api/types'
+import type { ProfileDto, ThresholdDto, DaylightBoostMode } from '../api/types'
+
+const DAYLIGHT_MODES: DaylightBoostMode[] = ['auto', 'on', 'off']
 
 const PIN_LENGTH = 4
 
@@ -37,28 +39,33 @@ export function SettingsScreen() {
   // Local editable copy of household settings, kept in sync when the session reloads.
   const [dimming, setDimming] = useState(true)
   const [timeoutMin, setTimeoutMin] = useState(5)
+  const [daylight, setDaylight] = useState<DaylightBoostMode>('auto')
 
   useEffect(() => {
     if (!settings) return
     setDimming(settings.idleDimmingEnabled)
     setTimeoutMin(settings.idleTimeoutMinutes)
+    setDaylight(settings.daylightBoost)
   }, [settings])
 
-  // Debounced persist for the toggle/timeout settings (steppers repeat on long-press).
+  // Debounced persist for the toggle/timeout/daylight settings (steppers repeat on long-press).
   useEffect(() => {
     if (!settings) return
-    const unchanged = dimming === settings.idleDimmingEnabled && timeoutMin === settings.idleTimeoutMinutes
+    const unchanged =
+      dimming === settings.idleDimmingEnabled &&
+      timeoutMin === settings.idleTimeoutMinutes &&
+      daylight === settings.daylightBoost
     if (unchanged) return
     const t = window.setTimeout(async () => {
       try {
-        await api.updateSettings({ idleTimeoutMinutes: timeoutMin, idleDimmingEnabled: dimming })
+        await api.updateSettings({ idleTimeoutMinutes: timeoutMin, idleDimmingEnabled: dimming, daylightBoost: daylight })
         await refresh()
       } catch (err) {
         if (!(err instanceof ApiError)) throw err
       }
     }, 400)
     return () => window.clearTimeout(t)
-  }, [dimming, timeoutMin, settings, refresh])
+  }, [dimming, timeoutMin, daylight, settings, refresh])
 
   // ---- Alert thresholds (drive the engine; edited here) ----
   const [thresholds, setThresholds] = useState<ThresholdDto[]>([])
@@ -216,7 +223,7 @@ export function SettingsScreen() {
   }
 
   return (
-    <ScreenShell header={<DrillInHeader title="Settings" status="Household" onBack={() => navigate(-1)} />}>
+    <ScreenShell header={<DrillInHeader title="Settings" status="Household" onBack={() => navigate('/')} />}>
       <ScrollArea>
         {offline && (
           <div className="ml-settings__offline label">Settings unavailable — reconnecting</div>
@@ -299,12 +306,30 @@ export function SettingsScreen() {
           />
         )}
 
-        {/* ---- Idle dimming ---- */}
+        {/* ---- Display ---- */}
         <SectionLabel label="Display" />
         <LedgerRow
           title="Idle dimming"
           sub="Dashboard dims to 40% after 10 PM"
           right={<Toggle on={dimming} onChange={setDimming} label="Idle dimming" />}
+        />
+        <LedgerRow
+          title="Daylight boost"
+          sub="Brightens text under daytime glare"
+          right={
+            <div className="ml-daylight">
+              {DAYLIGHT_MODES.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={'ml-chip' + (daylight === m ? ' ml-chip--active' : '')}
+                  onClick={() => setDaylight(m)}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          }
         />
 
         {/* ---- Household management ---- */}

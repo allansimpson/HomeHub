@@ -16,6 +16,9 @@ public class HouseholdSettings
     /// <summary>Dim the dashboard to 40% after 10 PM (see the daylight/idle behaviour).</summary>
     public bool IdleDimmingEnabled { get; set; } = true;
 
+    /// <summary>High-ambient token boost mode: "auto" (light sensor / daytime), "on", or "off".</summary>
+    public string DaylightBoost { get; set; } = "auto";
+
     // Alert thresholds moved to per-zone AlertThreshold rows in Stage 2 (the engine's source of
     // truth); the Settings screen edits those directly.
 

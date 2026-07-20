@@ -7,6 +7,7 @@ import { useVoice } from './VoiceProvider'
 import { useConnection } from './ConnectionProvider'
 import { useWriteQueue } from './WriteQueueProvider'
 import { useIdleReset } from './useIdleReset'
+import { useAmbient } from './useAmbient'
 import { DashboardScreen } from '../screens/DashboardScreen'
 import { CalendarScreen } from '../screens/CalendarScreen'
 import { ClimateScreen } from '../screens/ClimateScreen'
@@ -22,11 +23,12 @@ export function App() {
   // Global mic state (Stage 8): the banner must appear on ANY screen whenever the mic is open.
   const { micLive } = useVoice()
 
-  const { locked } = useSession()
+  const { locked, settings } = useSession()
   const { online } = useConnection()
   const { pendingCount, conflicts, resolveConflict } = useWriteQueue()
   const location = useLocation()
   useIdleReset()
+  useAmbient(settings?.daylightBoost ?? 'auto')
 
   // The Lock screen is a gate, not a routed page: it takes over whenever the active profile
   // is locked (boot / idle) or the profile switcher (`/lock`) is open. On success it routes

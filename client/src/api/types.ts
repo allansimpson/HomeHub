@@ -10,9 +10,12 @@ export interface ProfileDto {
   displayOrder: number
 }
 
+export type DaylightBoostMode = 'auto' | 'on' | 'off'
+
 export interface SettingsDto {
   idleTimeoutMinutes: number
   idleDimmingEnabled: boolean
+  daylightBoost: DaylightBoostMode
   activeProfileId: number | null
 }
 

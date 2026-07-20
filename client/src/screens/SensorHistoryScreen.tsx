@@ -48,7 +48,7 @@ export function SensorHistoryScreen() {
 
   if (zones.length === 0) {
     return (
-      <ScreenShell header={<DrillInHeader title="Sensor History" status="24 Hours" onBack={() => navigate(-1)} />}>
+      <ScreenShell header={<DrillInHeader title="Sensor History" status="24 Hours" onBack={() => navigate('/')} />}>
         <EmptyState label="No readings yet" hint="Sensor zones appear once the poller has data." />
       </ScreenShell>
     )
@@ -60,7 +60,7 @@ export function SensorHistoryScreen() {
         <DrillInHeader
           title={selectedZone?.name ?? 'Sensor History'}
           status="Sensor History · 24 Hours"
-          onBack={() => navigate(-1)}
+          onBack={() => navigate('/')}
         />
       }
     >
