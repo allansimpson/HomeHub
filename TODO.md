@@ -81,7 +81,27 @@ token; that path is implemented in `GoogleCalendarProvider` but untested until c
 (`Google:ClientId/ClientSecret/RefreshToken`, optional `Google:CalendarId`). DI fix: calendar
 provider is DB-gated (needs `HomeHubDbContext`), matching the pollers.
 
-**Next: Stage 5.**
+**Stage 5 — Microsoft To Do (per-profile): ✅ COMPLETE (local provider; Graph behind the
+seam, awaiting per-profile OAuth).** Added `ITaskProvider` seam with `SqlTaskProvider` (local
+per-profile store, default — add/complete/delete persist offline) and `MicrosoftTodoProvider`
+(real Graph To Do: per-profile refresh tokens via `MicrosoftAccountLink`, silent token
+refresh, list/create/complete/delete + list-id resolution, local table as offline cache,
+"everyone" aggregates linked profiles; config-gated on `Microsoft:*`). `TaskItem` +
+`MicrosoftAccountLink` entities + migration `Stage5_Tasks`; `TaskSeeder` seeds sample tasks per
+profile (local only). `TasksController` list (optional `profileId`) / create / complete /
+delete. Client: `TasksProvider` context, To-Do screen (owner filter tabs, 30px checkboxes with
+brass fill + strike + dimmed row, inline New Task with owner chips), dashboard TASKS section
+(owner chips, "N of M done", collapse). Active profile is the default owner for new tasks. 33
+backend tests green. **Verified live on LocalDB**: seeded per-profile tasks, owner filtering,
+create/complete/delete round-trip.
+
+**Note:** the milestone's per-member account linking + "round-trips to Microsoft To Do / verify
+on another device" needs the Azure app registration + per-profile refresh tokens; that path is
+implemented in `MicrosoftTodoProvider` but untested until creds are set (`Microsoft:ClientId`/
+`ClientSecret` + a stored per-profile refresh token in `MicrosoftAccountLink`). No consent UI on
+the kiosk yet — the token would be provisioned out-of-band for now.
+
+**Next: Stage 6.**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -122,7 +142,8 @@ and don't recreate the design system that's already built.
 - ✅ **4 Google Calendar** — shared household calendar; display + add/edit/delete. (Local
   provider done + verified; Google round-trip implemented behind the seam, awaiting OAuth creds.)
   Milestone: events round-trip to Google.
-- ⬜ **5 Microsoft To Do** — per-profile tasks; add/complete/delete.
+- ✅ **5 Microsoft To Do** — per-profile tasks; add/complete/delete. (Local provider done +
+  verified; Graph round-trip + per-profile linking implemented behind the seam, awaiting creds.)
   Milestone: tasks tied to active profile round-trip.
 - ⬜ **6 Home Assistant & Climate** — `IClimateProvider` seam, multi-zone mini-split control
   via HA (WebSocket live state); optional HA-backed sensor provider (Govee).
@@ -154,13 +175,14 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-Start Stage 5 (`stage-5-microsoft-todo.md`): confirm its Decisions-to-confirm with the human
-(Microsoft/Azure app registration for Graph To Do + per-profile account linking). Per-profile
-tasks; add/complete/delete tied to the active profile. As with Stages 2–4, build behind a
-provider seam with a local/simulated fallback so it's demoable without credentials; drop in
-Graph creds later. Build to the milestone, verify, tick the roadmap, then Stage 6.
+Start Stage 6 (`stage-6-home-assistant-climate.md`): confirm its Decisions-to-confirm with the
+human (Home Assistant URL + long-lived token + climate-entity→zone map + scene mapping). Build
+the `IClimateProvider` seam + multi-zone mini-split control via HA (WebSocket live state), plus
+the optional HA-backed sensor provider (Govee). As with Stages 2–5, build behind the seam with a
+local/simulated fallback so it's demoable without HA; drop in creds later. Build to the milestone
+(adjust a unit from the panel; live state reconciles), verify, tick the roadmap, then Stage 7.
 
 Config to go live later: sensors `SensorPush:Email`/`Password` (+ sensor→zone map); weather
 `Weather:Latitude`/`Longitude` (default Minneapolis); calendar `Google:ClientId`/`ClientSecret`/
-`RefreshToken` (+ optional `CalendarId`). Run live with a SQL Server / LocalDB connection string
-in `ConnectionStrings__HomeHub`.
+`RefreshToken` (+ optional `CalendarId`); tasks `Microsoft:ClientId`/`ClientSecret` (+ per-profile
+refresh tokens). Run live with a SQL Server / LocalDB connection string in `ConnectionStrings__HomeHub`.

@@ -5,6 +5,7 @@ using HomeHub.Api.Calendar;
 using HomeHub.Api.Profiles;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Settings;
+using HomeHub.Api.Tasks;
 using HomeHub.Api.Weather;
 using Microsoft.EntityFrameworkCore;
 
@@ -42,6 +43,12 @@ public class HomeHubDbContext : DbContext
 
     /// <summary>Calendar events — local store / Google offline cache (Stage 4).</summary>
     public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+
+    /// <summary>Per-profile tasks — local store / Microsoft To Do offline cache (Stage 5).</summary>
+    public DbSet<TaskItem> Tasks => Set<TaskItem>();
+
+    /// <summary>Per-profile Microsoft account links for To Do sync (Stage 5).</summary>
+    public DbSet<MicrosoftAccountLink> MicrosoftAccountLinks => Set<MicrosoftAccountLink>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -150,6 +157,25 @@ public class HomeHubDbContext : DbContext
             entity.Property(e => e.OwnerTags).HasMaxLength(120);
             entity.HasIndex(e => e.StartUtc);
             entity.HasIndex(e => e.GoogleId);
+        });
+
+        // ---- Stage 5: Tasks + Microsoft account links ----
+        modelBuilder.Entity<TaskItem>(entity =>
+        {
+            entity.Property(t => t.Title).HasMaxLength(300).IsRequired();
+            entity.Property(t => t.Source).HasMaxLength(20).IsRequired();
+            entity.Property(t => t.GraphId).HasMaxLength(200);
+            entity.Property(t => t.Note).HasMaxLength(2000);
+            entity.HasIndex(t => new { t.ProfileId, t.Completed });
+            entity.HasIndex(t => t.GraphId);
+        });
+
+        modelBuilder.Entity<MicrosoftAccountLink>(entity =>
+        {
+            entity.HasKey(l => l.ProfileId);
+            entity.Property(l => l.ProfileId).ValueGeneratedNever();
+            entity.Property(l => l.RefreshToken).IsRequired();
+            entity.Property(l => l.ListId).HasMaxLength(200);
         });
     }
 }

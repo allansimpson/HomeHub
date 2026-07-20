@@ -3,6 +3,7 @@ using HomeHub.Api.Alerts;
 using HomeHub.Api.Calendar;
 using HomeHub.Api.Data;
 using HomeHub.Api.Sensors;
+using HomeHub.Api.Tasks;
 using HomeHub.Api.Weather;
 using Microsoft.EntityFrameworkCore;
 
@@ -62,9 +63,19 @@ if (google?.IsConfigured == true)
     builder.Services.AddHttpClient<GoogleCalendarProvider>();
 }
 
-// The pollers write owned history / cache + evaluate alerts, and the calendar provider needs a
-// DB. All are registered only alongside a database; without a connection string the shell still
-// serves (offline-first) and these data endpoints simply return errors until a DB is present.
+// --- Stage 5: tasks ---
+// Microsoft To Do (Graph) when configured; otherwise a local SQL tasks store so the panel is
+// fully usable without any linked account. UI depends only on ITaskProvider. DB-gated below.
+builder.Services.Configure<MicrosoftTodoOptions>(builder.Configuration.GetSection(MicrosoftTodoOptions.Section));
+var microsoft = builder.Configuration.GetSection(MicrosoftTodoOptions.Section).Get<MicrosoftTodoOptions>();
+if (microsoft?.IsConfigured == true)
+{
+    builder.Services.AddHttpClient<MicrosoftTodoProvider>();
+}
+
+// The pollers write owned history / cache + evaluate alerts, and the calendar/task providers
+// need a DB. All are registered only alongside a database; without a connection string the shell
+// still serves (offline-first) and these data endpoints simply return errors until a DB exists.
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
     if (google?.IsConfigured == true)
@@ -72,9 +83,15 @@ if (!string.IsNullOrWhiteSpace(connectionString))
     else
         builder.Services.AddScoped<ICalendarProvider, SqlCalendarProvider>();
 
+    if (microsoft?.IsConfigured == true)
+        builder.Services.AddScoped<ITaskProvider>(sp => sp.GetRequiredService<MicrosoftTodoProvider>());
+    else
+        builder.Services.AddScoped<ITaskProvider, SqlTaskProvider>();
+
     builder.Services.AddHostedService<SensorPollingService>();
     builder.Services.AddHostedService<WeatherPollingService>();
     builder.Services.AddHostedService<CalendarSeeder>();
+    builder.Services.AddHostedService<TaskSeeder>();
 }
 
 var app = builder.Build();

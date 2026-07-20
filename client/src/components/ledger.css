@@ -1020,6 +1020,113 @@
   color: var(--alert);
 }
 
+/* ---------- To-Do screen ---------- */
+.ml-todo__tabs {
+  display: flex;
+  gap: 0.625rem;
+  padding: 1rem var(--gutter) 0.75rem;
+  flex: 0 0 auto;
+}
+.ml-todo__tabs .ml-chip {
+  flex: 1 1 0;
+  padding: 0.625rem 0.5rem;
+}
+.ml-task {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9375rem var(--gutter);
+  border-top: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-task--done {
+  opacity: 0.45;
+}
+.ml-task__check {
+  width: 1.875rem; /* 30px */
+  height: 1.875rem;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--bg-screen);
+}
+.ml-task--done .ml-task__check {
+  background: var(--brass);
+  border-color: var(--brass);
+}
+.ml-task__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-task__title {
+  font-size: 0.9375rem; /* 15px */
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ml-task--done .ml-task__title {
+  text-decoration: line-through;
+}
+.ml-task__meta {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.ml-task__owner {
+  width: 1.5rem; /* 24px */
+  height: 1.5rem;
+  flex: 0 0 auto;
+}
+.ml-task__delete {
+  flex: 0 0 auto;
+  font-size: 1.125rem;
+  color: var(--text-disabled);
+  padding: 0 0.25rem;
+}
+.ml-task__delete:active {
+  color: var(--alert);
+}
+/* Inline new-task entry */
+.ml-todo__add {
+  border-top: var(--hairline-px) solid var(--rule-major);
+  padding-bottom: 0.5rem;
+}
+.ml-todo__addinput {
+  border-top: none;
+  font-size: 1rem;
+}
+.ml-todo__addowners {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.25rem var(--gutter) 0.5rem;
+}
+.ml-todo__addactions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1.5rem;
+  padding: 0.25rem var(--gutter) 0.5rem;
+}
+/* Full-width New Task button */
+.ml-todo__new {
+  flex: 0 0 auto;
+  margin: 0.5rem var(--gutter) 1rem;
+  padding: 1rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+.ml-todo__new:active {
+  background: var(--brass);
+  color: var(--bg-screen);
+}
+
 /* ---------- Weather screen ---------- */
 .ml-weather__current {
   display: flex;

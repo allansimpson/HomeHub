@@ -9,6 +9,8 @@ import type {
   WeatherSnapshotDto,
   CalendarEventDto,
   CalendarEventInput,
+  TaskItemDto,
+  TaskCreateInput,
 } from './types'
 
 /**
@@ -93,4 +95,12 @@ export const api = {
   updateEvent: (id: number, input: CalendarEventInput) =>
     request<CalendarEventDto>(`/calendar/events/${id}`, { method: 'PUT', ...json(input) }),
   deleteEvent: (id: number) => request<void>(`/calendar/events/${id}`, { method: 'DELETE' }),
+
+  // ---- Tasks ----
+  getTasks: (profileId?: number) =>
+    request<TaskItemDto[]>(`/tasks${profileId != null ? `?profileId=${profileId}` : ''}`),
+  createTask: (input: TaskCreateInput) => request<TaskItemDto>('/tasks', { method: 'POST', ...json(input) }),
+  completeTask: (id: number, completed: boolean) =>
+    request<TaskItemDto>(`/tasks/${id}/complete`, { method: 'PATCH', ...json({ completed }) }),
+  deleteTask: (id: number) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
 }

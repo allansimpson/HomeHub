@@ -8,6 +8,7 @@ import { SessionProvider } from './app/SessionProvider'
 import { SensorsProvider } from './app/SensorsProvider'
 import { WeatherProvider } from './app/WeatherProvider'
 import { CalendarProvider } from './app/CalendarProvider'
+import { TasksProvider } from './app/TasksProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -16,7 +17,9 @@ createRoot(document.getElementById('root')!).render(
         <SensorsProvider>
           <WeatherProvider>
             <CalendarProvider>
-              <App />
+              <TasksProvider>
+                <App />
+              </TasksProvider>
             </CalendarProvider>
           </WeatherProvider>
         </SensorsProvider>

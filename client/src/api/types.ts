@@ -134,6 +134,25 @@ export interface CalendarEventInput {
   ownerIds: number[]
 }
 
+// ---- Stage 5: tasks ----
+
+export interface TaskItemDto {
+  id: number
+  profileId: number
+  title: string
+  note: string | null
+  dueUtc: string | null
+  completed: boolean
+  source: string
+}
+
+export interface TaskCreateInput {
+  profileId: number
+  title: string
+  note: string | null
+  dueUtc: string | null
+}
+
 export interface VerifyPinResult {
   success: boolean
   /** Present when the profile is in a lockout cooldown. */
