@@ -101,7 +101,27 @@ implemented in `MicrosoftTodoProvider` but untested until creds are set (`Micros
 `ClientSecret` + a stored per-profile refresh token in `MicrosoftAccountLink`). No consent UI on
 the kiosk yet — the token would be provisioned out-of-band for now.
 
-**Next: Stage 6.**
+**Stage 6 — Home Assistant & Climate: ✅ COMPLETE (simulated provider; HA behind the seam,
+awaiting URL+token).** Added `IClimateProvider` seam with `SimulatedClimateProvider` (local
+store, default — zones drift toward set point, full control persists) and
+`HomeAssistantClimateProvider` (real HA REST: reads `climate.*` states, calls
+`climate/set_temperature` + `set_hvac_mode` + `scene/turn_on`, local table as offline cache,
+mode-string mapping; config-gated on `HomeAssistant:*`). `ClimateMode` enum + `ClimateZone`
+entity + migration `Stage6_Climate`, seeded 5 mini-split zones (Living Room, Bedroom, Kitchen,
+Study, Loft). `ClimateController` zones / setpoint / mode / scene. Client: `ClimateProvider`
+context (optimistic set-point, debounced writes, poll reconciliation held off mid-adjust),
+Climate screen (spec 08: zone rows, in-place expand with 76px ± block + 5 mode chips + status
+footer, ALL OFF / EVENING SCENE), dashboard climate strip driving the Living Room zone. 39
+backend tests green. **Verified live on LocalDB**: seeded zones, set-point/mode changes, drift
+toward set point, EVENING (all Cool@70) + ALL OFF scenes. Govee-via-HA sensors deferred per the
+decision default (the seam makes it additive later).
+
+**Note:** live mini-split control + WebSocket live state need the HA URL + long-lived token
+(`HomeAssistant:BaseUrl`/`Token`, optional `EveningScene`/`ZoneNames`); the HA path is
+implemented (REST + polling) but untested until configured. WebSocket push is a later
+enhancement (currently poll-based, like sensors/weather).
+
+**Next: Stage 7.**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -145,8 +165,10 @@ and don't recreate the design system that's already built.
 - ✅ **5 Microsoft To Do** — per-profile tasks; add/complete/delete. (Local provider done +
   verified; Graph round-trip + per-profile linking implemented behind the seam, awaiting creds.)
   Milestone: tasks tied to active profile round-trip.
-- ⬜ **6 Home Assistant & Climate** — `IClimateProvider` seam, multi-zone mini-split control
-  via HA (WebSocket live state); optional HA-backed sensor provider (Govee).
+- ✅ **6 Home Assistant & Climate** — `IClimateProvider` seam, multi-zone mini-split control
+  via HA (WebSocket live state); optional HA-backed sensor provider (Govee). (Simulated provider
+  done + verified; HA REST control implemented behind the seam, awaiting URL+token. WebSocket
+  live push + Govee sensors deferred.)
   Milestone: adjust a unit from the panel; live state reconciles.
 - ⬜ **7 AI Assistant (hybrid local/cloud)** — `IAssistantProvider` seam + router; text +
   image. See `docs/hybrid-ai-routing.md`. Task-based routing (commands/conversions/quick
@@ -175,14 +197,16 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-Start Stage 6 (`stage-6-home-assistant-climate.md`): confirm its Decisions-to-confirm with the
-human (Home Assistant URL + long-lived token + climate-entity→zone map + scene mapping). Build
-the `IClimateProvider` seam + multi-zone mini-split control via HA (WebSocket live state), plus
-the optional HA-backed sensor provider (Govee). As with Stages 2–5, build behind the seam with a
-local/simulated fallback so it's demoable without HA; drop in creds later. Build to the milestone
-(adjust a unit from the panel; live state reconciles), verify, tick the roadmap, then Stage 7.
+Start Stage 7 (`stage-7-ai-assistant-text.md`): confirm its Decisions-to-confirm with the human
+(OpenAI key + model; SERVER SPECS to choose the local model + routing thresholds, or cloud-only).
+Build the `IAssistantProvider` seam + hybrid router (task-based routing local vs cloud + confidence
+fallback) per `docs/hybrid-ai-routing.md`, text + image, with a LOCAL/CLOUD indicator per turn.
+Local model runs on the SERVER, not the Pi. As before, build behind the seam with a local/echo
+fallback so it's demoable without keys; drop in the OpenAI key later. Build to the milestone,
+verify, tick the roadmap, then Stage 8.
 
 Config to go live later: sensors `SensorPush:Email`/`Password` (+ sensor→zone map); weather
 `Weather:Latitude`/`Longitude` (default Minneapolis); calendar `Google:ClientId`/`ClientSecret`/
 `RefreshToken` (+ optional `CalendarId`); tasks `Microsoft:ClientId`/`ClientSecret` (+ per-profile
-refresh tokens). Run live with a SQL Server / LocalDB connection string in `ConnectionStrings__HomeHub`.
+refresh tokens); climate `HomeAssistant:BaseUrl`/`Token` (+ optional `EveningScene`/`ZoneNames`).
+Run live with a SQL Server / LocalDB connection string in `ConnectionStrings__HomeHub`.

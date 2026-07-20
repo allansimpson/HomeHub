@@ -11,6 +11,8 @@ import type {
   CalendarEventInput,
   TaskItemDto,
   TaskCreateInput,
+  ClimateZoneDto,
+  ClimateModeName,
 } from './types'
 
 /**
@@ -103,4 +105,13 @@ export const api = {
   completeTask: (id: number, completed: boolean) =>
     request<TaskItemDto>(`/tasks/${id}/complete`, { method: 'PATCH', ...json({ completed }) }),
   deleteTask: (id: number) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
+
+  // ---- Climate ----
+  getClimateZones: () => request<ClimateZoneDto[]>('/climate/zones'),
+  setClimateSetPoint: (id: number, setPointF: number) =>
+    request<ClimateZoneDto>(`/climate/zones/${id}/setpoint`, { method: 'PUT', ...json({ setPointF }) }),
+  setClimateMode: (id: number, mode: ClimateModeName) =>
+    request<ClimateZoneDto>(`/climate/zones/${id}/mode`, { method: 'PUT', ...json({ mode }) }),
+  applyClimateScene: (scene: 'evening' | 'all-off') =>
+    request<void>('/climate/scene', { method: 'POST', ...json({ scene }) }),
 }

@@ -2,6 +2,7 @@ namespace HomeHub.Api.Data;
 
 using HomeHub.Api.Alerts;
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Climate;
 using HomeHub.Api.Profiles;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Settings;
@@ -49,6 +50,9 @@ public class HomeHubDbContext : DbContext
 
     /// <summary>Per-profile Microsoft account links for To Do sync (Stage 5).</summary>
     public DbSet<MicrosoftAccountLink> MicrosoftAccountLinks => Set<MicrosoftAccountLink>();
+
+    /// <summary>Climate zones — simulated store / Home Assistant offline cache (Stage 6).</summary>
+    public DbSet<ClimateZone> ClimateZones => Set<ClimateZone>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -176,6 +180,25 @@ public class HomeHubDbContext : DbContext
             entity.Property(l => l.ProfileId).ValueGeneratedNever();
             entity.Property(l => l.RefreshToken).IsRequired();
             entity.Property(l => l.ListId).HasMaxLength(200);
+        });
+
+        // ---- Stage 6: Climate zones ----
+        modelBuilder.Entity<ClimateZone>(entity =>
+        {
+            entity.Property(z => z.Name).HasMaxLength(60).IsRequired();
+            entity.Property(z => z.Source).HasMaxLength(30).IsRequired();
+            entity.Property(z => z.ProviderRef).HasMaxLength(160).IsRequired();
+            entity.Property(z => z.FanMode).HasMaxLength(30);
+            entity.HasIndex(z => new { z.Source, z.ProviderRef }).IsUnique();
+            entity.HasIndex(z => z.DisplayOrder);
+
+            // Seed simulated mini-split zones (swapped for HA climate.* entities when configured).
+            entity.HasData(
+                new ClimateZone { Id = 1, Name = "Living Room", Source = "simulated", ProviderRef = "sim-living", CurrentTempF = 74, SetPointF = 72, Mode = ClimateMode.Cool, FanMode = "Quiet", DisplayOrder = 0 },
+                new ClimateZone { Id = 2, Name = "Bedroom", Source = "simulated", ProviderRef = "sim-bedroom", CurrentTempF = 71, SetPointF = 70, Mode = ClimateMode.Cool, FanMode = "Auto", DisplayOrder = 1 },
+                new ClimateZone { Id = 3, Name = "Kitchen", Source = "simulated", ProviderRef = "sim-kitchen", CurrentTempF = 73, SetPointF = 73, Mode = ClimateMode.Fan, FanMode = "Auto", DisplayOrder = 2 },
+                new ClimateZone { Id = 4, Name = "Study", Source = "simulated", ProviderRef = "sim-study", CurrentTempF = 72, SetPointF = 72, Mode = ClimateMode.Off, DisplayOrder = 3 },
+                new ClimateZone { Id = 5, Name = "Loft", Source = "simulated", ProviderRef = "sim-loft", CurrentTempF = 72, SetPointF = 72, Mode = ClimateMode.Off, DisplayOrder = 4 });
         });
     }
 }

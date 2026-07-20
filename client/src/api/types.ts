@@ -153,6 +153,21 @@ export interface TaskCreateInput {
   dueUtc: string | null
 }
 
+// ---- Stage 6: climate ----
+
+export type ClimateModeName = 'Off' | 'Cool' | 'Heat' | 'Fan' | 'Auto'
+
+export interface ClimateZoneDto {
+  id: number
+  name: string
+  currentTempF: number
+  setPointF: number | null
+  mode: ClimateModeName
+  fanMode: string | null
+  running: boolean
+  source: string
+}
+
 export interface VerifyPinResult {
   success: boolean
   /** Present when the profile is in a lockout cooldown. */

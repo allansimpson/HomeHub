@@ -1020,6 +1020,174 @@
   color: var(--alert);
 }
 
+/* ---------- Climate screen ---------- */
+.ml-climatezone {
+  border-top: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-climatezone--expanded {
+  border-top-color: var(--bg-zone-expand-rule);
+  background: var(--bg-screen);
+}
+.ml-climatezone__row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem var(--gutter);
+}
+.ml-climatezone__row:active {
+  background: var(--bg-active);
+}
+.ml-climatezone__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+.ml-climatezone__name {
+  font-size: 0.9375rem; /* 15px */
+  color: var(--text-secondary);
+}
+.ml-climatezone__now {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.ml-modechip {
+  flex: 0 0 auto;
+  padding: 0.4375rem 0.75rem;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.22em;
+  color: var(--text-disabled);
+  white-space: nowrap;
+}
+.ml-modechip--on {
+  border-color: var(--live-dim);
+  color: var(--live-text);
+}
+.ml-climatezone__set {
+  flex: 0 0 auto;
+  min-width: 3.5rem; /* 56px */
+  text-align: right;
+  font-size: 1.75rem; /* 28px */
+  color: var(--brass-bright);
+}
+.ml-climatezone__set--off {
+  color: var(--text-disabled);
+}
+/* Expanded panel */
+.ml-climatezone__panel {
+  padding: 0.5rem var(--gutter) 1.5rem;
+}
+.ml-climate__setpoint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 0.5rem 0 1.25rem;
+}
+.ml-climate__setpoint .ml-stepper {
+  width: 4.75rem; /* 76px */
+  height: 4.75rem;
+}
+.ml-climate__setval {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 6rem;
+}
+.ml-climate__setval .serif {
+  font-size: 4rem; /* 64px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-climate__setcaption {
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+  margin-top: 0.5rem;
+}
+.ml-climate__modes {
+  display: flex;
+  gap: 0.5rem;
+}
+.ml-climate__modes .ml-chip {
+  flex: 1 1 0;
+  padding: 0.75rem 0;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+}
+.ml-climate__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+.ml-climate__fan {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.ml-climate__status {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.ml-climate__status--live {
+  color: var(--live-text);
+}
+/* Bottom action pair */
+.ml-climate__actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.75rem var(--gutter) 1rem;
+}
+.ml-climate__action {
+  flex: 1 1 0;
+  padding: 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-climate__action--accent {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-climate__action:active {
+  background: var(--bg-active);
+}
+/* Dashboard climate strip */
+.ml-climatestrip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.ml-climatestrip__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.ml-climatestrip__label {
+  font-size: 0.6875rem;
+  color: var(--brass);
+}
+.ml-climatestrip__status {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.ml-climatestrip__steppers {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.5rem;
+}
+
 /* ---------- To-Do screen ---------- */
 .ml-todo__tabs {
   display: flex;

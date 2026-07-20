@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using HomeHub.Api.Alerts;
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Tasks;
@@ -73,6 +74,16 @@ if (microsoft?.IsConfigured == true)
     builder.Services.AddHttpClient<MicrosoftTodoProvider>();
 }
 
+// --- Stage 6: climate (Home Assistant) ---
+// HA when a URL + token are configured; otherwise a simulated climate store so the multi-zone
+// screen is fully usable without hardware. UI depends only on IClimateProvider. DB-gated below.
+builder.Services.Configure<HomeAssistantOptions>(builder.Configuration.GetSection(HomeAssistantOptions.Section));
+var homeAssistant = builder.Configuration.GetSection(HomeAssistantOptions.Section).Get<HomeAssistantOptions>();
+if (homeAssistant?.IsConfigured == true)
+{
+    builder.Services.AddHttpClient<HomeAssistantClimateProvider>();
+}
+
 // The pollers write owned history / cache + evaluate alerts, and the calendar/task providers
 // need a DB. All are registered only alongside a database; without a connection string the shell
 // still serves (offline-first) and these data endpoints simply return errors until a DB exists.
@@ -87,6 +98,11 @@ if (!string.IsNullOrWhiteSpace(connectionString))
         builder.Services.AddScoped<ITaskProvider>(sp => sp.GetRequiredService<MicrosoftTodoProvider>());
     else
         builder.Services.AddScoped<ITaskProvider, SqlTaskProvider>();
+
+    if (homeAssistant?.IsConfigured == true)
+        builder.Services.AddScoped<IClimateProvider>(sp => sp.GetRequiredService<HomeAssistantClimateProvider>());
+    else
+        builder.Services.AddScoped<IClimateProvider, SimulatedClimateProvider>();
 
     builder.Services.AddHostedService<SensorPollingService>();
     builder.Services.AddHostedService<WeatherPollingService>();

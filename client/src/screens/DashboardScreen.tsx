@@ -6,8 +6,10 @@ import { useSensors } from '../app/SensorsProvider'
 import { useWeather } from '../app/WeatherProvider'
 import { useCalendar } from '../app/CalendarProvider'
 import { useTasks } from '../app/TasksProvider'
+import { useClimate } from '../app/ClimateProvider'
+import { Stepper } from '../components'
 import { formatTime } from '../app/dates'
-import type { ZoneReadingDto, CalendarEventDto, TaskItemDto, ProfileDto } from '../api/types'
+import type { ZoneReadingDto, CalendarEventDto, TaskItemDto, ProfileDto, ClimateZoneDto } from '../api/types'
 
 /** Rooms shown before the dashboard collapses the rest into an "ALL N ROOMS" link (no-scroll). */
 const HOUSE_PREVIEW = 3
@@ -36,6 +38,10 @@ export function DashboardScreen() {
   const { weather, offline: weatherOffline } = useWeather()
   const { upcoming } = useCalendar()
   const { tasks } = useTasks()
+  const { zones: climateZones, adjustSetPoint } = useClimate()
+
+  // The dashboard strip controls the Living Room zone (or the first zone).
+  const climateZone = climateZones.find((z) => z.name === 'Living Room') ?? climateZones[0] ?? null
 
   const nextPreview = upcoming.slice(0, NEXT_PREVIEW)
   const nextHidden = upcoming.length - nextPreview.length
@@ -147,13 +153,7 @@ export function DashboardScreen() {
 
         {/* Climate strip pinned to the bottom of the (non-scrolling) content. */}
         <div style={{ marginTop: 'auto' }}>
-          <LedgerRow
-            major
-            title={<span className="label" style={{ fontSize: '0.6875rem', color: 'var(--brass)' }}>Climate</span>}
-            sub={<span style={{ color: 'var(--text-muted)' }}>Not connected</span>}
-            right={<span style={{ color: 'var(--text-disabled)' }}>—</span>}
-            onClick={() => navigate('/climate')}
-          />
+          <ClimateStrip zone={climateZone} onOpen={() => navigate('/climate')} onStep={(d) => climateZone && adjustSetPoint(climateZone.id, d)} />
         </div>
       </div>
     </ScreenShell>
@@ -185,6 +185,33 @@ function NextRow({ event, hero, onClick }: { event: CalendarEventDto; hero: bool
         {sub && <div className="ml-row__sub">{sub}</div>}
       </div>
     </button>
+  )
+}
+
+/** Dashboard climate strip: tappable label (→ Climate) + working ± set-point steppers. */
+function ClimateStrip({ zone, onOpen, onStep }: { zone: ClimateZoneDto | null; onOpen: () => void; onStep: (delta: number) => void }) {
+  const running = zone?.running ?? false
+  const status = !zone
+    ? 'Not connected'
+    : !running
+      ? 'Off'
+      : zone.setPointF != null && Math.round(zone.currentTempF) !== Math.round(zone.setPointF)
+        ? `${zone.mode === 'Heat' ? 'Heating' : 'Cooling'} to ${zone.setPointF}°`
+        : `Holding ${zone.setPointF}°`
+  return (
+    <div className="ml-row ml-row--major ml-climatestrip">
+      <button type="button" className="ml-climatestrip__body" onClick={onOpen}>
+        <span className="label ml-climatestrip__label">Climate · {zone?.name ?? '—'}</span>
+        <span className="ml-climatestrip__status">
+          {status}
+          {running && zone?.setPointF != null && <span style={{ color: 'var(--brass-bright)' }}>{` ${zone.setPointF}°`}</span>}
+        </span>
+      </button>
+      <div className="ml-climatestrip__steppers">
+        <Stepper direction="minus" onStep={() => onStep(-1)} label="Lower set point" disabled={!running} />
+        <Stepper direction="plus" onStep={() => onStep(1)} label="Raise set point" disabled={!running} />
+      </div>
+    </div>
   )
 }
 

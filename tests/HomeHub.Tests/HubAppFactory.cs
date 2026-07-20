@@ -1,6 +1,7 @@
 namespace HomeHub.Tests;
 
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
 using HomeHub.Api.Tasks;
 using Microsoft.AspNetCore.Hosting;
@@ -26,6 +27,7 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
             // local calendar provider here so calendar endpoints work against the in-memory DB.
             services.AddScoped<ICalendarProvider, SqlCalendarProvider>();
             services.AddScoped<ITaskProvider, SqlTaskProvider>();
+            services.AddScoped<IClimateProvider, SimulatedClimateProvider>();
         });
     }
 
