@@ -1,0 +1,465 @@
+/*
+ * Meridian Ledger component styles. Ruled rows, no cards, no radius, no shadows.
+ * Hairlines and fine deco detail use device px (--hairline-px etc.) so they stay crisp;
+ * everything else scales in rem. Class prefix: ml-.
+ */
+
+/* ---------- App layout ---------- */
+.app-root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.app-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+.ml-transition {
+  height: 100%;
+}
+
+/* ---------- Route motion (restrained — appliance, not phone) ---------- */
+@keyframes ml-slideup {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ml-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.ml-transition--slideup {
+  animation: ml-slideup 220ms ease-out;
+}
+.ml-transition--fade {
+  animation: ml-fade 150ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-transition--slideup,
+  .ml-transition--fade {
+    animation: none;
+  }
+}
+
+:root {
+  --rule-brass-px: 4px; /* double-rule brass bar (device px at 4K) */
+  --rule-gap-px: 6px; /* gap inside the double-rule motif */
+}
+
+/* ---------- Screen shell ---------- */
+.ml-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-screen);
+  overflow: hidden;
+}
+.ml-shell__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Dashboard content never scrolls; it is the idle display. */
+.ml-shell__content--fixed {
+  overflow: hidden;
+}
+
+/* ---------- Double rule (under every screen header) ---------- */
+.ml-doublerule {
+  margin: 1.125rem var(--gutter) 0; /* 18px top */
+}
+.ml-doublerule__brass {
+  height: var(--rule-brass-px);
+  background: var(--brass);
+}
+.ml-doublerule__gap {
+  height: var(--rule-gap-px);
+}
+.ml-doublerule__hair {
+  height: var(--hairline-px);
+  background: var(--rule-major);
+}
+
+/* ---------- Headers ---------- */
+.ml-header {
+  padding: 1.75rem var(--gutter) 0; /* 28px 34px 0 */
+  flex: 0 0 auto;
+}
+.ml-header--drillin {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.ml-dash-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.ml-dash-header__clock {
+  font-size: 2.5rem; /* 40px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-dash-header__right {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.375rem;
+  padding-top: 0.35rem;
+}
+.ml-dash-header__date {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.3em;
+  color: var(--brass);
+}
+.ml-dash-header__conditions {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+
+.ml-drillin-header__title {
+  font-size: 1.875rem; /* 30px screen title */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-drillin-header__status {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.ml-drillin-header__status--live {
+  color: var(--live-text);
+}
+
+/* ---------- Back button (44×44) ---------- */
+.ml-backbtn {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  flex: 0 0 auto;
+}
+.ml-backbtn:active {
+  color: var(--brass-bright);
+}
+
+/* ---------- Section label row ---------- */
+.ml-section {
+  display: flex;
+  align-items: center;
+  padding: 1rem var(--gutter) 0.625rem; /* 16px top */
+}
+.ml-section__tick {
+  width: 0.875rem; /* 14px */
+  height: 0.1875rem; /* 3px */
+  background: var(--brass);
+  margin-right: 0.75rem;
+  flex: 0 0 auto;
+}
+.ml-section__label {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--brass);
+  font-weight: 400;
+}
+.ml-section__status {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-section__status--live {
+  color: var(--live-text);
+}
+
+/* ---------- Ledger row ---------- */
+.ml-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem var(--gutter); /* ~14px vertical */
+  border-top: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-row--major {
+  border-top-color: var(--rule-major);
+}
+.ml-row--tappable:active {
+  background: var(--bg-active);
+}
+.ml-row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-row__title {
+  font-size: 0.9375rem; /* 15px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ml-row__sub {
+  font-size: 0.75rem; /* 12px */
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.ml-row__right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+}
+
+/* ---------- Bottom nav ---------- */
+.ml-nav {
+  flex: 0 0 auto;
+  display: flex;
+  background: var(--bg-nav);
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-nav__item {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.75rem 0 0.625rem;
+  color: var(--text-disabled);
+}
+.ml-nav__item--active {
+  color: var(--brass);
+}
+.ml-nav__label {
+  font-size: 0.5625rem; /* ~9px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ml-nav__tick {
+  width: 1rem; /* 16px */
+  height: var(--hairline-px);
+  background: var(--brass);
+  margin-top: 0.125rem;
+}
+.ml-nav__tick--hidden {
+  visibility: hidden;
+}
+/* Dashboard's active item uses a small brass diamond instead of the underline tick. */
+.ml-nav__diamond {
+  width: 0.375rem;
+  height: 0.375rem;
+  background: var(--brass);
+  transform: rotate(45deg);
+  margin-top: 0.0625rem;
+}
+
+/* ---------- Stepper (− / +) ---------- */
+.ml-stepper {
+  width: 3.375rem; /* 54px */
+  height: 3.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+}
+.ml-stepper:active {
+  background: var(--bg-active);
+}
+.ml-stepper:disabled {
+  color: var(--text-disabled);
+  border-color: var(--border-inactive);
+}
+
+/* ---------- Chip / tab ---------- */
+.ml-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.625rem 1rem;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-disabled);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.ml-chip--active {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-chip--live.ml-chip--active {
+  border-color: var(--live-dim);
+  color: var(--live-text);
+  background: transparent;
+}
+
+/* ---------- Toggle (square-thumb) ---------- */
+.ml-toggle {
+  width: 3.625rem; /* 58px */
+  height: 1.875rem; /* 30px */
+  border: var(--control-border) solid var(--border-inactive);
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1875rem;
+  flex: 0 0 auto;
+}
+.ml-toggle__thumb {
+  width: 1.375rem; /* 22px */
+  height: 1.375rem;
+  background: var(--border-inactive);
+  transition: transform 140ms ease, background 140ms ease;
+}
+.ml-toggle--on {
+  border-color: var(--brass);
+  background: var(--bg-active);
+}
+.ml-toggle--on .ml-toggle__thumb {
+  background: var(--brass-bright);
+  transform: translateX(1.75rem);
+}
+
+/* ---------- Alert banner (amber; severe adds hazard stripe) ---------- */
+.ml-alert {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem var(--gutter);
+  background: var(--alert);
+  color: var(--alert-ink);
+}
+.ml-alert__glyph {
+  width: 2rem; /* 32px */
+  height: 2rem;
+  border: var(--control-border) solid var(--alert-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.ml-alert__title {
+  font-size: 0.8125rem; /* 13px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.ml-alert__detail {
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+.ml-alert__stripe {
+  height: 0.5rem; /* 8px */
+  background: repeating-linear-gradient(-45deg, #d08a2e 0 10px, #171207 10px 20px);
+}
+
+/* ---------- Mic-live banner (verdigris; global) ---------- */
+.ml-miclive {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem var(--gutter);
+  background: var(--live-fill-a);
+  border-bottom: 0.125rem solid var(--live-accent);
+  color: var(--live-text);
+}
+.ml-miclive__dot {
+  width: 0.625rem; /* 10px */
+  height: 0.625rem;
+  background: var(--live-text);
+  box-shadow: 0 0 0.75rem var(--live-accent);
+  flex: 0 0 auto;
+}
+.ml-miclive__text {
+  font-size: 0.6875rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+}
+
+/* ---------- Offline chip ---------- */
+.ml-offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ml-offline__dot {
+  width: 0.5rem; /* 8px */
+  height: 0.5rem;
+  background: var(--alert);
+  flex: 0 0 auto;
+}
+.ml-offline__text {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #a08a5c; /* muted brass */
+}
+
+/* ---------- Scroll area (drill-in lists) ---------- */
+.ml-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.ml-scroll__inner {
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none; /* no native scrollbar */
+}
+.ml-scroll__inner::-webkit-scrollbar {
+  display: none;
+}
+/* Bottom fade-out gradient into the background. */
+.ml-scroll::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3rem;
+  background: linear-gradient(to bottom, transparent, var(--bg-screen));
+  pointer-events: none;
+}
+
+/* ---------- Empty state (placeholder screens) ---------- */
+.ml-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--text-disabled);
+  padding: var(--gutter);
+  text-align: center;
+}
+.ml-empty__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+.ml-empty__hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  max-width: 22rem;
+}

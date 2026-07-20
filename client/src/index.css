@@ -1,0 +1,82 @@
+@import './theme/tokens.css';
+@import './fonts/fonts.css';
+
+/* ---- Reset ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  /* No border-radius, no shadows anywhere — machine-age deco. */
+  border-radius: 0;
+}
+
+/*
+ * 4K rem scaling. The mock canvas is 540×960 (33.75rem × 60rem at 1rem = 16px).
+ * font-size tracks the viewport so 1rem scales with the panel; min() with the height
+ * factor keeps non-16:9 panels from overflowing (flexible sections absorb the slack).
+ * At 2160×3840, 1rem = 64 device px (an exact 4×).
+ */
+html {
+  font-size: min(calc(100vw / 33.75), calc(100vh / 60));
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  height: 100%;
+  background: var(--bg-screen);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-weight: var(--body-weight);
+  /* Touch appliance: no text selection, no tap highlight, no overscroll bounce. */
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+}
+
+/* Numerals, clocks, temperatures, titles. */
+.serif {
+  font-family: var(--font-serif);
+  font-weight: 400;
+}
+
+/* Letterspaced caps labels. */
+.label {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.26em;
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  /* Touch targets are generous; disable the 300ms tap delay. */
+  touch-action: manipulation;
+}
+
+svg {
+  display: block;
+}
+
+/*
+ * Night dimming — dashboard dims to ~40% after 10 PM (a setting, wired later).
+ * Applied by toggling data-nightdim on <html>.
+ */
+:root[data-nightdim='on'] #root {
+  filter: brightness(0.4);
+  transition: filter 600ms ease;
+}

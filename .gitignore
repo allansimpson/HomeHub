@@ -1,0 +1,58 @@
+# ---- Claude design / build packages (root) ----
+CentralHome_ClaudeCode_BuildPackage/
+CentralHome_ClaudeCode_BuildPackage.zip
+HomeHub_ClaudeDesign/
+HomeHub_ClaudeDesign.zip
+*.zip
+
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+.vs/
+publish/
+artifacts/
+project.lock.json
+*.nupkg
+
+# ---- EF / local db ----
+*.mdf
+*.ldf
+
+# ---- Secrets (never commit) ----
+appsettings.*.Local.json
+secrets.json
+*.env
+.env
+.env.*
+
+# ---- Node / client ----
+node_modules/
+client/dist/
+client/.vite/
+client/coverage/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# ---- Build output served by API ----
+src/HomeHub.Api/wwwroot/assets/
+src/HomeHub.Api/wwwroot/index.html
+
+# ---- Test / coverage ----
+[Tt]est[Rr]esults/
+coverage/
+*.trx
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+*.code-workspace

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HomeHub.Api/HomeHub.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HomeHub.Tests/HomeHub.Tests.csproj" />
+  </Folder>
+</Solution>

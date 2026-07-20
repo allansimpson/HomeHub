@@ -1,0 +1,82 @@
+/*
+ * Meridian Ledger design tokens — sourced from design-tokens.json (dark theme only; there
+ * is no light mode). Hex values are canonical. Do not restyle or re-theme.
+ *
+ * Scaling: the design was composed on a 540×960 reference canvas. Convert every mock px to
+ * rem by dividing by 16 (1rem = 16 mock-px). The root font-size (index.css) makes 1rem track
+ * the viewport so the layout fills a true-4K portrait panel. Hairlines/fine deco detail stay
+ * in device px so they never scale into fat blurry lines (see --hairline-px below).
+ */
+
+:root {
+  /* Backgrounds */
+  --bg-screen: #15171A;
+  --bg-nav: #101215;
+  --bg-active: #221D13;          /* brass-tinted active/selected fill */
+  --bg-profile-selected: #1A1712;
+  --bg-zone-expand-rule: #1D2023;
+
+  /* Hairlines / borders */
+  --rule-minor: #24272B;
+  --rule-major: #2A2D31;
+  --border-inactive: #3A3D41;
+
+  /* Brass — structural accent + numerals */
+  --brass: #B08D57;
+  --brass-bright: #C8A877;
+  --brass-dim: #5C5342;
+  --brass-gradient-end: #6B5636;
+
+  /* Text */
+  --text-primary: #E8E4DC;
+  --text-secondary: #CFC9BD;
+  --text-muted: #7D7668;
+  --text-disabled: #5F584B;
+
+  /* Verdigris — LIVE / OK STATUS ONLY (never decorative) */
+  --live-text: #8FBFA9;
+  --live-accent: #6FA08C;
+  --live-dim: #47695C;
+  --live-fill-a: #1C2A24;        /* banner fill */
+  --live-fill-b: #16211D;        /* emblem fill */
+
+  /* Alert amber */
+  --alert: #D08A2E;
+  --alert-ink: #171207;
+
+  /* Body font weight — bumped to 400 under daylight boost */
+  --body-weight: 300;
+
+  /* Type families */
+  --font-serif: 'Marcellus', Georgia, 'Times New Roman', serif;
+  --font-sans: 'Josefin Sans', system-ui, -apple-system, sans-serif;
+
+  /* Crisp-line exception: hairlines/deco detail render in device px, not rem.
+     1px mock hairline -> 2 device px at 4K. Control brass borders -> max(1px, 0.0625rem). */
+  --hairline-px: 2px;
+  --control-border: max(1px, 0.0625rem);
+
+  /* Screen gutter (34 mock px -> rem) */
+  --gutter: 2.125rem;
+}
+
+/*
+ * Daylight boost — bright-ambient variant. Same layout, brighter tokens + heavier body.
+ * Applied by toggling data-ambient="bright" on <html> (from an ambient sensor or a setting).
+ * Alert amber and verdigris are intentionally unchanged (already high-contrast).
+ */
+:root[data-ambient='bright'] {
+  --text-primary: #F4F1E9;
+  --text-secondary: #DDD6C6;
+  --text-muted: #A79E8A;
+  --text-disabled: #8A8375;
+
+  --rule-minor: #33373D;
+  --rule-major: #3A3E44;
+  --brass-dim: #6F654F;
+
+  --brass-bright: #D8BC8A;
+  --brass: #C39F66;
+
+  --body-weight: 400;
+}
