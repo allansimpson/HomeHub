@@ -26,4 +26,7 @@ public class ActiveAlert
 
     /// <summary>Set when the condition clears; null while active.</summary>
     public DateTime? ClearedAtUtc { get; set; }
+
+    /// <summary>Optional hard expiry (e.g. an NWS alert's "expires"); treated as inactive once past.</summary>
+    public DateTime? ExpiresAtUtc { get; set; }
 }

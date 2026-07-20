@@ -3,14 +3,16 @@ import { DashboardHeader, ScreenShell, SectionLabel, LedgerRow, AlertBanner } fr
 import { useClock } from '../app/useClock'
 import { useSession } from '../app/SessionProvider'
 import { useSensors } from '../app/SensorsProvider'
+import { useWeather } from '../app/WeatherProvider'
 import type { ZoneReadingDto } from '../api/types'
 
 /** Rooms shown before the dashboard collapses the rest into an "ALL N ROOMS" link (no-scroll). */
 const HOUSE_PREVIEW = 3
 
-/** Route a "sensor:3"-style alert source to its screen. */
+/** Route an alert source ("sensor:3", "weather") to its screen. */
 function alertTarget(source: string): string {
   const [kind, id] = source.split(':')
+  if (kind === 'weather') return '/weather'
   return kind === 'sensor' && id ? `/sensor?zone=${id}` : '/sensor'
 }
 
@@ -24,11 +26,17 @@ export function DashboardScreen() {
   const navigate = useNavigate()
   const { activeProfile } = useSession()
   const { zones, alerts } = useSensors()
+  const { weather, offline: weatherOffline } = useWeather()
 
   const topAlert = alerts[0]
   const preview = zones.slice(0, HOUSE_PREVIEW)
   const hidden = zones.length - preview.length
   const houseWell = alerts.every((a) => a.type !== 'sensor')
+
+  const current = weather?.current
+  const conditions = current?.tempF != null
+    ? `${Math.round(current.tempF)}° ${(current.condition ?? '').toUpperCase()}${current.feelsLikeF != null ? ` · FEELS ${Math.round(current.feelsLikeF)}°` : ''}`.trim()
+    : undefined
 
   return (
     <ScreenShell
@@ -36,6 +44,8 @@ export function DashboardScreen() {
         <DashboardHeader
           clock={time}
           date={date}
+          conditions={conditions}
+          offline={weatherOffline && !current}
           profileInitial={activeProfile?.initial ?? '?'}
           onSwitchProfile={() => navigate('/lock')}
         />

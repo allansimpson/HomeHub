@@ -79,6 +79,39 @@ export interface ThresholdDto {
   enabled: boolean
 }
 
+// ---- Stage 3: weather ----
+
+export interface CurrentWeatherDto {
+  tempF: number | null
+  condition: string | null
+  highF: number | null
+  lowF: number | null
+  humidity: number | null
+  windMph: number | null
+  feelsLikeF: number | null
+}
+
+export interface HourlyDto {
+  label: string
+  tempF: number | null
+  shortForecast: string | null
+}
+
+export interface DailyDto {
+  day: string
+  condition: string
+  highF: number | null
+  lowF: number | null
+  severe: boolean
+}
+
+export interface WeatherSnapshotDto {
+  current: CurrentWeatherDto | null
+  hourly: HourlyDto[]
+  daily: DailyDto[]
+  fetchedAtUtc: string | null
+}
+
 export interface VerifyPinResult {
   success: boolean
   /** Present when the profile is in a lockout cooldown. */

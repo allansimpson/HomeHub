@@ -4,6 +4,7 @@ using HomeHub.Api.Alerts;
 using HomeHub.Api.Profiles;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Settings;
+using HomeHub.Api.Weather;
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
@@ -34,6 +35,9 @@ public class HomeHubDbContext : DbContext
 
     /// <summary>Raised alerts, type-agnostic and reused by later stages (Stage 2).</summary>
     public DbSet<ActiveAlert> ActiveAlerts => Set<ActiveAlert>();
+
+    /// <summary>Single-row cache of last-known weather for offline reads (Stage 3).</summary>
+    public DbSet<WeatherCache> WeatherCache => Set<WeatherCache>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -122,6 +126,13 @@ public class HomeHubDbContext : DbContext
             entity.Property(a => a.Message).HasMaxLength(300).IsRequired();
             entity.Property(a => a.Source).HasMaxLength(80).IsRequired();
             entity.HasIndex(a => new { a.Type, a.ClearedAtUtc });
+        });
+
+        // ---- Stage 3: Weather cache (singleton row, fixed id 1 — not identity) ----
+        modelBuilder.Entity<WeatherCache>(entity =>
+        {
+            entity.Property(w => w.Id).ValueGeneratedNever();
+            entity.Property(w => w.PayloadJson).IsRequired();
         });
     }
 }

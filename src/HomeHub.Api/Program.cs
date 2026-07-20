@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using HomeHub.Api.Alerts;
 using HomeHub.Api.Data;
 using HomeHub.Api.Sensors;
+using HomeHub.Api.Weather;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -42,11 +43,19 @@ else
 }
 builder.Services.AddScoped<AlertEngine>();
 
-// The poller writes owned history + evaluates alerts. Only meaningful with a database, so it
-// is registered alongside one; without a connection string the shell still serves (offline-first).
+// --- Stage 3: weather (NWS) ---
+// Key-free; the default location works out of the box. Alerts are folded into the same alert
+// engine + banner as sensors (no duplicate mechanism).
+builder.Services.Configure<WeatherOptions>(builder.Configuration.GetSection(WeatherOptions.Section));
+builder.Services.AddHttpClient<IWeatherProvider, NwsWeatherProvider>();
+builder.Services.AddScoped<WeatherRefresher>();
+
+// The pollers write owned history / cache + evaluate alerts. Only meaningful with a database, so
+// they are registered alongside one; without a connection string the shell still serves.
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Services.AddHostedService<SensorPollingService>();
+    builder.Services.AddHostedService<WeatherPollingService>();
 }
 
 var app = builder.Build();

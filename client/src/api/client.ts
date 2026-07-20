@@ -6,6 +6,7 @@ import type {
   ZoneHistoryDto,
   ActiveAlertDto,
   ThresholdDto,
+  WeatherSnapshotDto,
 } from './types'
 
 /**
@@ -76,4 +77,7 @@ export const api = {
   getThresholds: () => request<ThresholdDto[]>('/alerts/thresholds'),
   updateThreshold: (id: number, patch: { value: number; durationMinutes: number; enabled: boolean }) =>
     request<ThresholdDto>(`/alerts/thresholds/${id}`, { method: 'PUT', ...json(patch) }),
+
+  // ---- Weather ----
+  getWeather: () => request<WeatherSnapshotDto>('/weather'),
 }

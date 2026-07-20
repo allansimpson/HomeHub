@@ -46,7 +46,24 @@ raises the Severe banner and clears on recovery.
 `true`→`false` — `Microsoft.Data.SqlClient` refuses to connect in invariant mode (latent
 since Stage 0; first surfaced here). On the Pi (Linux) this needs `libicu` installed.
 
-**Next: Stage 3.**
+**Stage 3 — Weather & NWS Severe Alerts: ✅ COMPLETE.** Added the `IWeatherProvider` seam
+with `NwsWeatherProvider` (api.weather.gov: points→forecast/hourly + active alerts, key-free,
+identifying User-Agent); `WeatherRefresher` caches the snapshot in SQL (`WeatherCache`) and
+folds NWS alerts into the **shared alert engine** via new `AlertEngine.ReconcileAsync` +
+`ActiveAlert.ExpiresAtUtc` (no new banner code); `WeatherPollingService` (10 min).
+`WeatherController` serves cached current+hourly+daily; alerts continue through `/api/alerts`.
+Migration `Stage3_Weather`. Client: `WeatherProvider` context, Weather screen (spec 05:
+current, tonight/hourly strip, week-ahead rows with amber severe labels), dashboard header
+conditions now real, banner reused on both screens. Config `Weather:*` (default Minneapolis
+44.98,-93.27; set your real lat/long). 24 backend tests green. **Verified live against NWS**:
+real current conditions (73°F, hi 94/lo 69, humidity/wind), hourly + 7-day forecast rendered;
+weather-alert raise/clear/expiry covered by tests (no active NWS alert for the area at test
+time; banner is the same component proven live in Stage 2).
+
+**Fix:** `WeatherCache.Id` set `ValueGeneratedNever` (singleton row inserted with fixed id 1;
+SQL Server rejected the explicit identity insert otherwise).
+
+**Next: Stage 4.**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -82,7 +99,7 @@ and don't recreate the design system that's already built.
 - ✅ **2 Sensors, History & Alert Engine** — `ISensorProvider` seam, SensorPush poller→SQL,
   house widget, history charts, configurable threshold alert engine + banner.
   Milestone: real readings, charts render, a threshold breach fires the banner.
-- ⬜ **3 Weather & NWS Severe Alerts** — current/forecast + NWS alerts on the reused engine.
+- ✅ **3 Weather & NWS Severe Alerts** — current/forecast + NWS alerts on the reused engine.
   Milestone: live weather; a severe alert renders the banner.
 - ⬜ **4 Google Calendar** — shared household calendar; display + add/edit/delete.
   Milestone: events round-trip to Google.
@@ -118,12 +135,11 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-Start Stage 3 (`stage-3-weather.md`): confirm its Decisions-to-confirm with the human (US
-location for NWS + a proper NWS User-Agent string), build current/forecast + NWS severe alerts
-**on the reused Stage 2 alert engine** (no new alert mechanism), to the milestone, verify, then
-tick the roadmap above before Stage 4.
+Start Stage 4 (`stage-4-google-calendar.md`): confirm its Decisions-to-confirm with the human
+(Google OAuth client + household account, calendar WRITE scope). This is the first OAuth stage —
+shared household calendar display + add/edit/delete. Build to the milestone (events round-trip
+to Google), verify, then tick the roadmap above before Stage 5.
 
-To plug in real sensors later: set `SensorPush:Email` / `SensorPush:Password` (user-secrets in
-dev, env vars in prod) and map sensor ids to zones; the app switches off the simulated provider
-automatically. To run live now, use a SQL Server / LocalDB connection string in
-`ConnectionStrings__HomeHub`.
+Config to go live later: sensors `SensorPush:Email`/`Password` (+ sensor→zone map); weather
+`Weather:Latitude`/`Longitude` (default Minneapolis). Run live with a SQL Server / LocalDB
+connection string in `ConnectionStrings__HomeHub`.

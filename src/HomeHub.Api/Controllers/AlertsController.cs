@@ -23,12 +23,13 @@ public class AlertsController : ControllerBase
         _engine = engine;
     }
 
-    /// <summary>Currently-open alerts, most severe (then most recent) first.</summary>
+    /// <summary>Currently-open alerts (uncleared and unexpired), most severe (then most recent) first.</summary>
     [HttpGet]
     public async Task<IReadOnlyList<ActiveAlertDto>> Active()
     {
+        var now = DateTime.UtcNow;
         var alerts = await _db.ActiveAlerts
-            .Where(a => a.ClearedAtUtc == null)
+            .Where(a => a.ClearedAtUtc == null && (a.ExpiresAtUtc == null || a.ExpiresAtUtc > now))
             .OrderByDescending(a => a.Severity)
             .ThenByDescending(a => a.StartedAtUtc)
             .ToListAsync();

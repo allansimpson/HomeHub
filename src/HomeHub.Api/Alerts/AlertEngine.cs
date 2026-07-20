@@ -67,6 +67,57 @@ public sealed class AlertEngine
         return await db.ActiveAlerts.CountAsync(a => a.Type == SensorAlertType && a.ClearedAtUtc == null, ct);
     }
 
+    /// <summary>
+    /// Reconcile externally-sourced alerts (e.g. NWS weather) of one <paramref name="type"/>
+    /// against the set currently active at the source. New ones are raised, gone ones cleared,
+    /// existing ones refreshed — reusing the same <see cref="ActiveAlert"/> store and banner as
+    /// sensor alerts (no duplicate mechanism). These carry an explicit expiry rather than a
+    /// sustained-duration rule.
+    /// </summary>
+    public async Task ReconcileAsync(
+        HomeHubDbContext db, string type, IReadOnlyList<ExternalAlert> incoming, DateTime nowUtc, CancellationToken ct = default)
+    {
+        var open = await db.ActiveAlerts
+            .Where(a => a.Type == type && a.ClearedAtUtc == null)
+            .ToListAsync(ct);
+        var openByKey = open.ToDictionary(a => a.DedupeKey);
+        var incomingByKey = incoming.ToDictionary(a => a.DedupeKey);
+
+        // Clear alerts no longer present at the source.
+        foreach (var existing in open)
+        {
+            if (!incomingByKey.ContainsKey(existing.DedupeKey))
+                existing.ClearedAtUtc = nowUtc;
+        }
+
+        // Raise new, refresh existing.
+        foreach (var input in incoming)
+        {
+            if (openByKey.TryGetValue(input.DedupeKey, out var existing))
+            {
+                existing.Severity = input.Severity;
+                existing.Message = input.Message;
+                existing.Source = input.Source;
+                existing.ExpiresAtUtc = input.ExpiresAtUtc;
+            }
+            else
+            {
+                db.ActiveAlerts.Add(new ActiveAlert
+                {
+                    Type = type,
+                    DedupeKey = input.DedupeKey,
+                    Severity = input.Severity,
+                    Message = input.Message,
+                    Source = input.Source,
+                    StartedAtUtc = nowUtc,
+                    ExpiresAtUtc = input.ExpiresAtUtc,
+                });
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
     private static async Task<(bool BreachingNow, bool Sustained, double LatestValue)> EvaluateThresholdAsync(
         HomeHubDbContext db, AlertThreshold threshold, DateTime nowUtc, CancellationToken ct)
     {
