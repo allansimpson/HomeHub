@@ -2,12 +2,12 @@
 
 A wall-mounted household hub for a Raspberry Pi 5 driving a 4K portrait touch panel, served
 from an always-on Ubuntu home server. Shared calendar, per-person to-dos, room sensors with
-history, mini-split climate control, weather with severe alerts, an AI assistant, and
-PIN-locked profiles. Visual design: **Meridian Ledger** (see the build package).
+history, mini-split climate control, weather with severe alerts, a hybrid AI assistant with
+voice, and PIN-locked profiles. Visual design: **Meridian Ledger**.
 
-Built in ordered, independently-testable stages — see
-[`CentralHome_ClaudeCode_BuildPackage/central-home-build/`](CentralHome_ClaudeCode_BuildPackage/central-home-build/).
-This repository is currently at **Stage 0 — Foundation & Shell**.
+**The build is complete (Stages 0–9).** It runs end-to-end on simulated/local providers today;
+each real integration activates by adding config. Architecture, conventions, the provider-seam
+model, and the go-live checklist are in **[`PROJECT.md`](PROJECT.md)**.
 
 ## Layout
 
@@ -17,8 +17,7 @@ src/HomeHub.Api/                 ASP.NET Core Web API + EF Core; serves the buil
 client/                          React + TypeScript SPA (Vite) — the Meridian Ledger UI
 tests/HomeHub.Tests/             xUnit integration tests
 deploy/                          server (systemd) + Pi kiosk setup docs
-CentralHome_ClaudeCode_BuildPackage/   build stages + design handoff (source of truth)
-HomeHub_ClaudeDesign/            original Claude Design handoff (reference)
+PROJECT.md                       architecture, conventions, provider seams, go-live checklist
 ```
 
 ## Prerequisites

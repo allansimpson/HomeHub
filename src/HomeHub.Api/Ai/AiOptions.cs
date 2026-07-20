@@ -4,7 +4,7 @@ namespace HomeHub.Api.Ai;
 /// Hybrid assistant config, bound from the <c>Ai</c> section. The cloud key stays server-side;
 /// the local model runs on the home server (never the Pi). Secrets never committed. With neither
 /// configured, the router degrades to a built-in simulated on-device assistant so the panel is
-/// still demoable. Routing hints are tunable config, not hard-coded (see hybrid-ai-routing.md).
+/// still demoable. Routing hints are tunable config, not hard-coded (see PROJECT.md §6).
 /// </summary>
 public sealed class AiOptions
 {

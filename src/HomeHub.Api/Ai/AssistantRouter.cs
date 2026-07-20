@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 
 /// <summary>
 /// Routes every assistant request between the local (on-server) and cloud providers, per
-/// hybrid-ai-routing.md: task-based routing first (tunable hints), then a confidence fallback
+/// PROJECT.md §6: task-based routing first (tunable hints), then a confidence fallback
 /// that escalates a weak local answer to cloud. Falls back to the built-in simulated assistant
 /// when nothing is configured. Everything downstream depends on this, not on a vendor.
 /// </summary>
