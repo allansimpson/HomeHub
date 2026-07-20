@@ -1,6 +1,7 @@
 namespace HomeHub.Api.Data;
 
 using HomeHub.Api.Alerts;
+using HomeHub.Api.Calendar;
 using HomeHub.Api.Profiles;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Settings;
@@ -38,6 +39,9 @@ public class HomeHubDbContext : DbContext
 
     /// <summary>Single-row cache of last-known weather for offline reads (Stage 3).</summary>
     public DbSet<WeatherCache> WeatherCache => Set<WeatherCache>();
+
+    /// <summary>Calendar events — local store / Google offline cache (Stage 4).</summary>
+    public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -133,6 +137,19 @@ public class HomeHubDbContext : DbContext
         {
             entity.Property(w => w.Id).ValueGeneratedNever();
             entity.Property(w => w.PayloadJson).IsRequired();
+        });
+
+        // ---- Stage 4: Calendar events ----
+        modelBuilder.Entity<CalendarEvent>(entity =>
+        {
+            entity.Property(e => e.Title).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Source).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.GoogleId).HasMaxLength(200);
+            entity.Property(e => e.Location).HasMaxLength(300);
+            entity.Property(e => e.Notes).HasMaxLength(2000);
+            entity.Property(e => e.OwnerTags).HasMaxLength(120);
+            entity.HasIndex(e => e.StartUtc);
+            entity.HasIndex(e => e.GoogleId);
         });
     }
 }

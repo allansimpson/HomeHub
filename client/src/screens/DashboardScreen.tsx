@@ -4,10 +4,14 @@ import { useClock } from '../app/useClock'
 import { useSession } from '../app/SessionProvider'
 import { useSensors } from '../app/SensorsProvider'
 import { useWeather } from '../app/WeatherProvider'
-import type { ZoneReadingDto } from '../api/types'
+import { useCalendar } from '../app/CalendarProvider'
+import { formatTime } from '../app/dates'
+import type { ZoneReadingDto, CalendarEventDto } from '../api/types'
 
 /** Rooms shown before the dashboard collapses the rest into an "ALL N ROOMS" link (no-scroll). */
 const HOUSE_PREVIEW = 3
+/** Events shown before the NEXT section collapses the rest into a "+N MORE" link (no-scroll). */
+const NEXT_PREVIEW = 2
 
 /** Route an alert source ("sensor:3", "weather") to its screen. */
 function alertTarget(source: string): string {
@@ -27,6 +31,10 @@ export function DashboardScreen() {
   const { activeProfile } = useSession()
   const { zones, alerts } = useSensors()
   const { weather, offline: weatherOffline } = useWeather()
+  const { upcoming } = useCalendar()
+
+  const nextPreview = upcoming.slice(0, NEXT_PREVIEW)
+  const nextHidden = upcoming.length - nextPreview.length
 
   const topAlert = alerts[0]
   const preview = zones.slice(0, HOUSE_PREVIEW)
@@ -62,13 +70,28 @@ export function DashboardScreen() {
           />
         )}
 
-        <SectionLabel label="Next" status="No engagements" />
-        <LedgerRow
-          major
-          title={<span style={{ color: 'var(--text-muted)' }}>Nothing scheduled</span>}
-          sub="Calendar connects in a later stage"
-          onClick={() => navigate('/calendar')}
+        <SectionLabel
+          label="Next"
+          status={upcoming.length === 0 ? 'No engagements' : `${upcoming.length} ${upcoming.length === 1 ? 'engagement' : 'engagements'}`}
         />
+        {nextPreview.length === 0 ? (
+          <LedgerRow
+            major
+            title={<span style={{ color: 'var(--text-muted)' }}>Nothing scheduled</span>}
+            sub="Tap to add an engagement"
+            onClick={() => navigate('/calendar/new')}
+          />
+        ) : (
+          nextPreview.map((e, i) => (
+            <NextRow key={e.id} event={e} hero={i === 0} onClick={() => navigate(`/calendar/edit/${e.id}`)} />
+          ))
+        )}
+        {nextHidden > 0 && (
+          <LedgerRow
+            title={<span className="ml-linkadd">{`＋ ${nextHidden} more ▸`}</span>}
+            onClick={() => navigate('/calendar')}
+          />
+        )}
 
         <SectionLabel
           label="The House"
@@ -112,6 +135,34 @@ export function DashboardScreen() {
         </div>
       </div>
     </ScreenShell>
+  )
+}
+
+/** Relative-day hint for an event: Today / Tomorrow / weekday. */
+function dayHint(start: Date): string {
+  const now = new Date()
+  const days = Math.round((new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()
+    - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86_400_000)
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Tomorrow'
+  return start.toLocaleDateString('en-US', { weekday: 'long' })
+}
+
+/** NEXT event row: Marcellus time (hero = larger) + title + day/location sub. */
+function NextRow({ event, hero, onClick }: { event: CalendarEventDto; hero: boolean; onClick: () => void }) {
+  const start = formatTime(new Date(event.startUtc))
+  const sub = [dayHint(new Date(event.startUtc)), event.location].filter(Boolean).join(' · ')
+  return (
+    <button className={'ml-row ml-row--major ml-row--tappable ml-next' + (hero ? ' ml-next--hero' : '')} onClick={onClick} type="button">
+      <span className="ml-next__time serif">
+        {start.time}
+        <span className="ml-next__ampm">{start.ampm}</span>
+      </span>
+      <div className="ml-row__main">
+        <div className="ml-row__title">{event.title}</div>
+        {sub && <div className="ml-row__sub">{sub}</div>}
+      </div>
+    </button>
   )
 }
 

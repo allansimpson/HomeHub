@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using HomeHub.Api.Alerts;
+using HomeHub.Api.Calendar;
 using HomeHub.Api.Data;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Weather;
@@ -50,12 +51,30 @@ builder.Services.Configure<WeatherOptions>(builder.Configuration.GetSection(Weat
 builder.Services.AddHttpClient<IWeatherProvider, NwsWeatherProvider>();
 builder.Services.AddScoped<WeatherRefresher>();
 
-// The pollers write owned history / cache + evaluate alerts. Only meaningful with a database, so
-// they are registered alongside one; without a connection string the shell still serves.
+// --- Stage 4: calendar ---
+// Google Calendar when OAuth is configured; otherwise a local SQL calendar so the panel is
+// fully usable (create/edit/delete persist) without any external account. UI depends only on
+// ICalendarProvider. Both variants need the database, so registration is DB-gated below.
+builder.Services.Configure<GoogleCalendarOptions>(builder.Configuration.GetSection(GoogleCalendarOptions.Section));
+var google = builder.Configuration.GetSection(GoogleCalendarOptions.Section).Get<GoogleCalendarOptions>();
+if (google?.IsConfigured == true)
+{
+    builder.Services.AddHttpClient<GoogleCalendarProvider>();
+}
+
+// The pollers write owned history / cache + evaluate alerts, and the calendar provider needs a
+// DB. All are registered only alongside a database; without a connection string the shell still
+// serves (offline-first) and these data endpoints simply return errors until a DB is present.
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
+    if (google?.IsConfigured == true)
+        builder.Services.AddScoped<ICalendarProvider>(sp => sp.GetRequiredService<GoogleCalendarProvider>());
+    else
+        builder.Services.AddScoped<ICalendarProvider, SqlCalendarProvider>();
+
     builder.Services.AddHostedService<SensorPollingService>();
     builder.Services.AddHostedService<WeatherPollingService>();
+    builder.Services.AddHostedService<CalendarSeeder>();
 }
 
 var app = builder.Build();

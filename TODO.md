@@ -63,7 +63,25 @@ time; banner is the same component proven live in Stage 2).
 **Fix:** `WeatherCache.Id` set `ValueGeneratedNever` (singleton row inserted with fixed id 1;
 SQL Server rejected the explicit identity insert otherwise).
 
-**Next: Stage 4.**
+**Stage 4 — Google Calendar (shared household): ✅ COMPLETE (local provider; Google behind
+the seam, awaiting OAuth).** Added `ICalendarProvider` seam with `SqlCalendarProvider` (local
+store, default — full CRUD persists offline) and `GoogleCalendarProvider` (real Calendar v3:
+silent OAuth refresh + events list/insert/patch/delete, local table as offline cache;
+config-gated on `Google:*`). `CalendarEvent` entity + migration `Stage4_Calendar`;
+`CalendarSeeder` seeds sample events on first run (local only). `CalendarController`
+range/upcoming/get/create/update/delete. Client: `CalendarProvider` context, Calendar screen
+(month grid with today-block + event dashes + agenda), touch-friendly Event editor (day/time
+steppers 15-min, WHO chips, where/notes, delete — no dropdowns), dashboard NEXT now real
+(hero + compact + collapse), routes `/calendar/new` + `/calendar/edit/:id`. Owner tagging is
+local per the decision. 28 backend tests green. **Verified live on LocalDB**: seeded events on
+NEXT/agenda; create/update/delete round-trip.
+
+**Note:** the milestone's "appears in Google / vice-versa" needs the OAuth client + refresh
+token; that path is implemented in `GoogleCalendarProvider` but untested until creds are set
+(`Google:ClientId/ClientSecret/RefreshToken`, optional `Google:CalendarId`). DI fix: calendar
+provider is DB-gated (needs `HomeHubDbContext`), matching the pollers.
+
+**Next: Stage 5.**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -101,7 +119,8 @@ and don't recreate the design system that's already built.
   Milestone: real readings, charts render, a threshold breach fires the banner.
 - ✅ **3 Weather & NWS Severe Alerts** — current/forecast + NWS alerts on the reused engine.
   Milestone: live weather; a severe alert renders the banner.
-- ⬜ **4 Google Calendar** — shared household calendar; display + add/edit/delete.
+- ✅ **4 Google Calendar** — shared household calendar; display + add/edit/delete. (Local
+  provider done + verified; Google round-trip implemented behind the seam, awaiting OAuth creds.)
   Milestone: events round-trip to Google.
 - ⬜ **5 Microsoft To Do** — per-profile tasks; add/complete/delete.
   Milestone: tasks tied to active profile round-trip.
@@ -135,11 +154,13 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-Start Stage 4 (`stage-4-google-calendar.md`): confirm its Decisions-to-confirm with the human
-(Google OAuth client + household account, calendar WRITE scope). This is the first OAuth stage —
-shared household calendar display + add/edit/delete. Build to the milestone (events round-trip
-to Google), verify, then tick the roadmap above before Stage 5.
+Start Stage 5 (`stage-5-microsoft-todo.md`): confirm its Decisions-to-confirm with the human
+(Microsoft/Azure app registration for Graph To Do + per-profile account linking). Per-profile
+tasks; add/complete/delete tied to the active profile. As with Stages 2–4, build behind a
+provider seam with a local/simulated fallback so it's demoable without credentials; drop in
+Graph creds later. Build to the milestone, verify, tick the roadmap, then Stage 6.
 
 Config to go live later: sensors `SensorPush:Email`/`Password` (+ sensor→zone map); weather
-`Weather:Latitude`/`Longitude` (default Minneapolis). Run live with a SQL Server / LocalDB
-connection string in `ConnectionStrings__HomeHub`.
+`Weather:Latitude`/`Longitude` (default Minneapolis); calendar `Google:ClientId`/`ClientSecret`/
+`RefreshToken` (+ optional `CalendarId`). Run live with a SQL Server / LocalDB connection string
+in `ConnectionStrings__HomeHub`.

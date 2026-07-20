@@ -112,6 +112,28 @@ export interface WeatherSnapshotDto {
   fetchedAtUtc: string | null
 }
 
+// ---- Stage 4: calendar ----
+
+export interface CalendarEventDto {
+  id: number
+  title: string
+  startUtc: string
+  endUtc: string
+  location: string | null
+  notes: string | null
+  ownerIds: number[]
+  source: string
+}
+
+export interface CalendarEventInput {
+  title: string
+  startUtc: string
+  endUtc: string
+  location: string | null
+  notes: string | null
+  ownerIds: number[]
+}
+
 export interface VerifyPinResult {
   success: boolean
   /** Present when the profile is in a lockout cooldown. */

@@ -752,6 +752,274 @@
   color: var(--live-text);
 }
 
+/* ---------- Dashboard NEXT rows ---------- */
+.ml-next {
+  gap: 1rem;
+}
+.ml-next__time {
+  flex: 0 0 auto;
+  min-width: 5.5rem;
+  font-size: 1.625rem; /* 26px secondary */
+  color: var(--text-muted);
+  line-height: 1;
+}
+.ml-next--hero .ml-next__time {
+  font-size: 2.75rem; /* 44px hero */
+  color: var(--brass-bright);
+}
+.ml-next__ampm {
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  margin-left: 0.25rem;
+  color: var(--text-muted);
+}
+
+/* ---------- Calendar screen ---------- */
+.ml-cal-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+}
+.ml-cal-header__month {
+  font-size: 2.25rem; /* 36px */
+  color: var(--text-primary);
+}
+.ml-cal-header__year {
+  font-size: 1.25rem; /* 20px */
+  color: var(--text-muted);
+}
+.ml-cal-header__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ml-iconbtn {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-secondary);
+}
+.ml-iconbtn:active {
+  background: var(--bg-active);
+}
+.ml-iconbtn--accent {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-calgrid {
+  padding: 0.75rem var(--gutter) 0.25rem;
+  flex: 0 0 auto;
+}
+.ml-calgrid__dow,
+.ml-calgrid__cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.ml-calgrid__dowlabel {
+  text-align: center;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+  padding-bottom: 0.375rem;
+}
+.ml-calcell {
+  aspect-ratio: 1.15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  color: var(--text-primary);
+}
+.ml-calcell__num {
+  font-size: 1.0625rem; /* 17px */
+  line-height: 1;
+}
+.ml-calcell--adjacent {
+  color: #3f4348;
+}
+.ml-calcell--today {
+  background: var(--brass);
+}
+.ml-calcell--today .ml-calcell__num {
+  color: var(--bg-screen);
+}
+.ml-calcell--selected {
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-calcell__dot {
+  width: 0.625rem; /* 10px */
+  height: 0.125rem;
+  background: var(--brass);
+}
+.ml-calcell--today .ml-calcell__dot {
+  background: var(--bg-screen);
+}
+.ml-cal-empty {
+  padding: 1.5rem var(--gutter);
+  font-size: 0.8125rem;
+  color: var(--text-disabled);
+}
+/* Agenda rows */
+.ml-agenda {
+  gap: 0.875rem;
+}
+.ml-agenda__time {
+  flex: 0 0 auto;
+  min-width: 6rem; /* 96px */
+  font-size: 1.625rem; /* 26px */
+  color: var(--brass-bright);
+  line-height: 1;
+}
+.ml-agenda__ampm {
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  margin-left: 0.25rem;
+  color: var(--text-muted);
+}
+.ml-agenda__owners {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.375rem;
+}
+.ml-ownerchip {
+  width: 1.375rem; /* 22px */
+  height: 1.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  font-size: 0.625rem;
+  color: var(--brass);
+}
+
+/* ---------- Event editor ---------- */
+.ml-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.ml-editor-header__title {
+  font-size: 1.5rem; /* 24px */
+  color: var(--text-primary);
+  text-align: center;
+  flex: 1 1 auto;
+}
+.ml-editor-header__cancel {
+  padding: 0.625rem 1.25rem;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+.ml-editor-header__save {
+  padding: 0.625rem 1.5rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+  flex: 0 0 auto;
+}
+.ml-editor-header__save:disabled {
+  border-color: var(--border-inactive);
+  background: transparent;
+  color: var(--text-disabled);
+}
+.ml-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding-bottom: 2rem;
+}
+.ml-editor::-webkit-scrollbar {
+  display: none;
+}
+.ml-titleinput {
+  width: 100%;
+  padding: 0.25rem var(--gutter) 1rem;
+  font-size: 1.625rem; /* 26px Marcellus */
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  caret-color: var(--brass-bright);
+}
+.ml-fieldinput {
+  width: 100%;
+  padding: 0.75rem var(--gutter);
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  caret-color: var(--brass-bright);
+}
+.ml-fieldinput::placeholder,
+.ml-titleinput::placeholder {
+  color: var(--text-disabled);
+}
+.ml-datestep {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem var(--gutter) 1rem;
+}
+.ml-datestep__date {
+  font-size: 1.875rem; /* 30px */
+  color: var(--text-primary);
+  text-align: center;
+}
+.ml-timecols {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0 var(--gutter);
+}
+.ml-timecol {
+  flex: 1 1 0;
+}
+.ml-timestep {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0 1rem;
+}
+.ml-timestep__time {
+  font-size: 1.75rem; /* 28px */
+  color: var(--text-primary);
+}
+.ml-timestep__ampm {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+.ml-whochips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  padding: 0.5rem var(--gutter) 1rem;
+}
+.ml-editor__delete {
+  display: block;
+  margin: 1.5rem var(--gutter) 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--alert);
+}
+
 /* ---------- Weather screen ---------- */
 .ml-weather__current {
   display: flex;

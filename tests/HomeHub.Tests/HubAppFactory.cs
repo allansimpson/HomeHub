@@ -1,5 +1,6 @@
 namespace HomeHub.Tests;
 
+using HomeHub.Api.Calendar;
 using HomeHub.Api.Data;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -20,6 +21,9 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
         builder.ConfigureServices(services =>
         {
             services.AddDbContext<HomeHubDbContext>(options => options.UseInMemoryDatabase(_dbName));
+            // The app DB-gates these on a connection string (absent in tests); register the
+            // local calendar provider here so calendar endpoints work against the in-memory DB.
+            services.AddScoped<ICalendarProvider, SqlCalendarProvider>();
         });
     }
 

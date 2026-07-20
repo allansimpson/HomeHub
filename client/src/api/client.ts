@@ -7,6 +7,8 @@ import type {
   ActiveAlertDto,
   ThresholdDto,
   WeatherSnapshotDto,
+  CalendarEventDto,
+  CalendarEventInput,
 } from './types'
 
 /**
@@ -80,4 +82,15 @@ export const api = {
 
   // ---- Weather ----
   getWeather: () => request<WeatherSnapshotDto>('/weather'),
+
+  // ---- Calendar ----
+  getEvents: (fromIso: string, toIso: string) =>
+    request<CalendarEventDto[]>(`/calendar/events?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`),
+  getUpcoming: (days = 7) => request<CalendarEventDto[]>(`/calendar/upcoming?days=${days}`),
+  getEvent: (id: number) => request<CalendarEventDto>(`/calendar/events/${id}`),
+  createEvent: (input: CalendarEventInput) =>
+    request<CalendarEventDto>('/calendar/events', { method: 'POST', ...json(input) }),
+  updateEvent: (id: number, input: CalendarEventInput) =>
+    request<CalendarEventDto>(`/calendar/events/${id}`, { method: 'PUT', ...json(input) }),
+  deleteEvent: (id: number) => request<void>(`/calendar/events/${id}`, { method: 'DELETE' }),
 }
