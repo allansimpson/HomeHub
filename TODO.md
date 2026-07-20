@@ -26,7 +26,27 @@ badge, idle-reset + night-dim wiring. 10 backend tests green; API boots without 
 (profiles endpoint 500s gracefully, shell still serves). To run live, set
 `ConnectionStrings__HomeHub`.
 
-**Next: Stage 2.**
+**Stage 2 — Sensors, History & Alert Engine: ✅ COMPLETE.** Added the mandatory
+`ISensorProvider` seam with `SimulatedSensorProvider` (deterministic, auto-selected when no
+creds) + `SensorPushProvider` (real cloud client, config-driven via `SensorPush:*`);
+`SensorPollingService` (BackgroundService) writes every reading to SQL (60s) + one-time 24h
+backfill for empty zones; the general **AlertEngine** (sustained-breach rule, type-agnostic
+raise/clear). Entities `SensorZone`/`SensorReading`/`AlertThreshold`/`ActiveAlert` +
+migration `Stage2_SensorsAndAlerts`, seeded 5 zones (Freezer, Fridge, Living Room, Kitchen,
+Bedroom) + default thresholds. `SensorsController` (zones-with-latest, bucketed history) +
+`AlertsController` (active alerts, threshold config that re-evaluates immediately). Client:
+`SensorsProvider` polling zones+alerts, dashboard THE HOUSE widget + collapse + alert banner,
+Sensor History screen (chips, current reading, 12-bar temp chart, humidity meters), Settings
+alert-threshold editors wired to the engine. Dropped the Stage 1 placeholder °C settings
+columns (per-zone thresholds are now the engine's source of truth). 19 backend tests green.
+**Verified live on LocalDB**: readings flow, 24h chart renders, a forced freezer breach
+raises the Severe banner and clears on recovery.
+
+**⚠️ Foundation fix applied:** `Directory.Build.props` `InvariantGlobalization` flipped
+`true`→`false` — `Microsoft.Data.SqlClient` refuses to connect in invariant mode (latent
+since Stage 0; first surfaced here). On the Pi (Linux) this needs `libicu` installed.
+
+**Next: Stage 3.**
 
 ## Sources of truth
 - Stage specs: `CentralHome_ClaudeCode_BuildPackage/central-home-build/stages/stage-N-*.md`
@@ -59,7 +79,7 @@ and don't recreate the design system that's already built.
 - ✅ **0 Foundation & Shell**
 - ✅ **1 Profiles, PIN & Settings** — profiles, conditional per-user PIN lock, Lock screen,
   Settings scaffold. Milestone: switch profiles, PIN lock/unlock, settings persist.
-- ⬜ **2 Sensors, History & Alert Engine** — `ISensorProvider` seam, SensorPush poller→SQL,
+- ✅ **2 Sensors, History & Alert Engine** — `ISensorProvider` seam, SensorPush poller→SQL,
   house widget, history charts, configurable threshold alert engine + banner.
   Milestone: real readings, charts render, a threshold breach fires the banner.
 - ⬜ **3 Weather & NWS Severe Alerts** — current/forecast + NWS alerts on the reused engine.
@@ -98,7 +118,12 @@ Camera systems / camera-image→AI, shared shopping list, message board, meal pl
 lighting/lock/leak control, local-vision AI. If a task seems to need one, stop and confirm.
 
 ## Immediate next action
-Start Stage 2 (`stage-2-sensors-alerts.md`): confirm its Decisions-to-confirm with the human
-(SensorPush creds + sensor→zone map + thresholds/durations), build the `ISensorProvider` seam
-+ poller→SQL + history charts + the reusable threshold alert engine to the milestone, verify,
-then tick the roadmap above before Stage 3.
+Start Stage 3 (`stage-3-weather.md`): confirm its Decisions-to-confirm with the human (US
+location for NWS + a proper NWS User-Agent string), build current/forecast + NWS severe alerts
+**on the reused Stage 2 alert engine** (no new alert mechanism), to the milestone, verify, then
+tick the roadmap above before Stage 4.
+
+To plug in real sensors later: set `SensorPush:Email` / `SensorPush:Password` (user-secrets in
+dev, env vars in prod) and map sensor ids to zones; the app switches off the simulated provider
+automatically. To run live now, use a SQL Server / LocalDB connection string in
+`ConnectionStrings__HomeHub`.

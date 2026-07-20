@@ -16,11 +16,8 @@ public class HouseholdSettings
     /// <summary>Dim the dashboard to 40% after 10 PM (see the daylight/idle behaviour).</summary>
     public bool IdleDimmingEnabled { get; set; } = true;
 
-    /// <summary>Alert-threshold placeholder — freezer warning above this °C. Consumed in Stage 2.</summary>
-    public int FreezerWarnAboveCelsius { get; set; } = 10;
-
-    /// <summary>Alert-threshold placeholder — humidity warning above this %. Consumed in Stage 2.</summary>
-    public int HumidityWarnAbovePercent { get; set; } = 65;
+    // Alert thresholds moved to per-zone AlertThreshold rows in Stage 2 (the engine's source of
+    // truth); the Settings screen edits those directly.
 
     /// <summary>Which profile is currently active on the panel (persists across reboots). Null = none chosen.</summary>
     public int? ActiveProfileId { get; set; }

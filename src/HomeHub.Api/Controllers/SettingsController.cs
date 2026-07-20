@@ -27,8 +27,6 @@ public class SettingsController : ControllerBase
         var s = await GetOrCreate();
         s.IdleTimeoutMinutes = Math.Clamp(req.IdleTimeoutMinutes, 1, 120);
         s.IdleDimmingEnabled = req.IdleDimmingEnabled;
-        s.FreezerWarnAboveCelsius = req.FreezerWarnAboveCelsius;
-        s.HumidityWarnAbovePercent = Math.Clamp(req.HumidityWarnAbovePercent, 0, 100);
         await _db.SaveChangesAsync();
         return SettingsDto.From(s);
     }

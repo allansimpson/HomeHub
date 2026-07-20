@@ -1,10 +1,17 @@
+using System.Text.Json.Serialization;
+using HomeHub.Api.Alerts;
 using HomeHub.Api.Data;
+using HomeHub.Api.Sensors;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // --- Services ---
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(o =>
+{
+    // Serialize enums (alert severity/metric/direction, zone category) as their names.
+    o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 builder.Services.AddOpenApi();
 
 // EF Core / SQL Server. The connection string is NEVER committed — it is read from the
@@ -16,6 +23,30 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Services.AddDbContext<HomeHubDbContext>(options =>
         options.UseSqlServer(connectionString));
+}
+
+// --- Stage 2: sensors + alert engine ---
+// The sensor seam: SensorPush when credentials are configured, otherwise the deterministic
+// simulated provider so the app is fully functional out of the box (real data on drop-in of
+// creds, no code change). UI/logic depend only on ISensorProvider.
+builder.Services.Configure<SensorPushOptions>(builder.Configuration.GetSection(SensorPushOptions.Section));
+var sensorPush = builder.Configuration.GetSection(SensorPushOptions.Section).Get<SensorPushOptions>();
+if (sensorPush?.IsConfigured == true)
+{
+    builder.Services.AddHttpClient<SensorPushProvider>();
+    builder.Services.AddScoped<ISensorProvider>(sp => sp.GetRequiredService<SensorPushProvider>());
+}
+else
+{
+    builder.Services.AddSingleton<ISensorProvider, SimulatedSensorProvider>();
+}
+builder.Services.AddScoped<AlertEngine>();
+
+// The poller writes owned history + evaluates alerts. Only meaningful with a database, so it
+// is registered alongside one; without a connection string the shell still serves (offline-first).
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddHostedService<SensorPollingService>();
 }
 
 var app = builder.Build();

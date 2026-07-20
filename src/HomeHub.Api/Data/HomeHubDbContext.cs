@@ -1,6 +1,8 @@
 namespace HomeHub.Api.Data;
 
+using HomeHub.Api.Alerts;
 using HomeHub.Api.Profiles;
+using HomeHub.Api.Sensors;
 using HomeHub.Api.Settings;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +22,18 @@ public class HomeHubDbContext : DbContext
 
     /// <summary>Single household-level settings row (Stage 1); extended by later stages.</summary>
     public DbSet<HouseholdSettings> Settings => Set<HouseholdSettings>();
+
+    /// <summary>Tracked rooms/appliances (Stage 2).</summary>
+    public DbSet<SensorZone> SensorZones => Set<SensorZone>();
+
+    /// <summary>Owned reading history, written by the poller (Stage 2).</summary>
+    public DbSet<SensorReading> SensorReadings => Set<SensorReading>();
+
+    /// <summary>Configurable alert rules evaluated by the alert engine (Stage 2).</summary>
+    public DbSet<AlertThreshold> AlertThresholds => Set<AlertThreshold>();
+
+    /// <summary>Raised alerts, type-agnostic and reused by later stages (Stage 2).</summary>
+    public DbSet<ActiveAlert> ActiveAlerts => Set<ActiveAlert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -50,10 +64,64 @@ public class HomeHubDbContext : DbContext
                 Id = 1,
                 IdleTimeoutMinutes = 5,
                 IdleDimmingEnabled = true,
-                FreezerWarnAboveCelsius = 10,
-                HumidityWarnAbovePercent = 65,
                 ActiveProfileId = null,
             });
+        });
+
+        // ---- Stage 2: Sensor zones + readings ----
+        modelBuilder.Entity<SensorZone>(entity =>
+        {
+            entity.Property(z => z.Name).HasMaxLength(60).IsRequired();
+            entity.Property(z => z.Source).HasMaxLength(30).IsRequired();
+            entity.Property(z => z.ProviderRef).HasMaxLength(120).IsRequired();
+            entity.HasIndex(z => new { z.Source, z.ProviderRef }).IsUnique();
+            entity.HasIndex(z => z.DisplayOrder);
+
+            // Seed the confirmed household zones. Provider refs match SimulatedSensorProvider so
+            // seeded zones receive readings out of the box; swap Source/ProviderRef when real
+            // SensorPush sensors are mapped.
+            entity.HasData(
+                new SensorZone { Id = 1, Name = "Freezer", Source = "simulated", ProviderRef = "sim-freezer", Category = SensorCategory.FoodSafety, DisplayOrder = 0 },
+                new SensorZone { Id = 2, Name = "Fridge", Source = "simulated", ProviderRef = "sim-fridge", Category = SensorCategory.FoodSafety, DisplayOrder = 1 },
+                new SensorZone { Id = 3, Name = "Living Room", Source = "simulated", ProviderRef = "sim-living", Category = SensorCategory.Ambient, DisplayOrder = 2 },
+                new SensorZone { Id = 4, Name = "Kitchen", Source = "simulated", ProviderRef = "sim-kitchen", Category = SensorCategory.Ambient, DisplayOrder = 3 },
+                new SensorZone { Id = 5, Name = "Bedroom", Source = "simulated", ProviderRef = "sim-bedroom", Category = SensorCategory.Ambient, DisplayOrder = 4 });
+        });
+
+        modelBuilder.Entity<SensorReading>(entity =>
+        {
+            entity.HasOne(r => r.Zone)
+                .WithMany(z => z.Readings)
+                .HasForeignKey(r => r.ZoneId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(r => new { r.ZoneId, r.TimestampUtc });
+        });
+
+        // ---- Stage 2: Alert thresholds + active alerts ----
+        modelBuilder.Entity<AlertThreshold>(entity =>
+        {
+            entity.HasOne(t => t.Zone)
+                .WithMany()
+                .HasForeignKey(t => t.ZoneId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Default rules: food-safety temp ceilings (severe freezer, warning fridge) and
+            // ambient humidity ceilings. Sustained 10 min so a brief door-open doesn't nag.
+            entity.HasData(
+                new AlertThreshold { Id = 1, ZoneId = 1, Metric = AlertMetric.Temperature, Direction = AlertDirection.Above, Value = 10, DurationMinutes = 10, Severity = AlertSeverity.Severe, Enabled = true },
+                new AlertThreshold { Id = 2, ZoneId = 2, Metric = AlertMetric.Temperature, Direction = AlertDirection.Above, Value = 40, DurationMinutes = 10, Severity = AlertSeverity.Warning, Enabled = true },
+                new AlertThreshold { Id = 3, ZoneId = 3, Metric = AlertMetric.Humidity, Direction = AlertDirection.Above, Value = 65, DurationMinutes = 10, Severity = AlertSeverity.Warning, Enabled = true },
+                new AlertThreshold { Id = 4, ZoneId = 4, Metric = AlertMetric.Humidity, Direction = AlertDirection.Above, Value = 65, DurationMinutes = 10, Severity = AlertSeverity.Warning, Enabled = true },
+                new AlertThreshold { Id = 5, ZoneId = 5, Metric = AlertMetric.Humidity, Direction = AlertDirection.Above, Value = 65, DurationMinutes = 10, Severity = AlertSeverity.Warning, Enabled = true });
+        });
+
+        modelBuilder.Entity<ActiveAlert>(entity =>
+        {
+            entity.Property(a => a.Type).HasMaxLength(30).IsRequired();
+            entity.Property(a => a.DedupeKey).HasMaxLength(80).IsRequired();
+            entity.Property(a => a.Message).HasMaxLength(300).IsRequired();
+            entity.Property(a => a.Source).HasMaxLength(80).IsRequired();
+            entity.HasIndex(a => new { a.Type, a.ClearedAtUtc });
         });
     }
 }

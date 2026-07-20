@@ -1,4 +1,12 @@
-import type { ProfileDto, SettingsDto, VerifyPinResult } from './types'
+import type {
+  ProfileDto,
+  SettingsDto,
+  VerifyPinResult,
+  ZoneReadingDto,
+  ZoneHistoryDto,
+  ActiveAlertDto,
+  ThresholdDto,
+} from './types'
 
 /**
  * Thin typed wrapper over the HomeHub API. Same-origin in prod; the Vite proxy forwards
@@ -53,8 +61,19 @@ export const api = {
 
   // ---- Settings ----
   getSettings: () => request<SettingsDto>('/settings'),
-  updateSettings: (patch: Omit<SettingsDto, 'activeProfileId'>) =>
+  updateSettings: (patch: { idleTimeoutMinutes: number; idleDimmingEnabled: boolean }) =>
     request<SettingsDto>('/settings', { method: 'PUT', ...json(patch) }),
   setActiveProfile: (profileId: number | null) =>
     request<SettingsDto>('/settings/active-profile', { method: 'PUT', ...json({ profileId }) }),
+
+  // ---- Sensors ----
+  getZones: () => request<ZoneReadingDto[]>('/sensors/zones'),
+  getZoneHistory: (id: number, hours = 24) =>
+    request<ZoneHistoryDto>(`/sensors/zones/${id}/history?hours=${hours}`),
+
+  // ---- Alerts ----
+  getAlerts: () => request<ActiveAlertDto[]>('/alerts'),
+  getThresholds: () => request<ThresholdDto[]>('/alerts/thresholds'),
+  updateThreshold: (id: number, patch: { value: number; durationMinutes: number; enabled: boolean }) =>
+    request<ThresholdDto>(`/alerts/thresholds/${id}`, { method: 'PUT', ...json(patch) }),
 }

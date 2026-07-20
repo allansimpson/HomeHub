@@ -11,8 +11,9 @@ import {
   PinPad,
 } from '../components'
 import { useSession } from '../app/SessionProvider'
+import { useSensors } from '../app/SensorsProvider'
 import { api, ApiError } from '../api/client'
-import type { ProfileDto } from '../api/types'
+import type { ProfileDto, ThresholdDto } from '../api/types'
 
 const PIN_LENGTH = 4
 
@@ -31,44 +32,88 @@ export function SettingsScreen() {
   const navigate = useNavigate()
   const { profiles, settings, refresh, offline } = useSession()
 
+  const { refresh: refreshSensors } = useSensors()
+
   // Local editable copy of household settings, kept in sync when the session reloads.
-  const [freezer, setFreezer] = useState(10)
-  const [humidity, setHumidity] = useState(65)
   const [dimming, setDimming] = useState(true)
   const [timeoutMin, setTimeoutMin] = useState(5)
 
   useEffect(() => {
     if (!settings) return
-    setFreezer(settings.freezerWarnAboveCelsius)
-    setHumidity(settings.humidityWarnAbovePercent)
     setDimming(settings.idleDimmingEnabled)
     setTimeoutMin(settings.idleTimeoutMinutes)
   }, [settings])
 
-  // Debounced persist for the numeric/toggle settings (steppers repeat on long-press).
+  // Debounced persist for the toggle/timeout settings (steppers repeat on long-press).
   useEffect(() => {
     if (!settings) return
-    const unchanged =
-      freezer === settings.freezerWarnAboveCelsius &&
-      humidity === settings.humidityWarnAbovePercent &&
-      dimming === settings.idleDimmingEnabled &&
-      timeoutMin === settings.idleTimeoutMinutes
+    const unchanged = dimming === settings.idleDimmingEnabled && timeoutMin === settings.idleTimeoutMinutes
     if (unchanged) return
     const t = window.setTimeout(async () => {
       try {
-        await api.updateSettings({
-          idleTimeoutMinutes: timeoutMin,
-          idleDimmingEnabled: dimming,
-          freezerWarnAboveCelsius: freezer,
-          humidityWarnAbovePercent: humidity,
-        })
+        await api.updateSettings({ idleTimeoutMinutes: timeoutMin, idleDimmingEnabled: dimming })
         await refresh()
       } catch (err) {
         if (!(err instanceof ApiError)) throw err
       }
     }, 400)
     return () => window.clearTimeout(t)
-  }, [freezer, humidity, dimming, timeoutMin, settings, refresh])
+  }, [dimming, timeoutMin, settings, refresh])
+
+  // ---- Alert thresholds (drive the engine; edited here) ----
+  const [thresholds, setThresholds] = useState<ThresholdDto[]>([])
+  const [dirtyThresholds, setDirtyThresholds] = useState<Set<number>>(new Set())
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const t = await api.getThresholds()
+        if (!cancelled) setThresholds(t)
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const editThreshold = useCallback((id: number, patch: Partial<ThresholdDto>) => {
+    setThresholds((cur) => cur.map((t) => (t.id === id ? { ...t, ...patch } : t)))
+    setDirtyThresholds((cur) => new Set(cur).add(id))
+  }, [])
+
+  // Debounced persist of edited thresholds; re-evaluates the engine server-side.
+  useEffect(() => {
+    if (dirtyThresholds.size === 0) return
+    const t = window.setTimeout(async () => {
+      const toSave = thresholds.filter((x) => dirtyThresholds.has(x.id))
+      setDirtyThresholds(new Set())
+      try {
+        await Promise.all(
+          toSave.map((x) =>
+            api.updateThreshold(x.id, { value: x.value, durationMinutes: x.durationMinutes, enabled: x.enabled }),
+          ),
+        )
+        await refreshSensors()
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err
+      }
+    }, 500)
+    return () => window.clearTimeout(t)
+  }, [dirtyThresholds, thresholds, refreshSensors])
+
+  // A single shared breach-delay applied to every threshold (common case).
+  const sharedDelay = thresholds.length > 0 ? thresholds[0].durationMinutes : 10
+  const setSharedDelay = useCallback(
+    (next: number) => {
+      const clamped = Math.max(0, next)
+      setThresholds((cur) => cur.map((t) => ({ ...t, durationMinutes: clamped })))
+      setDirtyThresholds(new Set(thresholds.map((t) => t.id)))
+    },
+    [thresholds],
+  )
 
   // ---- Per-user lock toggle ----
   const setRequirePin = useCallback(
@@ -208,36 +253,51 @@ export function SettingsScreen() {
           right={<span className="ml-alwayson">Always On</span>}
         />
 
-        {/* ---- Alert thresholds (stored now; consumed in Stage 2) ---- */}
+        {/* ---- Alert thresholds (drive the engine) ---- */}
         <SectionLabel label="Alert Thresholds" />
-        <LedgerRow
-          title="Freezer warning above"
-          right={
-            <div className="ml-threshold">
-              <Stepper direction="minus" onStep={() => setFreezer((v) => v - 1)} label="Lower freezer threshold" />
-              <span className="ml-threshold__value serif">{freezer}°</span>
-              <Stepper direction="plus" onStep={() => setFreezer((v) => v + 1)} label="Raise freezer threshold" />
-            </div>
-          }
-        />
-        <LedgerRow
-          title="Humidity warning above"
-          right={
-            <div className="ml-threshold">
-              <Stepper
-                direction="minus"
-                onStep={() => setHumidity((v) => Math.max(0, v - 1))}
-                label="Lower humidity threshold"
-              />
-              <span className="ml-threshold__value serif">{humidity}%</span>
-              <Stepper
-                direction="plus"
-                onStep={() => setHumidity((v) => Math.min(100, v + 1))}
-                label="Raise humidity threshold"
-              />
-            </div>
-          }
-        />
+        {thresholds.map((t) => {
+          const unit = t.metric === 'Temperature' ? '°' : '%'
+          const step = 1
+          return (
+            <LedgerRow
+              key={t.id}
+              title={`${t.zoneName} — ${t.metric.toLowerCase()} ${t.direction.toLowerCase()}`}
+              sub={t.severity === 'Severe' ? 'Severe alert' : 'Warning alert'}
+              right={
+                <div className="ml-threshold">
+                  <Stepper
+                    direction="minus"
+                    onStep={() => editThreshold(t.id, { value: t.value - step })}
+                    label={`Lower ${t.zoneName} threshold`}
+                  />
+                  <span className="ml-threshold__value serif">{`${Math.round(t.value)}${unit}`}</span>
+                  <Stepper
+                    direction="plus"
+                    onStep={() => editThreshold(t.id, { value: t.value + step })}
+                    label={`Raise ${t.zoneName} threshold`}
+                  />
+                </div>
+              }
+            />
+          )
+        })}
+        {thresholds.length > 0 && (
+          <LedgerRow
+            title="Alert delay"
+            sub="Breach must persist this long before alerting"
+            right={
+              <div className="ml-threshold">
+                <Stepper
+                  direction="minus"
+                  onStep={() => setSharedDelay(sharedDelay - 1)}
+                  label="Shorten alert delay"
+                />
+                <span className="ml-threshold__value serif">{`${sharedDelay}m`}</span>
+                <Stepper direction="plus" onStep={() => setSharedDelay(sharedDelay + 1)} label="Lengthen alert delay" />
+              </div>
+            }
+          />
+        )}
 
         {/* ---- Idle dimming ---- */}
         <SectionLabel label="Display" />

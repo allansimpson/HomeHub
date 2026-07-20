@@ -614,6 +614,144 @@
   }
 }
 
+/* ---------- Dashboard: THE HOUSE room reading ---------- */
+.ml-house__reading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem; /* 14px */
+  flex: 0 0 auto;
+}
+.ml-house__humidity {
+  font-size: 0.6875rem; /* 11px */
+  color: var(--text-muted);
+}
+.ml-house__temp {
+  font-size: 1.875rem; /* 30px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+/* ---------- Section label live (verdigris) variants ---------- */
+.ml-section__tick--live {
+  background: var(--live-text);
+}
+.ml-section__label--live {
+  color: var(--live-text);
+}
+
+/* ---------- Sensor History screen ---------- */
+.ml-sensor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.625rem; /* 10px */
+  padding: 1rem var(--gutter) 0.5rem;
+}
+.ml-sensor__current {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
+  padding: 1rem var(--gutter) 1.25rem;
+}
+.ml-sensor__temp {
+  font-size: 4.75rem; /* 76px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-sensor__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.ml-sensor__now {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-sensor__today {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Temperature chart: 12 bars, brass vertical gradient, shared baseline. */
+.ml-tempchart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem; /* 8px */
+  height: 13.75rem; /* 220px */
+  padding: 0.5rem var(--gutter) 0;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+  margin: 0 0 0.25rem;
+}
+.ml-tempchart__col {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ml-tempchart__value {
+  font-size: 0.625rem; /* 10px */
+  color: var(--brass-bright);
+  line-height: 1.4;
+}
+.ml-tempchart__track {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.ml-tempchart__bar {
+  width: 100%;
+  background: linear-gradient(to top, var(--brass-gradient-end), var(--brass-bright));
+}
+.ml-tempchart__time {
+  font-size: 0.5625rem; /* 9px */
+  color: var(--text-disabled);
+  margin-top: 0.25rem;
+}
+
+/* Humidity meter rows. */
+.ml-hmeters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 0.75rem var(--gutter) 1.5rem;
+}
+.ml-hmeter {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+.ml-hmeter__label {
+  min-width: 4rem; /* 64px */
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-hmeter__track {
+  flex: 1 1 auto;
+  height: 0.5rem; /* 8px */
+  background: var(--rule-minor);
+}
+.ml-hmeter__fill {
+  height: 100%;
+  background: var(--live-dim);
+}
+.ml-hmeter__fill--current {
+  background: var(--live-accent);
+}
+.ml-hmeter__value {
+  min-width: 2.5rem;
+  text-align: right;
+  font-size: 0.875rem; /* 14px */
+  color: var(--live-text);
+}
+
 /* ---------- Settings screen ---------- */
 .ml-settings__offline {
   padding: 0.75rem var(--gutter);

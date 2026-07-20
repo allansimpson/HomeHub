@@ -5,12 +5,15 @@ import './index.css'
 import './components/ledger.css'
 import { App } from './app/App'
 import { SessionProvider } from './app/SessionProvider'
+import { SensorsProvider } from './app/SensorsProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <SessionProvider>
-        <App />
+        <SensorsProvider>
+          <App />
+        </SensorsProvider>
       </SessionProvider>
     </BrowserRouter>
   </StrictMode>,

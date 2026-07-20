@@ -17,30 +17,27 @@ public class SettingsApiTests
         Assert.NotNull(settings);
         Assert.Equal(5, settings!.IdleTimeoutMinutes);
         Assert.True(settings.IdleDimmingEnabled);
-        Assert.Equal(10, settings.FreezerWarnAboveCelsius);
-        Assert.Equal(65, settings.HumidityWarnAbovePercent);
         Assert.Null(settings.ActiveProfileId);
     }
 
     [Fact]
-    public async Task Updates_thresholds_and_dimming()
+    public async Task Updates_timeout_and_dimming()
     {
         using var app = new HubAppFactory();
         var client = app.CreateSeededClient();
 
         var updated = await (await client.PutAsJsonAsync(
             "/api/settings",
-            new UpdateSettingsRequest(10, false, 5, 70)))
+            new UpdateSettingsRequest(10, false)))
             .Content.ReadFromJsonAsync<SettingsDto>();
 
         Assert.Equal(10, updated!.IdleTimeoutMinutes);
         Assert.False(updated.IdleDimmingEnabled);
-        Assert.Equal(5, updated.FreezerWarnAboveCelsius);
-        Assert.Equal(70, updated.HumidityWarnAbovePercent);
 
         // Persisted across requests.
         var reloaded = await client.GetFromJsonAsync<SettingsDto>("/api/settings");
-        Assert.Equal(70, reloaded!.HumidityWarnAbovePercent);
+        Assert.Equal(10, reloaded!.IdleTimeoutMinutes);
+        Assert.False(reloaded.IdleDimmingEnabled);
     }
 
     [Fact]
