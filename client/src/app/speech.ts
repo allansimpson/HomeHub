@@ -87,12 +87,21 @@ export function createRecognizer(handlers: RecognizerHandlers): Recognizer | nul
   }
 }
 
-/** Speak text through the on-device synthesizer. Cancels any in-progress utterance first. */
-export function speak(text: string): void {
-  if (!('speechSynthesis' in window) || !text) return
+/** Speak text through the on-device synthesizer. Cancels any in-progress utterance first.
+ * `handlers` let callers track real playback start/end (drives the Speaking UI — THE_ATTENDANT.md). */
+export function speak(text: string, handlers?: { onStart?: () => void; onEnd?: () => void }): void {
+  if (!('speechSynthesis' in window) || !text) {
+    handlers?.onEnd?.()
+    return
+  }
   window.speechSynthesis.cancel()
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.rate = 1
+  if (handlers?.onStart) utterance.onstart = () => handlers.onStart!()
+  if (handlers?.onEnd) {
+    utterance.onend = () => handlers.onEnd!()
+    utterance.onerror = () => handlers.onEnd!()
+  }
   window.speechSynthesis.speak(utterance)
 }
 

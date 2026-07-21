@@ -16,10 +16,14 @@ interface VoiceState {
   supported: boolean
   micLive: boolean
   listening: boolean
+  /** True while Piper/on-device TTS is actually playing a reply (drives the brass Speaking UI). */
+  speaking: boolean
   partial: string
   startListening: (onResult: (text: string) => void) => void
   stopListening: () => void
   speak: (text: string) => void
+  /** Halt playback without opening the mic (the "Tap to stop" chip). */
+  stopSpeaking: () => void
 }
 
 const VoiceContext = createContext<VoiceState | null>(null)
@@ -27,6 +31,7 @@ const VoiceContext = createContext<VoiceState | null>(null)
 export function VoiceProvider({ children }: { children: ReactNode }) {
   const [micLive, setMicLive] = useState(false)
   const [listening, setListening] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
   const [partial, setPartial] = useState('')
 
   const recognizerRef = useRef<Recognizer | null>(null)
@@ -51,7 +56,8 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   const startListening = useCallback(
     (onResult: (text: string) => void) => {
       if (!supported || recognizerRef.current) return
-      cancelSpeech() // don't listen to our own TTS
+      cancelSpeech() // don't listen to our own TTS (barge-in: stops playback if speaking)
+      setSpeaking(false)
       onResultRef.current = onResult
 
       const armSilence = () => {
@@ -81,7 +87,14 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     [supported, cleanup],
   )
 
-  const speak = useCallback((text: string) => speakText(text), [])
+  const speak = useCallback((text: string) => {
+    speakText(text, { onStart: () => setSpeaking(true), onEnd: () => setSpeaking(false) })
+  }, [])
+
+  const stopSpeaking = useCallback(() => {
+    cancelSpeech()
+    setSpeaking(false)
+  }, [])
 
   // Ensure the mic is released if the provider unmounts.
   useEffect(() => () => {
@@ -91,8 +104,8 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<VoiceState>(
-    () => ({ supported, micLive, listening, partial, startListening, stopListening, speak }),
-    [supported, micLive, listening, partial, startListening, stopListening, speak],
+    () => ({ supported, micLive, listening, speaking, partial, startListening, stopListening, speak, stopSpeaking }),
+    [supported, micLive, listening, speaking, partial, startListening, stopListening, speak, stopSpeaking],
   )
 
   return <VoiceContext.Provider value={value}>{children}</VoiceContext.Provider>
