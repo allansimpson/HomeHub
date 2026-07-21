@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json.Serialization;
 using HomeHub.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -171,10 +172,13 @@ public sealed class MicrosoftTodoProvider : ITaskProvider
         if (!string.IsNullOrEmpty(link.ListId)) return link.ListId;
         if (ListIds.TryGetValue(link.ProfileId, out var cached)) return cached;
 
-        var lists = await SendAsync<GraphListCollection>(link, HttpMethod.Get,
-            "/me/todo/lists?$filter=wellknownListName eq 'defaultList'", null, ct);
-        var id = lists?.Value?.FirstOrDefault()?.Id
-            ?? throw new InvalidOperationException("No default To Do list found for the linked account.");
+        // Fetch all lists and pick the default client-side — Graph's $filter on wellknownListName
+        // is unreliable for the To Do API (frequently 500s), so don't rely on server-side filtering.
+        var lists = await SendAsync<GraphListCollection>(link, HttpMethod.Get, "/me/todo/lists", null, ct);
+        var all = lists?.Value ?? [];
+        var id = (all.FirstOrDefault(l => string.Equals(l.WellknownListName, "defaultList", StringComparison.OrdinalIgnoreCase))
+                  ?? all.FirstOrDefault())?.Id
+            ?? throw new InvalidOperationException("No To Do list found for the linked account.");
         ListIds[link.ProfileId] = id;
         return id;
     }
@@ -195,7 +199,14 @@ public sealed class MicrosoftTodoProvider : ITaskProvider
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (body is not null) req.Content = JsonContent.Create(body);
         using var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        if (!res.IsSuccessStatusCode)
+        {
+            // Surface Graph's error body instead of a bare status, so failures are diagnosable.
+            var err = await res.Content.ReadAsStringAsync(ct);
+            if (err.Length > 500) err = err[..500];
+            throw new HttpRequestException(
+                $"Graph {method} {path} failed: {(int)res.StatusCode} {res.StatusCode} — {err}", null, res.StatusCode);
+        }
         if (res.Content.Headers.ContentLength is 0 or null) return default;
         return await res.Content.ReadFromJsonAsync<T>(ct);
     }
@@ -222,7 +233,9 @@ public sealed class MicrosoftTodoProvider : ITaskProvider
     }
 
     // ---- Graph response shapes (partial) ----
-    private sealed record TokenResponse(string? AccessToken);
+    // OAuth token endpoint returns snake_case (access_token); map it explicitly — case-insensitive
+    // matching alone doesn't bridge the underscore.
+    private sealed record TokenResponse([property: JsonPropertyName("access_token")] string? AccessToken);
     private sealed record GraphTaskList(List<GraphTask>? Value);
     private sealed record GraphTask(string? Id, string? Title, string? Status, GraphBody? Body, GraphDue? DueDateTime);
     private sealed record GraphBody(string? Content, string? ContentType);
