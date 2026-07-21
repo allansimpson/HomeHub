@@ -65,6 +65,16 @@ export function DashboardScreen() {
 
   return (
     <ScreenShell
+      banner={
+        topAlert && (
+          <AlertBanner
+            title={topAlert.severity === 'Severe' ? 'Severe Alert' : 'Alert'}
+            detail={topAlert.message}
+            severe={topAlert.severity === 'Severe'}
+            onClick={() => navigate(alertTarget(topAlert.source))}
+          />
+        )
+      }
       header={
         <DashboardHeader
           clock={time}
@@ -78,15 +88,6 @@ export function DashboardScreen() {
       fixedContent
     >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        {topAlert && (
-          <AlertBanner
-            title={topAlert.severity === 'Severe' ? 'Severe Alert' : 'Alert'}
-            detail={topAlert.message}
-            severe={topAlert.severity === 'Severe'}
-            onClick={() => navigate(alertTarget(topAlert.source))}
-          />
-        )}
-
         <SectionLabel
           label="Next"
           status={upcoming.length === 0 ? 'No engagements' : `${upcoming.length} ${upcoming.length === 1 ? 'engagement' : 'engagements'}`}

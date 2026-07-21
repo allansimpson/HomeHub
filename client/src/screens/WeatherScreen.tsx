@@ -22,16 +22,19 @@ export function WeatherScreen() {
   const hasData = !!weather?.current && weather.current.tempF != null
 
   return (
-    <ScreenShell header={<DrillInHeader title="Weather" status={`${date} · ${time}`} onBack={() => navigate('/')} />}>
-      <ScrollArea>
-        {weatherAlert && (
+    <ScreenShell
+      banner={
+        weatherAlert && (
           <AlertBanner
             title={weatherAlert.message.split(':')[0] || 'Weather Alert'}
             detail={weatherAlert.message}
             severe={weatherAlert.severity === 'Severe'}
           />
-        )}
-
+        )
+      }
+      header={<DrillInHeader title="Weather" status={`${date} · ${time}`} onBack={() => navigate('/')} />}
+    >
+      <ScrollArea>
         {!hasData ? (
           <EmptyState
             label={offline ? 'Weather unavailable' : 'Loading weather…'}
