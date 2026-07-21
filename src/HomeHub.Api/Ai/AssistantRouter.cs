@@ -43,34 +43,72 @@ public sealed class AssistantRouter
     {
         var origin = Decide(request);
 
+        // Cloud-routed: cloud → local (text only) → simulated. A runtime cloud failure — an
+        // exhausted-quota 429, an outage, a network blip — degrades instead of crashing the turn.
         if (origin == AssistantOrigin.Cloud)
         {
-            var provider = PickForCloud(request);
-            var result = await provider.CompleteAsync(request, ct);
-            return AssistantResult.From(result, provider.Origin, escalated: false);
+            if (_cloud.IsAvailable)
+            {
+                var cloud = await TryCompleteAsync(_cloud, request, ct);
+                if (cloud is { } c) return AssistantResult.From(c, AssistantOrigin.Cloud, escalated: false);
+            }
+            if (!request.HasImage && _local.IsAvailable)
+            {
+                var local = await TryCompleteAsync(_local, request, ct);   // text-only degrade
+                if (local is { } l) return AssistantResult.From(l, AssistantOrigin.Local, escalated: false);
+            }
+            var sim = await _simulated.CompleteAsync(request, ct);          // canned images + always-available last resort
+            return AssistantResult.From(sim, AssistantOrigin.Local, escalated: false);
         }
 
         // Routed local.
         if (_local.IsAvailable)
         {
-            var localResult = await _local.CompleteAsync(request, ct);
-            if (IsLowConfidence(localResult) && _cloud.IsAvailable)
+            var localResult = await TryCompleteAsync(_local, request, ct);
+            if (localResult is { } lr)
             {
-                _logger.LogInformation("Escalating low-confidence local answer to cloud.");
-                var cloudResult = await _cloud.CompleteAsync(request, ct);
-                return AssistantResult.From(cloudResult, AssistantOrigin.Cloud, escalated: true);
+                if (IsLowConfidence(lr) && _cloud.IsAvailable)
+                {
+                    _logger.LogInformation("Escalating low-confidence local answer to cloud.");
+                    var escalated = await TryCompleteAsync(_cloud, request, ct);
+                    if (escalated is { } er) return AssistantResult.From(er, AssistantOrigin.Cloud, escalated: true);
+                    _logger.LogWarning("Cloud escalation failed; returning the local answer.");
+                }
+                return AssistantResult.From(lr, AssistantOrigin.Local, escalated: false);
             }
-            return AssistantResult.From(localResult, AssistantOrigin.Local, escalated: false);
+            // Local failed outright — degrade to cloud/simulated below.
         }
 
-        // No local model configured: use cloud if available, else the simulated on-device assistant.
+        // No local model (or it just failed): cloud if available, else the simulated on-device assistant.
         if (_cloud.IsAvailable)
         {
-            var cloudResult = await _cloud.CompleteAsync(request, ct);
-            return AssistantResult.From(cloudResult, AssistantOrigin.Cloud, escalated: false);
+            var cloudResult = await TryCompleteAsync(_cloud, request, ct);
+            if (cloudResult is { } cr) return AssistantResult.From(cr, AssistantOrigin.Cloud, escalated: false);
         }
-        var sim = await _simulated.CompleteAsync(request, ct);
-        return AssistantResult.From(sim, AssistantOrigin.Local, escalated: false);
+        var simulated = await _simulated.CompleteAsync(request, ct);
+        return AssistantResult.From(simulated, AssistantOrigin.Local, escalated: false);
+    }
+
+    /// <summary>
+    /// Runs a provider, returning <c>null</c> instead of throwing when it fails at runtime, so the
+    /// router can fall back to the next option (cloud quota 429, cloud/local outage, model down, …).
+    /// Cancellation still propagates.
+    /// </summary>
+    private async Task<ProviderResult?> TryCompleteAsync(IAssistantProvider provider, AssistantRequest request, CancellationToken ct)
+    {
+        try
+        {
+            return await provider.CompleteAsync(request, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Assistant provider {Origin} failed; falling back.", provider.Origin);
+            return null;
+        }
     }
 
     private AssistantOrigin Decide(AssistantRequest request)
@@ -89,15 +127,6 @@ public sealed class AssistantRouter
         return _routing.DefaultOrigin.Equals("local", StringComparison.OrdinalIgnoreCase)
             ? AssistantOrigin.Local
             : AssistantOrigin.Cloud;
-    }
-
-    /// <summary>Pick the provider for a cloud-routed request, degrading gracefully.</summary>
-    private IAssistantProvider PickForCloud(AssistantRequest request)
-    {
-        if (_cloud.IsAvailable) return _cloud;
-        if (request.HasImage) return _simulated;      // supports images (canned) when no cloud
-        if (_local.IsAvailable) return _local;         // text-only degrade
-        return _simulated;
     }
 
     private bool IsLowConfidence(ProviderResult result)

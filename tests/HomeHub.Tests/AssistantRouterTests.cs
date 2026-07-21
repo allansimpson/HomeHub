@@ -15,15 +15,17 @@ public class AssistantRouterTests
     {
         private readonly string _reply;
         private readonly double? _confidence;
+        private readonly bool _throws;
         public int Calls { get; private set; }
 
-        public FakeProvider(AssistantOrigin origin, bool available, string reply, double? confidence = null, bool supportsImages = false)
+        public FakeProvider(AssistantOrigin origin, bool available, string reply, double? confidence = null, bool supportsImages = false, bool throws = false)
         {
             Origin = origin;
             IsAvailable = available;
             SupportsImages = supportsImages;
             _reply = reply;
             _confidence = confidence;
+            _throws = throws;
         }
 
         public AssistantOrigin Origin { get; }
@@ -33,6 +35,7 @@ public class AssistantRouterTests
         public Task<ProviderResult> CompleteAsync(AssistantRequest request, CancellationToken ct)
         {
             Calls++;
+            if (_throws) throw new HttpRequestException("simulated provider failure (e.g. 429)");
             return Task.FromResult(new ProviderResult(_reply, _confidence, Origin.ToString().ToLowerInvariant()));
         }
     }
@@ -128,6 +131,60 @@ public class AssistantRouterTests
 
         Assert.Equal(AssistantOrigin.Cloud, result.Origin);
         Assert.False(result.Escalated);
+        Assert.Equal(1, cloud.Calls);
+    }
+
+    [Fact]
+    public async Task Cloud_route_falls_back_to_local_when_cloud_throws()
+    {
+        var local = new FakeProvider(AssistantOrigin.Local, true, "local handled it after cloud failed");
+        var cloud = new FakeProvider(AssistantOrigin.Cloud, true, "unused", throws: true);
+        var result = await Router(local, cloud).RouteAsync(Ask("Give me a recipe for coq au vin."), default);
+
+        Assert.Equal(AssistantOrigin.Local, result.Origin);
+        Assert.Equal("local handled it after cloud failed", result.Text);
+        Assert.Equal(1, cloud.Calls);
+        Assert.Equal(1, local.Calls);
+    }
+
+    [Fact]
+    public async Task Cloud_route_falls_back_to_simulated_when_cloud_throws_and_no_local()
+    {
+        var local = new FakeProvider(AssistantOrigin.Local, available: false, "");
+        var cloud = new FakeProvider(AssistantOrigin.Cloud, true, "unused", throws: true);
+        var simulated = new FakeProvider(AssistantOrigin.Local, true, "on-device demo answer", supportsImages: true);
+
+        var result = await Router(local, cloud, simulated).RouteAsync(Ask("Give me a recipe for coq au vin."), default);
+
+        Assert.Equal("on-device demo answer", result.Text);
+        Assert.Equal(1, cloud.Calls);
+        Assert.Equal(1, simulated.Calls);
+    }
+
+    [Fact]
+    public async Task Local_route_falls_back_to_cloud_when_local_throws()
+    {
+        var local = new FakeProvider(AssistantOrigin.Local, true, "unused", throws: true);
+        var cloud = new FakeProvider(AssistantOrigin.Cloud, true, "cloud rescued the local-routed turn");
+        var result = await Router(local, cloud).RouteAsync(Ask("Add milk to the list."), default);
+
+        Assert.Equal(AssistantOrigin.Cloud, result.Origin);
+        Assert.False(result.Escalated);
+        Assert.Equal(1, local.Calls);
+        Assert.Equal(1, cloud.Calls);
+    }
+
+    [Fact]
+    public async Task Escalation_failure_keeps_the_local_answer()
+    {
+        var local = new FakeProvider(AssistantOrigin.Local, true, "idk"); // low confidence → tries to escalate
+        var cloud = new FakeProvider(AssistantOrigin.Cloud, true, "unused", throws: true);
+        var result = await Router(local, cloud).RouteAsync(Ask("Add milk to the list."), default);
+
+        Assert.Equal(AssistantOrigin.Local, result.Origin);
+        Assert.False(result.Escalated);
+        Assert.Equal("idk", result.Text);
+        Assert.Equal(1, local.Calls);
         Assert.Equal(1, cloud.Calls);
     }
 }

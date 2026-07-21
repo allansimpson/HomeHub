@@ -55,7 +55,17 @@ public sealed class OpenAIAssistantProvider : IAssistantProvider
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.OpenAiApiKey);
 
         using var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        if (!res.IsSuccessStatusCode)
+        {
+            // Surface OpenAI's own error body (e.g. "insufficient_quota") instead of a bare status —
+            // the router catches this and degrades, and the reason lands in the logs. HttpRequestException
+            // keeps the status code so callers can still distinguish a 429 if they care.
+            var body = await res.Content.ReadAsStringAsync(ct);
+            var detail = string.IsNullOrWhiteSpace(body) ? res.ReasonPhrase : body.Trim();
+            if (detail?.Length > 500) detail = detail[..500];
+            throw new HttpRequestException(
+                $"OpenAI request failed: {(int)res.StatusCode} {res.StatusCode} — {detail}", null, res.StatusCode);
+        }
         var reply = await res.Content.ReadFromJsonAsync<ChatResponse>(ct);
         var text = reply?.Choices?.FirstOrDefault()?.Message?.Content?.Trim() ?? "";
         return new ProviderResult(text, Model: _options.OpenAiModel);
