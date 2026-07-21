@@ -254,17 +254,25 @@ Each household member does the OAuth **authorization-code** flow once, using the
 authority **must** be `common` (or `consumers`) so personal accounts are accepted — never
 `organizations` or a tenant GUID. Any OAuth tool works; the raw two-step flow is:
 
-```text
-# 1) Open in a browser, sign in with THAT member's Microsoft account, approve consent:
-https://login.microsoftonline.com/common/oauth2/v2.0/authorize
-  ?client_id=<client-id>
-  &response_type=code
-  &redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient
-  &response_mode=query
-  &scope=https%3A%2F%2Fgraph.microsoft.com%2FTasks.ReadWrite%20offline_access%20User.Read
+Open this URL in a browser (it is **one line** — the query string must not contain any line breaks
+or spaces; replace `<client-id>`), sign in with THAT member's Microsoft account, and approve consent:
 
-# → you're redirected to the redirect URI with ?code=<AUTH_CODE> in the URL. Copy that code.
+```text
+https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=<client-id>&response_type=code&response_mode=query&redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient&scope=https%3A%2F%2Fgraph.microsoft.com%2FTasks.ReadWrite%20offline_access%20User.Read
 ```
+
+The query params, already URL-encoded in the line above, are:
+
+| Param | Value |
+|---|---|
+| `client_id` | your Application (client) ID |
+| `response_type` | `code` |
+| `response_mode` | `query` |
+| `redirect_uri` | `https://login.microsoftonline.com/common/oauth2/nativeclient` (must match the app registration) |
+| `scope` | `Tasks.ReadWrite offline_access User.Read` |
+
+After consent you're redirected to the redirect URI with `?code=<AUTH_CODE>` in the address bar (the
+page itself is blank — that's expected). Copy that `code` value.
 
 ```bash
 # 2) Exchange the code for tokens (the response includes refresh_token):
