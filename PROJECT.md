@@ -77,7 +77,7 @@ is why the build is fully functional now and "go-live" is a config exercise, not
 | Tasks | `ITaskProvider` | `SqlTaskProvider` (local, per-profile) | `MicrosoftTodoProvider` (Graph, per-profile tokens) | `Microsoft:*` | local verified; Graph untested |
 | Climate | `IClimateProvider` | `SimulatedClimateProvider` (drifts to set point) | `HomeAssistantClimateProvider` (HA REST) | `HomeAssistant:*` | simulated verified; HA untested |
 | Assistant | `IAssistantProvider` + `AssistantRouter` | `SimulatedAssistantProvider` (on-device canned) | `LocalAssistantProvider` (Ollama) / `OpenAIAssistantProvider` | `Ai:*` | routing verified; models untested |
-| Voice STT | `ISpeechToText` | browser Web Speech API (client) | `OpenAISpeechToText` (Whisper) | `Ai:OpenAiApiKey` | endpoints verified; browser loop needs a mic |
+| Voice STT | `ISpeechToText` + `SttRouter` | browser Web Speech API (client) | `LocalWhisperSpeechToText` (faster-whisper) → `OpenAISpeechToText` (Whisper) fallback | `Voice:Stt:*` (+ `Ai:OpenAiApiKey` for fallback) | router verified; sidecar untested |
 
 "Untested" = the real client is implemented and compiles, but can't be exercised without
 credentials/hardware; the seam + fallback are proven.
@@ -173,7 +173,7 @@ then run against SQL Server and re-verify each integration end-to-end.
 | Tasks | `Microsoft:ClientId`, `Microsoft:ClientSecret` (+ a per-profile refresh token in `MicrosoftAccountLink`) |
 | Climate | `HomeAssistant:BaseUrl`, `HomeAssistant:Token` (+ optional `EveningScene`, `ZoneNames`) |
 | Assistant | `Ai:OpenAiApiKey` (+ `Ai:OpenAiModel`) and/or `Ai:LocalEndpoint` (+ `Ai:LocalModel`), tune `Ai:Routing:*` |
-| Voice | server Whisper reuses `Ai:OpenAiApiKey`; on the Pi, confirm mic/speaker + Chromium mic-permission/autoplay flags |
+| Voice | local STT via `Voice:Stt:LocalEndpoint` (faster-whisper sidecar), cloud fallback reuses `Ai:OpenAiApiKey`; on the Pi, confirm mic/speaker + Chromium mic-permission/autoplay flags |
 
 Re-verify after wiring: SensorPush readings, Google round-trip (edit reflects on another device),
 MS To Do round-trip, HA unit control + live state reconcile, OpenAI answers with the CLOUD tag,

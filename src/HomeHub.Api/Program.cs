@@ -99,10 +99,17 @@ builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.SimulatedKey
 builder.Services.AddScoped<AssistantRouter>();
 
 // --- Stage 8: voice (server STT seam) ---
-// Browser on-device STT+TTS is the demoable default; this server path (Whisper) is used when
-// configured. TTS is done in the browser. No database needed.
+// Local-first STT: a faster-whisper sidecar on the LAN behind the seam, with OpenAI Whisper as cloud
+// fallback, fronted by SttRouter (mirrors the assistant router). Browser on-device STT+TTS remains the
+// demoable default. TTS is done in the browser. No database needed.
+builder.Services.Configure<VoiceOptions>(builder.Configuration.GetSection(VoiceOptions.Section));
+var voice = builder.Configuration.GetSection(VoiceOptions.Section).Get<VoiceOptions>() ?? new VoiceOptions();
 builder.Services.AddHttpClient<OpenAISpeechToText>();
-builder.Services.AddScoped<ISpeechToText>(sp => sp.GetRequiredService<OpenAISpeechToText>());
+builder.Services.AddHttpClient<LocalWhisperSpeechToText>(c =>
+    c.Timeout = TimeSpan.FromSeconds(Math.Max(1, voice.Stt.TimeoutSeconds)));
+builder.Services.AddKeyedScoped<ISpeechToText>(SttRouter.LocalKey, (sp, _) => sp.GetRequiredService<LocalWhisperSpeechToText>());
+builder.Services.AddKeyedScoped<ISpeechToText>(SttRouter.CloudKey, (sp, _) => sp.GetRequiredService<OpenAISpeechToText>());
+builder.Services.AddScoped<SttRouter>();
 
 // The pollers write owned history / cache + evaluate alerts, and the calendar/task providers
 // need a DB. All are registered only alongside a database; without a connection string the shell
