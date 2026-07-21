@@ -178,25 +178,111 @@ The refresh token is stored server-side; the app refreshes access tokens silentl
 
 Per-profile task lists via Microsoft Graph. **Fallback:** a local per-profile SQL store.
 
-**You need:** an Azure app registration and a **per-profile refresh token** (each member links once).
+**You need:** an Azure (Microsoft Entra) app registration and a **per-profile refresh token** (each
+member links once). The app never runs the interactive sign-in itself — it only does the silent
+`refresh_token` grant against the `common` authority ([`MicrosoftTodoProvider`](src/HomeHub.Api/Tasks/MicrosoftTodoProvider.cs)).
+You obtain each refresh token once, out of band, and store it keyed by profile.
 
-1. **Azure Portal → Microsoft Entra ID → App registrations → New registration.** Supported account
-   types: *personal + work/school* (the app uses the `common` authority).
-2. **Certificates & secrets → New client secret.** Note the **client id** and **secret value**.
-3. **API permissions → Microsoft Graph → Delegated** → add **`Tasks.ReadWrite`** and
-   **`offline_access`** → grant.
-4. Add a **redirect URI** for the auth flow (e.g. the OAuth playground's, or
-   `https://login.microsoftonline.com/common/oauth2/nativeclient`).
+Everything below is free — app registrations, client secrets, and personal-account sign-in all sit
+in the **Entra ID Free** tier. No Azure subscription or credit card is required.
+
+#### 0. Make sure you have a tenant you administer
+
+App registration lives inside a **tenant**. A personal Microsoft account (e.g. `you@outlook.com`)
+often has no tenant of its own, or defaults into a workplace tenant where you're not an admin — in
+which case **App registrations** will be missing or greyed out. If so, create your own free tenant
+(you become its Global Administrator):
+
+1. Sign in at **[entra.microsoft.com](https://entra.microsoft.com)** with your account.
+2. **Manage tenants → + Create → Microsoft Entra ID.**
+3. Give it an org name + initial domain (e.g. `myhomehub` → `myhomehub.onmicrosoft.com`), pick a
+   region, complete the CAPTCHA, **Create**.
+4. Switch into the new tenant (directory switcher / **Directories + subscriptions**).
+
+This tenant is only the *home* for the app registration — you'll still consent with your normal
+personal account, and the "personal accounts" setting below is what makes that work. You do **not**
+need to add your personal account into the tenant as a user.
+
+#### 1. Register the application
+
+**Microsoft Entra ID → App registrations → New registration:**
+
+- **Name:** `HomeHub` (anything).
+- **Supported account types:** **"Accounts in any organizational directory (any Microsoft Entra ID
+  tenant – Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox, Outlook.com)."**
+  This is the setting that lets an `outlook.com`/`live.com` account sign in; it must match the app's
+  `common` authority. (Manifest equivalent: `"signInAudience": "AzureADandPersonalMicrosoftAccount"`.)
+- **Redirect URI:** platform **Web** (or *Mobile & desktop*), value
+  `https://login.microsoftonline.com/common/oauth2/nativeclient` — or, if you'll use the OAuth
+  playground/Postman/your own tool to get the token, that tool's redirect URI. It must match the
+  `redirect_uri` you send during consent **exactly**.
+
+Copy the **Application (client) ID** from the Overview page.
+
+#### 2. Client secret
+
+**Certificates & secrets → New client secret** → set an expiry → **copy the secret _value_** (shown
+once; the "Secret ID" is not the value). Set an expiry you're willing to rotate on — the To Do
+integration silently stops working the day the secret expires.
+
+#### 3. API permissions
+
+**API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add:
+
+- **`Tasks.ReadWrite`** — read/write To Do tasks.
+- **`offline_access`** — required to receive a **refresh token**.
+- **`User.Read`** — sign-in + basic profile.
+
+The app requests the `https://graph.microsoft.com/.default` scope, which grants exactly the
+delegated permissions registered here — so anything missing from this list silently won't be in the
+token. For a personal-account (single-user) setup you don't need admin consent; each user consents
+for themselves during step 5.
 
 ```bash
-dotnet user-secrets set "Microsoft:ClientId"     "…"
-dotnet user-secrets set "Microsoft:ClientSecret" "…"
+# in src/HomeHub.Api
+dotnet user-secrets set "Microsoft:ClientId"     "<application-client-id>"
+dotnet user-secrets set "Microsoft:ClientSecret" "<client-secret-value>"
 ```
 
-**Per-profile linking:** each household member authenticates their Microsoft account once (an
-auth-code flow using the app above, requesting `Tasks.ReadWrite offline_access`) to obtain a
-refresh token. There is **no in-app linking screen yet**, so store the token directly, keyed by the
-profile id:
+Optional overrides (defaults in [`MicrosoftTodoOptions`](src/HomeHub.Api/Tasks/MicrosoftTodoOptions.cs))
+— `Microsoft:TokenUrl`, `Microsoft:GraphBaseUrl`, `Microsoft:Scope`. The defaults are correct for
+the `common` authority; only change them for a single-tenant app or a sovereign cloud.
+
+#### 4. Get a refresh token (per profile, one-time)
+
+Each household member does the OAuth **authorization-code** flow once, using the app above. The
+authority **must** be `common` (or `consumers`) so personal accounts are accepted — never
+`organizations` or a tenant GUID. Any OAuth tool works; the raw two-step flow is:
+
+```text
+# 1) Open in a browser, sign in with THAT member's Microsoft account, approve consent:
+https://login.microsoftonline.com/common/oauth2/v2.0/authorize
+  ?client_id=<client-id>
+  &response_type=code
+  &redirect_uri=https%3A%2F%2Flogin.microsoftonline.com%2Fcommon%2Foauth2%2Fnativeclient
+  &response_mode=query
+  &scope=https%3A%2F%2Fgraph.microsoft.com%2FTasks.ReadWrite%20offline_access%20User.Read
+
+# → you're redirected to the redirect URI with ?code=<AUTH_CODE> in the URL. Copy that code.
+```
+
+```bash
+# 2) Exchange the code for tokens (the response includes refresh_token):
+curl -s -X POST https://login.microsoftonline.com/common/oauth2/v2.0/token \
+  -d client_id=<client-id> \
+  -d client_secret=<client-secret-value> \
+  -d grant_type=authorization_code \
+  -d redirect_uri=https://login.microsoftonline.com/common/oauth2/nativeclient \
+  --data-urlencode "scope=https://graph.microsoft.com/Tasks.ReadWrite offline_access User.Read" \
+  --data-urlencode code=<AUTH_CODE>
+```
+
+Copy the `refresh_token` from the JSON response. (The app then refreshes access tokens silently and
+stores nothing but this refresh token.)
+
+#### 5. Link the token to a profile
+
+There is **no in-app linking screen yet**, so store each refresh token directly, keyed by profile id:
 
 ```sql
 -- profile ids come from the Profiles table (e.g. Astrid = 1)
@@ -205,7 +291,8 @@ VALUES (1, '<refresh-token>', NULL, SYSUTCDATETIME());   -- ListId NULL = the ac
 ```
 
 Once linked, that profile's tasks round-trip to Microsoft To Do; the "Everyone" tab aggregates all
-linked profiles. (An in-app consent/linking flow is a planned enhancement.)
+linked profiles. Repeat steps 4–5 per member. (An in-app consent/linking flow is a planned
+enhancement.)
 
 ### Climate — Home Assistant
 
@@ -258,10 +345,23 @@ dotnet user-secrets set "Ai:LocalModel"    "llama3.1"
 
 ### Voice — STT / TTS
 
-Push-to-talk on the assistant. **STT default:** the kiosk browser's Web Speech API (on-device, no
-config). **TTS:** on-device browser speech synthesis. **Server STT (optional):** OpenAI Whisper,
-which activates automatically when `Ai:OpenAiApiKey` is set (it reuses that key) — `GET
-/api/voice/capabilities` reports whether server STT is on.
+Push-to-talk on the assistant. **STT default:** the kiosk browser's Web Speech API (no config; note
+Chromium streams that audio to Google — not on-LAN). **TTS:** on-device browser speech synthesis.
+
+**Server STT (optional, local-first):** post captured audio to `POST /api/voice/transcribe` and it is
+transcribed by `SttRouter` — a **local faster-whisper sidecar** first, falling back to **OpenAI
+Whisper** when the local engine is unavailable or errors (unless fallback is disabled). The response
+and `GET /api/voice/capabilities` report which engine ran, so voice inherits the LOCAL/CLOUD story.
+
+Point it at a faster-whisper sidecar exposing the OpenAI-compatible `/v1/audio/transcriptions` route
+(e.g. `faster-whisper-server` / Speaches, run as a Docker/systemd unit on the home server — never the
+Pi). Cloud fallback reuses the assistant's `Ai:OpenAiApiKey`.
+
+```bash
+dotnet user-secrets set "Voice:Stt:LocalEndpoint"      "http://localhost:8000"
+dotnet user-secrets set "Voice:Stt:LocalModel"         "base.en"   # tiny.en/base.en/small.en
+dotnet user-secrets set "Voice:Stt:AllowCloudFallback" "true"      # false = LAN-only (never cloud)
+```
 
 **On the Raspberry Pi:**
 
@@ -295,6 +395,10 @@ which activates automatically when `Ai:OpenAiApiKey` is set (it reuses that key)
 | `HomeAssistant:ZoneNames:<entityId>` | — | Optional climate entity→name overrides |
 | `Ai:OpenAiApiKey` / `:OpenAiModel` | — / `gpt-4o-mini` | Cloud assistant + server Whisper STT |
 | `Ai:LocalEndpoint` / `:LocalModel` | — / `llama3.1` | Local server model (Ollama-compatible) |
+| `Voice:Stt:LocalEndpoint` / `:LocalModel` | — / `base.en` | Local faster-whisper sidecar (enables local STT) |
+| `Voice:Stt:AllowCloudFallback` | `true` | Fall back to OpenAI Whisper when local STT is down (`false` = LAN-only) |
+| `Voice:Stt:Prefer` | `local` | Preferred STT engine (`local` / `cloud`) |
+| `Voice:Stt:TimeoutSeconds` | `120` | Local STT request timeout |
 | `Ai:Routing:DefaultOrigin` | `cloud` | Where unmatched requests go |
 | `Ai:Routing:MinConfidentLength` | `12` | Low-confidence escalation threshold |
 
@@ -330,6 +434,14 @@ Linux/Pi, install `libicu`.
 - **A real integration isn't taking effect** — its required keys aren't all present (it silently
   stays on the fallback). Re-check the keys for that section above.
 - **Weather empty / blocked** — set a real `Weather:UserAgent` with contact info.
+- **MS To Do sign-in: _"account from identity provider 'live.com' does not exist in tenant … cannot
+  access the application … sign in with a different Azure Active Directory account"_** — the app
+  registration doesn't allow personal Microsoft accounts. Set **Supported account types** to include
+  *personal Microsoft accounts* (`signInAudience: AzureADandPersonalMicrosoftAccount`), and use the
+  `common`/`consumers` authority in the consent URL — not `organizations` or a tenant GUID. See
+  [Tasks — Microsoft To Do](#tasks--microsoft-to-do).
+- **MS To Do: consent succeeds but no `refresh_token` / tasks don't sync** — `offline_access` (and
+  `Tasks.ReadWrite`) missing from the app's **API permissions**, or the client secret expired.
 - **Voice does nothing** — the browser lacks the Web Speech API, or the Pi mic/Chromium flags aren't
   set; the assistant still works via text.
 </content>

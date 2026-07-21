@@ -28,6 +28,9 @@ secrets.json
 .env
 .env.*
 
+# Local scratch notes — has held pasted secrets (keys/connection strings); keep out of git.
+NOTES.md
+
 # ---- Node / client ----
 node_modules/
 client/dist/
