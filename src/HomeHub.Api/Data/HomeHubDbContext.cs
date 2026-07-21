@@ -137,8 +137,10 @@ public class HomeHubDbContext : DbContext
         modelBuilder.Entity<ActiveAlert>(entity =>
         {
             entity.Property(a => a.Type).HasMaxLength(30).IsRequired();
-            entity.Property(a => a.DedupeKey).HasMaxLength(80).IsRequired();
-            entity.Property(a => a.Message).HasMaxLength(300).IsRequired();
+            // DedupeKey holds "nws:<full NWS alert URL>" for weather alerts (~140 chars); 80 truncated it.
+            entity.Property(a => a.DedupeKey).HasMaxLength(256).IsRequired();
+            // NWS event + headline can exceed 300; give it headroom so long alerts aren't clipped.
+            entity.Property(a => a.Message).HasMaxLength(500).IsRequired();
             entity.Property(a => a.Source).HasMaxLength(80).IsRequired();
             entity.HasIndex(a => new { a.Type, a.ClearedAtUtc });
         });
