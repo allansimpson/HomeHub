@@ -1,0 +1,9 @@
+# HomeHub voice bridge (Raspberry Pi). Python 3.11+.
+openwakeword>=0.6.0
+sounddevice>=0.4.6
+webrtcvad>=2.0.10
+numpy>=1.24
+requests>=2.31
+python-dotenv>=1.0
+# Piper is a separate binary; `piper-tts` provides the `piper` CLI used by tts.py.
+piper-tts>=1.2.0

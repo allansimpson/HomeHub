@@ -31,6 +31,16 @@ secrets.json
 # Local scratch notes — has held pasted secrets (keys/connection strings); keep out of git.
 NOTES.md
 
+# ---- Python (voice bridge) ----
+__pycache__/
+*.pyc
+voice-bridge/.venv/
+voice-bridge/.env
+voice-bridge/models/
+voice-bridge/voices/
+# …but the template is safe to track (the .env.* rule above would otherwise catch it):
+!voice-bridge/.env.example
+
 # ---- Node / client ----
 node_modules/
 client/dist/

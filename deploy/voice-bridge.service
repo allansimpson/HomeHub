@@ -1,0 +1,16 @@
+[Unit]
+Description=HomeHub Voice Bridge (Hey Cleo wake word + STT + Piper TTS)
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=homehub
+WorkingDirectory=/opt/homehub-voice
+EnvironmentFile=/opt/homehub-voice/.env
+ExecStart=/opt/homehub-voice/.venv/bin/python -m homehub_voice
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
