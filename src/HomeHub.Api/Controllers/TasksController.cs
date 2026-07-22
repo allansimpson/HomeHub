@@ -61,4 +61,23 @@ public class TasksController : ControllerBase
             return Conflict(ex.Current);
         }
     }
+
+    /// <summary>The profile's Microsoft To Do lists with their sync selection (501 unless Graph is configured).</summary>
+    [HttpGet("lists")]
+    public async Task<ActionResult<IReadOnlyList<SyncListDto>>> Lists([FromQuery] int profileId, CancellationToken ct)
+    {
+        if (_tasks is not IListSyncProvider lister)
+            return StatusCode(501, "List selection needs Microsoft To Do configured.");
+        return Ok(await lister.GetListsAsync(profileId, ct));
+    }
+
+    /// <summary>Replace which lists a profile syncs (empty = sync none).</summary>
+    [HttpPut("lists")]
+    public async Task<IActionResult> SetLists(SetSyncedListsInput input, CancellationToken ct)
+    {
+        if (_tasks is not IListSyncProvider lister)
+            return StatusCode(501, "List selection needs Microsoft To Do configured.");
+        await lister.SetSelectedListsAsync(input.ProfileId, input.SelectedGraphListIds ?? [], ct);
+        return NoContent();
+    }
 }

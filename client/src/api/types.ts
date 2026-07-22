@@ -149,6 +149,10 @@ export interface TaskItemDto {
   completed: boolean
   source: string
   version: number
+  /** The To Do list this task belongs to (the TODO screen groups by it). */
+  listName: string | null
+  graphListId: string | null
+  important: boolean
 }
 
 export interface TaskCreateInput {
@@ -156,6 +160,16 @@ export interface TaskCreateInput {
   title: string
   note: string | null
   dueUtc: string | null
+  /** Target list for the new task (Microsoft) — id preferred, name for the local store. */
+  graphListId?: string | null
+  listName?: string | null
+}
+
+/** A Microsoft To Do list offered for syncing, with its current selection (spec 13 · choose-lists). */
+export interface SyncListDto {
+  graphListId: string
+  name: string
+  selected: boolean
 }
 
 // ---- Stage 6: climate ----

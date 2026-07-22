@@ -104,6 +104,9 @@ export function TasksProvider({ children }: { children: ReactNode }) {
         completed: false,
         source: 'local',
         version: 0,
+        listName: input.listName ?? null,
+        graphListId: input.graphListId ?? null,
+        important: false,
       }
       setTasks((cur) => [...cur, optimistic])
       const outcome = await run({

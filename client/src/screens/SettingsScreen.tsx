@@ -12,8 +12,9 @@ import {
 } from '../components'
 import { useSession } from '../app/SessionProvider'
 import { useSensors } from '../app/SensorsProvider'
+import { getShowToday, getShowAll, setShowToday, setShowAll } from '../app/todoPrefs'
 import { api, ApiError } from '../api/client'
-import type { ProfileDto, ThresholdDto, DaylightBoostMode } from '../api/types'
+import type { ProfileDto, ThresholdDto, DaylightBoostMode, SyncListDto } from '../api/types'
 
 const DAYLIGHT_MODES: DaylightBoostMode[] = ['auto', 'on', 'off']
 
@@ -120,6 +121,50 @@ export function SettingsScreen() {
       setDirtyThresholds(new Set(thresholds.map((t) => t.id)))
     },
     [thresholds],
+  )
+
+  // ---- To-Do lists: special Today/All view toggles + which Microsoft lists sync ----
+  const activeId = settings?.activeProfileId ?? null
+  const [showToday, setShowTodayState] = useState(getShowToday())
+  const [showAll, setShowAllState] = useState(getShowAll())
+  const [taskLists, setTaskLists] = useState<SyncListDto[]>([])
+  const [listsAvailable, setListsAvailable] = useState(false)
+
+  const toggleToday = useCallback((v: boolean) => { setShowToday(v); setShowTodayState(v) }, [])
+  const toggleAll = useCallback((v: boolean) => { setShowAll(v); setShowAllState(v) }, [])
+
+  useEffect(() => {
+    if (activeId == null) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await api.getTaskLists(activeId)
+        if (!cancelled) {
+          setTaskLists(data)
+          setListsAvailable(true)
+        }
+      } catch (err) {
+        if (!cancelled) setListsAvailable(false)
+        if (!(err instanceof ApiError)) throw err
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeId])
+
+  const toggleList = useCallback(
+    async (graphListId: string) => {
+      if (activeId == null) return
+      const next = taskLists.map((l) => (l.graphListId === graphListId ? { ...l, selected: !l.selected } : l))
+      setTaskLists(next)
+      try {
+        await api.setTaskLists(activeId, next.filter((l) => l.selected).map((l) => l.graphListId))
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err
+      }
+    },
+    [activeId, taskLists],
   )
 
   // ---- Per-user lock toggle ----
@@ -237,6 +282,35 @@ export function SettingsScreen() {
           right={<span className="ml-linkbtn">Switch ▸</span>}
           onClick={() => navigate('/lock')}
         />
+
+        {/* ---- To-Do lists (special views + Microsoft lists) ---- */}
+        <SectionLabel
+          label="To-Do Lists"
+          status={listsAvailable && taskLists.length > 0 ? `${taskLists.filter((l) => l.selected).length} of ${taskLists.length} syncing` : undefined}
+        />
+        <LedgerRow
+          title="Today"
+          sub="Show the due-items tab on TODO"
+          right={<Toggle on={showToday} onChange={toggleToday} label="Show Today tab" />}
+        />
+        <LedgerRow
+          title="All"
+          sub="Show the combined all-lists tab on TODO"
+          right={<Toggle on={showAll} onChange={toggleAll} label="Show All tab" />}
+        />
+        {listsAvailable &&
+          (taskLists.length === 0 ? (
+            <LedgerRow title={<span style={{ color: 'var(--text-muted)' }}>No To Do lists on this account</span>} />
+          ) : (
+            taskLists.map((l) => (
+              <LedgerRow
+                key={l.graphListId}
+                title={l.name}
+                sub={l.selected ? 'Syncing to the panel' : 'Not synced'}
+                right={<Toggle on={l.selected} onChange={() => toggleList(l.graphListId)} label={l.name} />}
+              />
+            ))
+          ))}
 
         {/* ---- Privacy & lock ---- */}
         <SectionLabel label="Privacy & Lock" />

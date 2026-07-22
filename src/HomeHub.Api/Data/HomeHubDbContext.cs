@@ -51,6 +51,9 @@ public class HomeHubDbContext : DbContext
     /// <summary>Per-profile Microsoft account links for To Do sync (Stage 5).</summary>
     public DbSet<MicrosoftAccountLink> MicrosoftAccountLinks => Set<MicrosoftAccountLink>();
 
+    /// <summary>Which Microsoft To Do lists each profile has chosen to sync (spec 13 · choose-lists).</summary>
+    public DbSet<SyncedList> SyncedLists => Set<SyncedList>();
+
     /// <summary>Climate zones — simulated store / Home Assistant offline cache (Stage 6).</summary>
     public DbSet<ClimateZone> ClimateZones => Set<ClimateZone>();
 
@@ -171,6 +174,8 @@ public class HomeHubDbContext : DbContext
             entity.Property(t => t.Title).HasMaxLength(300).IsRequired();
             entity.Property(t => t.Source).HasMaxLength(20).IsRequired();
             entity.Property(t => t.GraphId).HasMaxLength(200);
+            entity.Property(t => t.GraphListId).HasMaxLength(200);
+            entity.Property(t => t.ListName).HasMaxLength(100);
             entity.Property(t => t.Note).HasMaxLength(2000);
             entity.HasIndex(t => new { t.ProfileId, t.Completed });
             entity.HasIndex(t => t.GraphId);
@@ -182,6 +187,13 @@ public class HomeHubDbContext : DbContext
             entity.Property(l => l.ProfileId).ValueGeneratedNever();
             entity.Property(l => l.RefreshToken).IsRequired();
             entity.Property(l => l.ListId).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<SyncedList>(entity =>
+        {
+            entity.HasKey(s => new { s.ProfileId, s.GraphListId });
+            entity.Property(s => s.GraphListId).HasMaxLength(200);
+            entity.Property(s => s.ListName).HasMaxLength(100).IsRequired();
         });
 
         // ---- Stage 6: Climate zones ----

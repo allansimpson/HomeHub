@@ -29,6 +29,22 @@ export function IconSprite() {
       <symbol id="ico-assist" viewBox="0 0 24 24">
         <path d="M9 4h6v8a3 3 0 01-6 0zM6 11a6 6 0 0012 0M12 17v4" fill="none" stroke="currentColor" strokeWidth="1.5" />
       </symbol>
+      {/* TODO — checklist (two check-boxes + lines), distinct from the ✓ done mark (handoff icons.svg) */}
+      <symbol id="ico-todo" viewBox="0 0 24 24">
+        <path d="M4 6h4v4H4zM4 14h4v4H4zM11 8h9M11 16h9" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </symbol>
+
+      {/* Account glyphs (person + sign in/out doorframes) */}
+      <symbol id="ico-person" viewBox="0 0 24 24">
+        <circle cx="12" cy="8.5" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M5.5 19a6.5 6.5 0 0113 0" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </symbol>
+      <symbol id="ico-signin" viewBox="0 0 24 24">
+        <path d="M13 4h5v16h-5M4 12h9M9.5 8l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </symbol>
+      <symbol id="ico-signout" viewBox="0 0 24 24">
+        <path d="M11 4H6v16h5M10 12h10M16 8l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </symbol>
 
       {/* ---- Deco glyphs (same geometric line style) ---- */}
       <symbol id="ico-back" viewBox="0 0 24 24">

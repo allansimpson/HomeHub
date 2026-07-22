@@ -1,6 +1,6 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
 import { IconSprite } from '../icons/IconSprite'
-import { MicLiveBanner } from '../components'
+import { MicLiveBanner, AccountControl } from '../components'
 import { ScreenTransition } from './ScreenTransition'
 import { useSession } from './SessionProvider'
 import { useVoice } from './VoiceProvider'
@@ -44,6 +44,7 @@ export function App() {
       <IconSprite />
       <div className="app-root">
         {micLive && <MicLiveBanner />}
+        {!showLock && <AccountControl />}
         {showReconnecting && (
           <div className="ml-reconnect" role="status">
             <span className="ml-reconnect__dot" aria-hidden="true" />

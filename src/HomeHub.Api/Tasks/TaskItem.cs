@@ -15,6 +15,15 @@ public class TaskItem
     /// <summary>Microsoft Graph task id when synced; null for local-only tasks.</summary>
     public string? GraphId { get; set; }
 
+    /// <summary>Graph id of the To Do list this task belongs to (for write-back to the right list).</summary>
+    public string? GraphListId { get; set; }
+
+    /// <summary>Display name of the task's list (the TODO screen groups by this). "Tasks" for local.</summary>
+    public string? ListName { get; set; }
+
+    /// <summary>Importance flag (★). Mirrors Microsoft To Do's high importance; read-only for now.</summary>
+    public bool Important { get; set; }
+
     /// <summary>Providing source: "local" or "microsoft".</summary>
     public required string Source { get; set; }
 

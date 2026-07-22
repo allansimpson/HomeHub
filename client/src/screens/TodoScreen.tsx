@@ -1,135 +1,215 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { DrillInHeader, ScreenShell, ScrollArea, Chip } from '../components'
+import { DrillInHeader, ScreenShell, ScrollArea } from '../components'
 import { Icon } from '../icons/Icon'
 import { useSession } from '../app/SessionProvider'
 import { useTasks } from '../app/TasksProvider'
-import type { ProfileDto, TaskItemDto } from '../api/types'
+import { getShowToday, getShowAll } from '../app/todoPrefs'
+import type { TaskItemDto } from '../api/types'
 
-/** Relative due-date meta for a task row. */
-function dueMeta(task: TaskItemDto): string {
-  if (task.completed) return 'Done'
-  if (!task.dueUtc) return ''
+const ACTIVE_LIST_KEY = 'homehub.todo.activeList'
+
+type Urgency = 'overdue' | 'today' | 'soon' | 'later' | ''
+
+/** Relative due label + urgency class for a task row. */
+function dueInfo(task: TaskItemDto): { label: string; urgency: Urgency } {
+  if (!task.dueUtc) return { label: '', urgency: '' }
   const due = new Date(task.dueUtc)
   const now = new Date()
-  const days = Math.round((new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime()
-    - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86_400_000)
-  if (days < 0) return 'Overdue'
-  if (days === 0) return 'Due today'
-  if (days === 1) return 'Due tomorrow'
-  if (days <= 6) return `Due ${due.toLocaleDateString('en-US', { weekday: 'long' })}`
-  return `Due ${due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+  const days = Math.round(
+    (new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime() -
+      new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86_400_000,
+  )
+  if (days < 0) return { label: 'Overdue', urgency: 'overdue' }
+  if (days === 0) return { label: 'Today', urgency: 'today' }
+  if (days === 1) return { label: 'Tomorrow', urgency: 'soon' }
+  if (days <= 6) return { label: due.toLocaleDateString('en-US', { weekday: 'short' }), urgency: 'later' }
+  return { label: due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), urgency: 'later' }
 }
 
 /**
- * To-Do (spec 03): owner filter tabs (Everyone + members), checkable task rows (done = filled
- * brass + strike + dimmed row), and a full-width New Task entry. The active profile is the
- * default owner for new tasks; add/complete/delete round-trip through the task provider.
+ * TODO (spec 03, revamped): its own bottom-nav tab. Content mirrors Microsoft To Do for the
+ * signed-in profile — no owner axis, the only axis is **lists**. List tabs (conditional Today · All
+ * · each synced list); "All" groups by list, a single list flattens; a collapsible Completed group;
+ * an add-a-task bar targeting the current list. (Sign-in gating, the Profile/Settings + Choose-lists
+ * screens, and ★ write-back are follow-ups; ★ is read-only for now.)
  */
 export function TodoScreen() {
   const navigate = useNavigate()
-  const { profiles, activeProfile } = useSession()
-  const { tasks, toggleTask, deleteTask, createTask } = useTasks()
-  const [filter, setFilter] = useState<number | 'all'>('all')
+  const { activeProfile } = useSession()
+  const { tasks, toggleTask, createTask, offline } = useTasks()
 
-  const [adding, setAdding] = useState(false)
-  const [draftTitle, setDraftTitle] = useState('')
-  const [draftOwner, setDraftOwner] = useState<number | null>(null)
-
-  const visible = useMemo(
-    () => (filter === 'all' ? tasks : tasks.filter((t) => t.profileId === filter)),
-    [tasks, filter],
+  // The signed-in profile's own tasks (fallback to all until sign-in gating lands).
+  const myTasks = useMemo(
+    () => (activeProfile ? tasks.filter((t) => t.profileId === activeProfile.id) : tasks),
+    [tasks, activeProfile],
   )
-  const done = visible.filter((t) => t.completed).length
+  const listNames = useMemo(() => {
+    const s = new Set<string>()
+    for (const t of myTasks) if (t.listName) s.add(t.listName)
+    return [...s].sort((a, b) => a.localeCompare(b))
+  }, [myTasks])
+  const hasDue = useMemo(() => myTasks.some((t) => !t.completed && t.dueUtc), [myTasks])
+  // The special Today/All tabs are user-toggleable (Settings); Today also needs a due item to exist.
+  const showTodayTab = getShowToday() && hasDue
+  const showAllTab = getShowAll()
 
-  const owner = draftOwner ?? (filter !== 'all' ? filter : activeProfile?.id ?? profiles[0]?.id ?? null)
+  const [activeList, setActiveList] = useState<string>(() => localStorage.getItem(ACTIVE_LIST_KEY) ?? 'all')
+  useEffect(() => localStorage.setItem(ACTIVE_LIST_KEY, activeList), [activeList])
+  // Keep the active tab valid as tabs appear/disappear (prefs, due-dates, lists).
+  useEffect(() => {
+    const available = [...(showTodayTab ? ['today'] : []), ...(showAllTab ? ['all'] : []), ...listNames]
+    if (available.length > 0 && !available.includes(activeList)) setActiveList(available[0])
+  }, [activeList, showTodayTab, showAllTab, listNames])
 
-  const toggle = (task: TaskItemDto) => void toggleTask(task)
-  const remove = (task: TaskItemDto) => void deleteTask(task)
+  const [draft, setDraft] = useState('')
+  const [showCompleted, setShowCompleted] = useState(false)
 
+  const open = myTasks.filter((t) => !t.completed)
+  const done = myTasks.filter((t) => t.completed)
+  const onList = activeList !== 'all' && activeList !== 'today'
+  const completedVisible = onList ? done.filter((t) => t.listName === activeList) : done
+
+  // New tasks target the active list (first list on All/Today).
+  const targetList = onList ? activeList : listNames[0] ?? 'Tasks'
+  const targetGraphListId = myTasks.find((t) => t.listName === targetList)?.graphListId ?? null
+
+  const toggle = (t: TaskItemDto) => void toggleTask(t)
   const add = async () => {
-    if (!draftTitle.trim() || owner == null) return
-    await createTask({ profileId: owner, title: draftTitle.trim(), note: null, dueUtc: null })
-    setDraftTitle('')
-    setAdding(false)
+    const title = draft.trim()
+    if (!title || !activeProfile) return
+    setDraft('')
+    await createTask({ profileId: activeProfile.id, title, note: null, dueUtc: null, listName: targetList, graphListId: targetGraphListId })
   }
+
+  const groups = buildGroups(activeList, open, listNames)
 
   return (
     <ScreenShell
-      header={<DrillInHeader title="Tasks" status={`${done} of ${visible.length} done`} onBack={() => navigate('/')} />}
+      header={
+        <DrillInHeader
+          title="TODO"
+          onBack={() => navigate('/')}
+          status={
+            <span className={'ml-todo__sync' + (offline ? ' ml-todo__sync--off' : '')}>
+              <span className="ml-todo__syncdot" aria-hidden="true" />
+              {offline ? 'Offline' : 'Synced'}
+            </span>
+          }
+        />
+      }
     >
-      <div className="ml-todo__tabs">
-        <Chip label="Everyone" active={filter === 'all'} onClick={() => setFilter('all')} />
-        {profiles.map((p) => (
-          <Chip key={p.id} label={p.name} active={filter === p.id} onClick={() => setFilter(p.id)} />
+      <div className="ml-todo__listtabs" role="tablist">
+        {showTodayTab && <ListTab label="Today" active={activeList === 'today'} onClick={() => setActiveList('today')} />}
+        {showAllTab && <ListTab label="All" active={activeList === 'all'} onClick={() => setActiveList('all')} />}
+        {listNames.map((name) => (
+          <ListTab key={name} label={name} active={activeList === name} onClick={() => setActiveList(name)} />
         ))}
       </div>
 
       <ScrollArea>
-        {visible.length === 0 && !adding ? (
-          <div className="ml-cal-empty">No tasks</div>
+        {open.length === 0 && completedVisible.length === 0 ? (
+          <div className="ml-todo__empty">
+            <Icon id="ico-todo" size="2rem" />
+            <span>Nothing to do here</span>
+          </div>
         ) : (
-          visible.map((t) => (
-            <TaskRow key={t.id} task={t} profiles={profiles} onToggle={() => toggle(t)} onDelete={() => remove(t)} />
+          groups.map((g) => (
+            <div className="ml-todo__group" key={g.key}>
+              {g.header && (
+                <div className="ml-todo__grouphead">
+                  <span className="ml-todo__grouptick" aria-hidden="true" />
+                  <span className="ml-todo__grouplabel">{g.header}</span>
+                  <span className="ml-todo__groupcount">{g.tasks.length}</span>
+                </div>
+              )}
+              {g.tasks.map((t) => (
+                <TaskRow key={t.id} task={t} onToggle={() => toggle(t)} showList={activeList === 'today'} />
+              ))}
+            </div>
           ))
         )}
 
-        {adding && (
-          <div className="ml-todo__add">
-            <input
-              className="ml-fieldinput ml-todo__addinput"
-              value={draftTitle}
-              placeholder="What needs doing…"
-              autoFocus
-              onChange={(e) => setDraftTitle(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') add()
-                if (e.key === 'Escape') setAdding(false)
-              }}
-            />
-            <div className="ml-todo__addowners">
-              {profiles.map((p) => (
-                <Chip key={p.id} label={p.name} active={owner === p.id} onClick={() => setDraftOwner(p.id)} />
-              ))}
-            </div>
-            <div className="ml-todo__addactions">
-              <button type="button" className="ml-linkbtn" onClick={() => setAdding(false)}>Cancel</button>
-              <button type="button" className="ml-linkbtn" onClick={add} disabled={!draftTitle.trim()}>Add task</button>
-            </div>
+        {completedVisible.length > 0 && (
+          <div className="ml-todo__completed">
+            <button type="button" className="ml-todo__completedhead" onClick={() => setShowCompleted((v) => !v)}>
+              <span aria-hidden="true">{showCompleted ? '▾' : '▸'}</span> Completed {completedVisible.length}
+            </button>
+            {showCompleted && completedVisible.map((t) => <TaskRow key={t.id} task={t} onToggle={() => toggle(t)} />)}
           </div>
         )}
       </ScrollArea>
 
-      {!adding && (
-        <button type="button" className="ml-todo__new" onClick={() => setAdding(true)}>
-          ＋ New Task
-        </button>
-      )}
+      <div className="ml-todo__addbar">
+        <span className="ml-todo__addplus" aria-hidden="true"><Icon id="ico-add" size="1rem" /></span>
+        <input
+          className="ml-todo__addfield"
+          value={draft}
+          placeholder="Add a task"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+        />
+        <span className="ml-todo__addtarget">{`To ${targetList}`}</span>
+      </div>
     </ScreenShell>
   )
 }
 
-function TaskRow({
-  task, profiles, onToggle, onDelete,
-}: {
-  task: TaskItemDto
-  profiles: ProfileDto[]
-  onToggle: () => void
-  onDelete: () => void
-}) {
-  const owner = profiles.find((p) => p.id === task.profileId)
-  const meta = dueMeta(task)
+interface Group {
+  key: string
+  header: string | null
+  tasks: TaskItemDto[]
+}
+
+/** Build the grouped body for the active tab: Today→urgency, All→per-list, single list→flat. */
+function buildGroups(activeList: string, open: TaskItemDto[], listNames: string[]): Group[] {
+  if (activeList === 'today') {
+    const due = open.filter((t) => t.dueUtc)
+    return (
+      [
+        { key: 'overdue', header: 'Overdue', match: (u: Urgency) => u === 'overdue' },
+        { key: 'today', header: 'Today', match: (u: Urgency) => u === 'today' },
+        { key: 'later', header: 'Later', match: (u: Urgency) => u === 'soon' || u === 'later' },
+      ] as const
+    )
+      .map((seg) => ({ key: seg.key, header: seg.header, tasks: due.filter((t) => seg.match(dueInfo(t).urgency)) }))
+      .filter((g) => g.tasks.length > 0)
+  }
+  if (activeList === 'all') {
+    return listNames
+      .map((name) => ({ key: name, header: name, tasks: open.filter((t) => t.listName === name) }))
+      .filter((g) => g.tasks.length > 0)
+  }
+  return [{ key: activeList, header: null, tasks: open.filter((t) => t.listName === activeList) }]
+}
+
+function ListTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
-    <div className={'ml-task' + (task.completed ? ' ml-task--done' : '')}>
-      <button type="button" className="ml-task__check" onClick={onToggle} aria-pressed={task.completed} aria-label="Toggle complete">
-        {task.completed && <Icon id="ico-check" size="0.9375rem" />}
+    <button type="button" role="tab" aria-selected={active} className={'ml-todo__listtab' + (active ? ' ml-todo__listtab--active' : '')} onClick={onClick}>
+      {label}
+    </button>
+  )
+}
+
+function TaskRow({ task, onToggle, showList }: { task: TaskItemDto; onToggle: () => void; showList?: boolean }) {
+  const { label, urgency } = dueInfo(task)
+  return (
+    <div className={'ml-todorow' + (task.completed ? ' ml-todorow--done' : '')}>
+      <button type="button" className="ml-todorow__check" onClick={onToggle} aria-pressed={task.completed} aria-label="Toggle complete">
+        {task.completed && <Icon id="ico-check" size="1rem" />}
       </button>
-      <div className="ml-task__main">
-        <div className="ml-task__title">{task.title}</div>
-        {meta && <div className="ml-task__meta">{meta}</div>}
+      <div className="ml-todorow__main">
+        <div className="ml-todorow__title">{task.title}</div>
+        {(label || (showList && task.listName)) && (
+          <div className="ml-todorow__meta">
+            {label && <span className={'ml-todorow__due ml-todorow__due--' + urgency}>{label}</span>}
+            {showList && task.listName && <span className="ml-todorow__listtag">{task.listName}</span>}
+          </div>
+        )}
       </div>
-      {owner && <span className="ml-ownerchip ml-task__owner">{owner.initial}</span>}
-      <button type="button" className="ml-task__delete" onClick={onDelete} aria-label="Delete task">×</button>
+      <span className={'ml-todorow__star' + (task.important ? ' ml-todorow__star--on' : '')} aria-hidden="true">
+        {task.important ? '★' : '☆'}
+      </span>
     </div>
   )
 }

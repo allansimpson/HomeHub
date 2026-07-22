@@ -15,29 +15,13 @@ interface DashboardHeaderProps {
   onSwitchProfile?: () => void
 }
 
-/** Dashboard header: big clock left; profile badge + date + conditions (or offline chip) right. */
-export function DashboardHeader({
-  clock,
-  date,
-  conditions,
-  offline,
-  profileInitial,
-  onSwitchProfile,
-}: DashboardHeaderProps) {
+/** Dashboard header: big clock left; date + conditions (or offline chip) right. Identity is global (spec 13). */
+export function DashboardHeader({ clock, date, conditions, offline }: DashboardHeaderProps) {
   return (
     <header className="ml-header ml-dash-header">
       <div className="ml-dash-header__clock serif">{clock}</div>
       <div className="ml-dash-header__right">
-        {profileInitial && onSwitchProfile && (
-          <button
-            type="button"
-            className="ml-profilebadge serif"
-            onClick={onSwitchProfile}
-            aria-label="Switch profile"
-          >
-            {profileInitial}
-          </button>
-        )}
+        {/* Profile chip removed — identity now lives in the global AccountControl (spec 13). */}
         {offline ? (
           <OfflineChip />
         ) : (

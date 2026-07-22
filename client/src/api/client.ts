@@ -11,6 +11,7 @@ import type {
   CalendarEventInput,
   TaskItemDto,
   TaskCreateInput,
+  SyncListDto,
   ClimateZoneDto,
   ClimateModeName,
   AssistantChatRequest,
@@ -107,6 +108,10 @@ export const api = {
   completeTask: (id: number, completed: boolean) =>
     request<TaskItemDto>(`/tasks/${id}/complete`, { method: 'PATCH', ...json({ completed }) }),
   deleteTask: (id: number) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
+  // ---- To Do list selection (choose which Microsoft lists sync) ----
+  getTaskLists: (profileId: number) => request<SyncListDto[]>(`/tasks/lists?profileId=${profileId}`),
+  setTaskLists: (profileId: number, selectedGraphListIds: string[]) =>
+    request<void>('/tasks/lists', { method: 'PUT', ...json({ profileId, selectedGraphListIds }) }),
 
   // ---- Climate ----
   getClimateZones: () => request<ClimateZoneDto[]>('/climate/zones'),

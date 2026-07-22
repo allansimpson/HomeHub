@@ -21,3 +21,16 @@ public interface ITaskProvider
     /// <summary>Delete a task, with the same optional optimistic-concurrency check.</summary>
     Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct);
 }
+
+/// <summary>
+/// Optional capability for providers whose tasks come from selectable lists (Microsoft To Do).
+/// The controller exposes the choose-lists endpoints only when the active provider implements this.
+/// </summary>
+public interface IListSyncProvider
+{
+    /// <summary>The profile's available lists with their current selected state.</summary>
+    Task<IReadOnlyList<SyncListDto>> GetListsAsync(int profileId, CancellationToken ct);
+
+    /// <summary>Replace the profile's synced-list selection (empty = sync all).</summary>
+    Task SetSelectedListsAsync(int profileId, IReadOnlyList<string> selectedGraphListIds, CancellationToken ct);
+}

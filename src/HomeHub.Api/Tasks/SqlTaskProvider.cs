@@ -41,6 +41,9 @@ public sealed class SqlTaskProvider : ITaskProvider
             Title = input.Title.Trim(),
             Note = input.Note,
             DueUtc = input.DueUtc,
+            // Local store has no real To Do lists; keep everything under one named list so the
+            // TODO screen still groups coherently without a linked Microsoft account.
+            ListName = string.IsNullOrWhiteSpace(input.ListName) ? "Tasks" : input.ListName,
             Completed = false,
             CreatedUtc = now,
             UpdatedUtc = now,

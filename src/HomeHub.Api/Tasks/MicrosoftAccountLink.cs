@@ -15,5 +15,9 @@ public class MicrosoftAccountLink
     /// <summary>Which To Do list to use; null = the account's default Tasks list.</summary>
     public string? ListId { get; set; }
 
+    /// <summary>Once the household has chosen which lists to sync, only <see cref="SyncedList"/> rows
+    /// sync (may be none). While false — never configured — all lists sync (backward-compatible default).</summary>
+    public bool ListsConfigured { get; set; }
+
     public DateTime LinkedUtc { get; set; }
 }
