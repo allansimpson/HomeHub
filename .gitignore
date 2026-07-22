@@ -4,6 +4,8 @@ CentralHome_ClaudeCode_BuildPackage.zip
 HomeHub_ClaudeDesign/
 HomeHub_ClaudeDesign.zip
 HomeHub_Audit/
+# Extracted design-handoff bundles (the .zips are ignored below; keep their unpacked folders out too).
+HomeHub_*/
 *.zip
 
 # ---- .NET ----
