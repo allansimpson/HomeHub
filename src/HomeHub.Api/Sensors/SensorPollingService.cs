@@ -12,6 +12,9 @@ using Microsoft.EntityFrameworkCore;
 /// </summary>
 public sealed class SensorPollingService : BackgroundService
 {
+    /// <summary>Source of the seeded demo zones (see the DbContext seed); dropped once a real provider is live.</summary>
+    private const string SimulatedSource = "simulated";
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IConfiguration _config;
     private readonly ILogger<SensorPollingService> _logger;
@@ -64,6 +67,11 @@ public sealed class SensorPollingService : BackgroundService
         var providerZones = await provider.GetZonesAsync(ct);
         await UpsertZonesAsync(db, provider.Source, providerZones, ct);
 
+        // 1b. Once a real provider is live, drop the seeded simulated demo zones (and their readings /
+        // thresholds, via cascade) so the panel shows only real sensors. Done after a successful zone
+        // discovery, and only the simulated seed — never real data if creds are later toggled off.
+        await RemoveDemoZonesAsync(db, provider.Source, ct);
+
         var zones = await db.SensorZones.Where(z => z.Source == provider.Source).ToListAsync(ct);
         if (zones.Count == 0) return;
 
@@ -93,6 +101,19 @@ public sealed class SensorPollingService : BackgroundService
 
         // 4. Reconcile alerts against the fresh readings.
         await engine.EvaluateAsync(db, now, ct);
+    }
+
+    /// <summary>Remove the seeded simulated demo zones once a real provider is active (cascade drops
+    /// their readings + thresholds). No-op when the simulated provider itself is live, and it never
+    /// touches real-source zones — so a temporary loss of credentials can't delete real history.</summary>
+    private async Task RemoveDemoZonesAsync(HomeHubDbContext db, string activeSource, CancellationToken ct)
+    {
+        if (activeSource == SimulatedSource) return;
+        var demo = await db.SensorZones.Where(z => z.Source == SimulatedSource).ToListAsync(ct);
+        if (demo.Count == 0) return;
+        db.SensorZones.RemoveRange(demo);
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Removed {Count} seeded simulated demo zone(s); '{Source}' is now live.", demo.Count, activeSource);
     }
 
     private static async Task UpsertZonesAsync(
