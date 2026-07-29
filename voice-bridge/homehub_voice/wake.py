@@ -1,4 +1,4 @@
-"""openWakeWord wrapper — fully local keyword spotting for "Hey Cleo"."""
+"""openWakeWord wrapper — fully local keyword spotting for "Hey Barnaby"."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class WakeWord:
             models = [cfg.wake_model]
             log.warning(
                 "No WAKE_MODEL_PATH set — using pretrained '%s' as a stand-in for '%s'. "
-                "Train a custom Hey-Cleo model for the real phrase (see README).",
+                "Train a custom Hey-Barnaby model for the real phrase (see README).",
                 cfg.wake_model,
                 cfg.wake_phrase,
             )

@@ -2,6 +2,7 @@ namespace HomeHub.Api.Data;
 
 using HomeHub.Api.Alerts;
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
 using HomeHub.Api.Profiles;
 using HomeHub.Api.Sensors;
@@ -9,6 +10,7 @@ using HomeHub.Api.Settings;
 using HomeHub.Api.Tasks;
 using HomeHub.Api.Weather;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 /// <summary>
 /// The application's own database context. Entities are added by their owning stage. This
@@ -54,8 +56,17 @@ public class HomeHubDbContext : DbContext
     /// <summary>Which Microsoft To Do lists each profile has chosen to sync (spec 13 · choose-lists).</summary>
     public DbSet<SyncedList> SyncedLists => Set<SyncedList>();
 
+    /// <summary>Per-profile Google account links for calendar sync.</summary>
+    public DbSet<GoogleAccountLink> GoogleAccountLinks => Set<GoogleAccountLink>();
+
+    /// <summary>Which Google calendars each profile has chosen to display.</summary>
+    public DbSet<SyncedCalendar> SyncedCalendars => Set<SyncedCalendar>();
+
     /// <summary>Climate zones — simulated store / Home Assistant offline cache (Stage 6).</summary>
     public DbSet<ClimateZone> ClimateZones => Set<ClimateZone>();
+
+    /// <summary>Litter-Robot auto-recovery attempts — the 24h cap's memory and the flaky-vs-broken audit trail.</summary>
+    public DbSet<LitterRobotRecovery> LitterRobotRecoveries => Set<LitterRobotRecovery>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -164,8 +175,11 @@ public class HomeHubDbContext : DbContext
             entity.Property(e => e.Location).HasMaxLength(300);
             entity.Property(e => e.Notes).HasMaxLength(2000);
             entity.Property(e => e.OwnerTags).HasMaxLength(120);
+            entity.Property(e => e.GoogleCalendarId).HasMaxLength(200);
+            entity.Property(e => e.CalendarName).HasMaxLength(200);
             entity.HasIndex(e => e.StartUtc);
             entity.HasIndex(e => e.GoogleId);
+            entity.HasIndex(e => new { e.ProfileId, e.StartUtc });
         });
 
         // ---- Stage 5: Tasks + Microsoft account links ----
@@ -196,6 +210,21 @@ public class HomeHubDbContext : DbContext
             entity.Property(s => s.ListName).HasMaxLength(100).IsRequired();
         });
 
+        modelBuilder.Entity<GoogleAccountLink>(entity =>
+        {
+            entity.HasKey(l => l.ProfileId);
+            entity.Property(l => l.ProfileId).ValueGeneratedNever();
+            entity.Property(l => l.RefreshToken).IsRequired();
+            entity.Property(l => l.PrimaryCalendarId).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<SyncedCalendar>(entity =>
+        {
+            entity.HasKey(s => new { s.ProfileId, s.GoogleCalendarId });
+            entity.Property(s => s.GoogleCalendarId).HasMaxLength(200);
+            entity.Property(s => s.CalendarName).HasMaxLength(200).IsRequired();
+        });
+
         // ---- Stage 6: Climate zones ----
         modelBuilder.Entity<ClimateZone>(entity =>
         {
@@ -214,5 +243,46 @@ public class HomeHubDbContext : DbContext
                 new ClimateZone { Id = 4, Name = "Study", Source = "simulated", ProviderRef = "sim-study", CurrentTempF = 72, SetPointF = 72, Mode = ClimateMode.Off, DisplayOrder = 3 },
                 new ClimateZone { Id = 5, Name = "Loft", Source = "simulated", ProviderRef = "sim-loft", CurrentTempF = 72, SetPointF = 72, Mode = ClimateMode.Off, DisplayOrder = 4 });
         });
+
+        // ---- Litter-Robot auto-recovery attempts ----
+        modelBuilder.Entity<LitterRobotRecovery>(entity =>
+        {
+            entity.Property(r => r.Slug).HasMaxLength(120).IsRequired();
+            entity.Property(r => r.FaultCode).HasMaxLength(20).IsRequired();
+            entity.Property(r => r.ResultingCode).HasMaxLength(20);
+            entity.Property(r => r.Detail).HasMaxLength(300);
+            // The rolling-24h cap query is (slug, started) — index it, since the recovery loop runs it
+            // on every tick that finds a fault.
+            entity.HasIndex(r => new { r.Slug, r.StartedAtUtc });
+        });
+
+        ApplyUtcDateTimes(modelBuilder);
+    }
+
+    /// <summary>
+    /// SQL Server's <c>datetime2</c> carries no kind, so values read back are
+    /// <see cref="DateTimeKind.Unspecified"/> and serialize to JSON without a trailing "Z". The SPA
+    /// then parses them as *local* time and the value drifts by the UTC offset — enough to shift an
+    /// evening event onto the next day. Force every DateTime column to round-trip as UTC so what we
+    /// store and what we send are unambiguous. (DateTime → DateTime, so no schema change.)
+    /// </summary>
+    private static void ApplyUtcDateTimes(ModelBuilder modelBuilder)
+    {
+        var utc = new ValueConverter<DateTime, DateTime>(
+            v => v.Kind == DateTimeKind.Utc ? v : v.ToUniversalTime(),
+            v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+        var utcNullable = new ValueConverter<DateTime?, DateTime?>(
+            v => v.HasValue && v.Value.Kind != DateTimeKind.Utc ? v.Value.ToUniversalTime() : v,
+            v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
+
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                if (property.ClrType == typeof(DateTime)) property.SetValueConverter(utc);
+                else if (property.ClrType == typeof(DateTime?)) property.SetValueConverter(utcNullable);
+            }
+        }
     }
 }

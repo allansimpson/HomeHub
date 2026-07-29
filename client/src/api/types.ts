@@ -98,6 +98,11 @@ export interface HourlyDto {
   label: string
   tempF: number | null
   shortForecast: string | null
+  /** Local yyyy-MM-dd — groups hours into the Day Detail. */
+  dayKey: string | null
+  /** Precip probability %. */
+  pop: number | null
+  windMph: number | null
 }
 
 export interface DailyDto {
@@ -106,6 +111,8 @@ export interface DailyDto {
   highF: number | null
   lowF: number | null
   severe: boolean
+  /** Local yyyy-MM-dd — links a day row to its hourly periods. */
+  dayKey: string | null
 }
 
 export interface WeatherSnapshotDto {
@@ -113,6 +120,9 @@ export interface WeatherSnapshotDto {
   hourly: HourlyDto[]
   daily: DailyDto[]
   fetchedAtUtc: string | null
+  /** Home location for the radar view. */
+  latitude: number | null
+  longitude: number | null
 }
 
 // ---- Stage 4: calendar ----
@@ -127,6 +137,10 @@ export interface CalendarEventDto {
   ownerIds: number[]
   source: string
   version: number
+  /** Owning profile for Google events (per-profile calendars); null for local events. */
+  profileId: number | null
+  /** Display name of the owning Google calendar; null for local events. */
+  calendarName: string | null
 }
 
 export interface CalendarEventInput {
@@ -136,6 +150,17 @@ export interface CalendarEventInput {
   location: string | null
   notes: string | null
   ownerIds: number[]
+  /** Owning profile (whose Google account the event is created on). Null for the local calendar. */
+  profileId?: number | null
+  /** Target Google calendar for a new event; null = the profile's primary calendar. */
+  googleCalendarId?: string | null
+}
+
+/** A Google calendar offered for display, with its current selection (CONFIG · choose-calendars). */
+export interface SyncCalendarDto {
+  calendarId: string
+  name: string
+  selected: boolean
 }
 
 // ---- Stage 5: tasks ----
@@ -185,6 +210,8 @@ export interface ClimateZoneDto {
   fanMode: string | null
   running: boolean
   source: string
+  /** Local-clock estimate of when the set point is reached, e.g. "8:10 PM"; null when at set point / off. */
+  reachesAtLocal: string | null
 }
 
 // ---- Stage 7: AI assistant ----
@@ -197,6 +224,8 @@ export interface AssistantChatRequest {
   imageBase64?: string | null
   imageMediaType?: string | null
   force?: string | null
+  /** Signed-in profile, so an in-app action (add a task, …) runs as that member. */
+  profileId?: number | null
 }
 
 export interface AssistantChatResponse {
@@ -204,6 +233,8 @@ export interface AssistantChatResponse {
   origin: AssistantOriginName
   escalated: boolean
   model: string | null
+  /** Set (e.g. "task") when the turn performed an in-app action, so the UI can refresh. */
+  action?: string | null
 }
 
 export interface VerifyPinResult {

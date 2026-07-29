@@ -31,7 +31,7 @@ public sealed class WeatherRefresher
         var weather = await _provider.GetWeatherAsync(_options.Latitude, _options.Longitude, ct);
 
         // Cache the forecast payload (alerts are stored separately via the engine).
-        var snapshot = new WeatherSnapshotDto(weather.Current, weather.Hourly, weather.Daily, nowUtc);
+        var snapshot = new WeatherSnapshotDto(weather.Current, weather.Hourly, weather.Daily, nowUtc, _options.Latitude, _options.Longitude);
         var payload = JsonSerializer.Serialize(snapshot);
 
         var cache = await db.WeatherCache.FirstOrDefaultAsync(c => c.Id == 1, ct);

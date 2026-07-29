@@ -7,6 +7,8 @@ HomeHub_Audit/
 # Extracted design-handoff bundles (the .zips are ignored below; keep their unpacked folders out too).
 HomeHub_*/
 *.zip
+# Extracted doc bundle — the authoritative copies of these live at the repo root.
+homehub-docs/
 
 # ---- .NET ----
 bin/
@@ -22,6 +24,13 @@ project.lock.json
 # ---- EF / local db ----
 *.mdf
 *.ldf
+
+# ---- Azurite (local storage emulator state, churns constantly) ----
+__azurite_db_*.json
+__azurite_db_*__.json
+__blobstorage__/
+__queuestorage__/
+__tablestorage__/
 
 # ---- Secrets (never commit) ----
 appsettings.*.Local.json

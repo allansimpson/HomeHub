@@ -1,13 +1,17 @@
 using System.Text.Json.Serialization;
 using HomeHub.Api.Ai;
 using HomeHub.Api.Alerts;
+using HomeHub.Api.Baby;
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
+using HomeHub.Api.HomeAssistant;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Tasks;
 using HomeHub.Api.Weather;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -82,8 +86,56 @@ builder.Services.Configure<HomeAssistantOptions>(builder.Configuration.GetSectio
 var homeAssistant = builder.Configuration.GetSection(HomeAssistantOptions.Section).Get<HomeAssistantOptions>();
 if (homeAssistant?.IsConfigured == true)
 {
-    builder.Services.AddHttpClient<HomeAssistantClimateProvider>();
+    // One HA client shared by every HA-backed provider (climate today, Huckleberry below).
+    builder.Services.AddHttpClient<HomeAssistantClient>();
+    builder.Services.AddScoped<HomeAssistantClimateProvider>();
 }
+
+// --- Stage H2: Huckleberry (baby tracking) via Home Assistant ---
+// Reads only, behind IHuckleberryProvider. Huckleberry is the system of record — no EF entities
+// here, just an in-memory display cache. Without HA config the section honestly reports "Not
+// connected" rather than simulating baby data. No database needed.
+// TimeProvider is not registered by the framework. Providers depend on the abstraction rather than
+// DateTime.UtcNow so cache-expiry logic is testable without sleeping.
+builder.Services.TryAddSingleton(TimeProvider.System);
+
+builder.Services.Configure<HuckleberryOptions>(builder.Configuration.GetSection(HuckleberryOptions.Section));
+var huckleberry = builder.Configuration.GetSection(HuckleberryOptions.Section).Get<HuckleberryOptions>() ?? new HuckleberryOptions();
+if (homeAssistant?.IsConfigured == true && huckleberry.Enabled)
+{
+    builder.Services.AddSingleton<HuckleberrySnapshotCache>();
+    builder.Services.AddScoped<IHuckleberryProvider, HuckleberryHomeAssistantProvider>();
+}
+else
+{
+    builder.Services.AddScoped<IHuckleberryProvider, NotConnectedHuckleberryProvider>();
+}
+
+// --- Litter-Robot (Cat section) via Home Assistant ---
+// Reads ride the same HA client as climate/Huckleberry. The write path is a separate seam
+// (ILitterRobotCommands) because HA can only reach two rungs of the recovery ladder — a full reset and
+// a clean cycle — while the Whisker cloud API also accepts a short reset press and discrete power
+// commands. Splitting them means a direct-Whisker implementation can be dropped in later without the
+// recovery loop changing. Without HA config the section honestly reports "Not connected" rather than
+// simulating a litter box.
+builder.Services.Configure<CatOptions>(builder.Configuration.GetSection(CatOptions.Section));
+var cats = builder.Configuration.GetSection(CatOptions.Section).Get<CatOptions>() ?? new CatOptions();
+var catsLive = homeAssistant?.IsConfigured == true && cats.Enabled;
+if (catsLive)
+{
+    builder.Services.AddSingleton<CatSnapshotCache>();
+    builder.Services.AddScoped<ILitterRobotProvider, LitterRobotHomeAssistantProvider>();
+    builder.Services.AddScoped<ILitterRobotCommands, HomeAssistantLitterRobotCommands>();
+}
+else
+{
+    builder.Services.AddScoped<ILitterRobotProvider, NotConnectedLitterRobotProvider>();
+    builder.Services.AddScoped<ILitterRobotCommands, NotConnectedLitterRobotCommands>();
+}
+// The tracker holds live episode state shared by the recovery loop and the panel, so it is a singleton.
+// The runner is scoped because it records attempts through the request/tick's DbContext.
+builder.Services.AddSingleton<RecoveryTracker>();
+builder.Services.AddScoped<LitterRobotRecoveryRunner>();
 
 // --- Stage 7: AI assistant (hybrid local/cloud) ---
 // The router routes each turn between the local server model and OpenAI, falling back to a
@@ -97,6 +149,9 @@ builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.LocalKey, (s
 builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.CloudKey, (sp, _) => sp.GetRequiredService<OpenAIAssistantProvider>());
 builder.Services.AddKeyedScoped<IAssistantProvider>(AssistantRouter.SimulatedKey, (sp, _) => new SimulatedAssistantProvider());
 builder.Services.AddScoped<AssistantRouter>();
+// In-app action layer (add a task, …). Resolves the task provider/DB from the request scope, so it
+// degrades gracefully when no database is configured.
+builder.Services.AddScoped<AssistantActions>();
 
 // --- Stage 8: voice (server STT seam) ---
 // Local-first STT: a faster-whisper sidecar on the LAN behind the seam, with OpenAI Whisper as cloud
@@ -110,6 +165,19 @@ builder.Services.AddHttpClient<LocalWhisperSpeechToText>(c =>
 builder.Services.AddKeyedScoped<ISpeechToText>(SttRouter.LocalKey, (sp, _) => sp.GetRequiredService<LocalWhisperSpeechToText>());
 builder.Services.AddKeyedScoped<ISpeechToText>(SttRouter.CloudKey, (sp, _) => sp.GetRequiredService<OpenAISpeechToText>());
 builder.Services.AddScoped<SttRouter>();
+
+// Central TTS (Stage 8R): one voice for the whole app, chosen by VoiceRouter. Piper is the default
+// and the permanent fallback; Chatterbox becomes primary by setting Voice:Tts:Primary=chatterbox
+// once a GPU is installed. Falls back to browser synthesis when neither is configured.
+builder.Services.AddSingleton<PiperTextToSpeech>();
+builder.Services.AddHttpClient<ChatterboxTextToSpeech>();
+builder.Services.AddKeyedScoped<ITextToSpeech>(VoiceRouter.PiperKey, (sp, _) => sp.GetRequiredService<PiperTextToSpeech>());
+builder.Services.AddKeyedScoped<ITextToSpeech>(VoiceRouter.ChatterboxKey, (sp, _) => sp.GetRequiredService<ChatterboxTextToSpeech>());
+// The phrase cache clears itself at startup when the voice config hash changes, so it is a singleton.
+builder.Services.AddSingleton<PhraseCache>();
+// Deliberately no unkeyed ITextToSpeech registration: VoiceRouter is the only way to speak, so no
+// call site can quietly bypass the fallback deadline and the phrase cache.
+builder.Services.AddScoped<VoiceRouter>();
 
 // The pollers write owned history / cache + evaluate alerts, and the calendar/task providers
 // need a DB. All are registered only alongside a database; without a connection string the shell
@@ -130,6 +198,11 @@ if (!string.IsNullOrWhiteSpace(connectionString))
         builder.Services.AddScoped<IClimateProvider>(sp => sp.GetRequiredService<HomeAssistantClimateProvider>());
     else
         builder.Services.AddScoped<IClimateProvider, SimulatedClimateProvider>();
+
+    // The recovery loop needs the DB for the rolling 24h attempt cap — without persisted attempt
+    // history the cap would reset on every restart, which is the one brake that must not be losable.
+    if (catsLive)
+        builder.Services.AddHostedService<LitterRobotRecoveryService>();
 
     builder.Services.AddHostedService<SensorPollingService>();
     builder.Services.AddHostedService<WeatherPollingService>();

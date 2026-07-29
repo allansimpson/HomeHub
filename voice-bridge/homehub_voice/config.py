@@ -23,7 +23,7 @@ class Config:
     http_timeout: float          # seconds for transcribe/chat calls
 
     # --- Wake word (openWakeWord, fully local) ---
-    wake_model_path: str | None  # path to a custom "hey_cleo.onnx"; None → use wake_model name
+    wake_model_path: str | None  # path to a custom "hey_barnaby.onnx"; None → use wake_model name
     wake_model: str              # pretrained fallback name if no custom model (e.g. "hey_jarvis")
     wake_framework: str          # "onnx" or "tflite"
     wake_threshold: float        # score in [0,1] above which the phrase counts as detected
@@ -37,8 +37,9 @@ class Config:
     min_speech_ms: int           # ignore blips shorter than this
     max_utterance_ms: int        # hard cap on a single capture
 
-    # --- TTS (Piper) ---
-    piper_bin: str               # "piper" or an absolute path
+    # --- TTS ---
+    tts_prefer_server: bool      # speak via POST /api/voice/speak (one app voice); False = local only
+    piper_bin: str               # "piper" or an absolute path — the local fallback voice
     piper_model: str             # path to en_US-norman-medium.onnx (.onnx.json alongside it)
     tts_sample_rate: int         # 22050 for the norman *medium* voice
     aplay_device: str | None     # ALSA output device (aplay -D), None = default
@@ -63,13 +64,14 @@ class Config:
             wake_model=_env("WAKE_MODEL", "hey_jarvis"),
             wake_framework=_env("WAKE_FRAMEWORK", "onnx"),
             wake_threshold=float(_env("WAKE_THRESHOLD", "0.5")),
-            wake_phrase=_env("WAKE_PHRASE", "Hey Cleo"),
+            wake_phrase=_env("WAKE_PHRASE", "Hey Barnaby"),
             mic_device=_env_opt("MIC_DEVICE"),
             vad_aggressiveness=int(_env("VAD_AGGRESSIVENESS", "2")),
             start_timeout_ms=int(_env("START_TIMEOUT_MS", "3000")),
             end_silence_ms=int(_env("END_SILENCE_MS", "900")),
             min_speech_ms=int(_env("MIN_SPEECH_MS", "300")),
             max_utterance_ms=int(_env("MAX_UTTERANCE_MS", "15000")),
+            tts_prefer_server=_env("TTS_PREFER_SERVER", "1") not in ("0", "false", "False"),
             piper_bin=_env("PIPER_BIN", "piper"),
             piper_model=_env("PIPER_MODEL", "/opt/homehub-voice/voices/en_US-norman-medium.onnx"),
             tts_sample_rate=int(_env("TTS_SAMPLE_RATE", "22050")),

@@ -1,7 +1,10 @@
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
+import { Routes, Route, useLocation, type Location } from 'react-router-dom'
 import { IconSprite } from '../icons/IconSprite'
-import { MicLiveBanner, AccountControl } from '../components'
-import { ScreenTransition } from './ScreenTransition'
+import { MicLiveBanner } from '../components'
+import { OnScreenKeyboard } from '../components/keyboard/OnScreenKeyboard'
+import { NAV_SECTIONS } from './navConfig'
 import { useSession } from './SessionProvider'
 import { useVoice } from './VoiceProvider'
 import { useConnection } from './ConnectionProvider'
@@ -19,6 +22,21 @@ import { SettingsScreen } from '../screens/SettingsScreen'
 import { EventEditorScreen } from '../screens/EventEditorScreen'
 import { LockScreen } from '../screens/LockScreen'
 
+const SECTION_PATHS = new Set(NAV_SECTIONS.map((s) => s.path))
+
+/** Which motion a route change gets: drilling into a deeper screen rises; backing out to a tab
+ *  settles down; tab ↔ tab is a soft cross-fade. Drives the `data-vt` attribute the CSS reads. */
+function directionFor(from: string, to: string): 'fade' | 'slideup' | 'slidedown' {
+  const toSection = SECTION_PATHS.has(to)
+  if (!toSection) return 'slideup' // into a drill-in (event editor, sensor history, config sub-page)
+  if (!SECTION_PATHS.has(from)) return 'slidedown' // out of a drill-in, back to a tab
+  return 'fade' // tab ↔ tab
+}
+
+type ViewTransitionDocument = Document & {
+  startViewTransition?: (cb: () => void) => { finished: Promise<void> }
+}
+
 export function App() {
   // Global mic state (Stage 8): the banner must appear on ANY screen whenever the mic is open.
   const { micLive } = useVoice()
@@ -29,6 +47,28 @@ export function App() {
   const location = useLocation()
   useIdleReset()
   useAmbient(settings?.daylightBoost ?? 'auto')
+
+  // Smooth route motion via the View Transitions API (Chromium kiosk). The router location updates
+  // at once, but the routed screens render against `displayed`, which we only advance *inside*
+  // startViewTransition — the browser snapshots the old screen, we flush the new one, and it
+  // cross-fades/slides between the two. Centralized here so every navigation animates with no
+  // per-call wiring. Falls back to an instant swap where the API is absent or motion is reduced.
+  const [displayed, setDisplayed] = useState<Location>(location)
+  useEffect(() => {
+    if (location.key === displayed.key) return
+    const doc = document as ViewTransitionDocument
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (typeof doc.startViewTransition !== 'function' || reduce) {
+      setDisplayed(location)
+      return
+    }
+    const dir = directionFor(displayed.pathname, location.pathname)
+    document.documentElement.dataset.vt = dir
+    const transition = doc.startViewTransition(() => flushSync(() => setDisplayed(location)))
+    void transition.finished.finally(() => {
+      if (document.documentElement.dataset.vt === dir) delete document.documentElement.dataset.vt
+    })
+  }, [location, displayed])
 
   // The Lock screen is a gate, not a routed page: it takes over whenever the active profile
   // is locked (boot / idle) or the profile switcher (`/lock`) is open. On success it routes
@@ -44,7 +84,6 @@ export function App() {
       <IconSprite />
       <div className="app-root">
         {micLive && <MicLiveBanner />}
-        {!showLock && <AccountControl />}
         {showReconnecting && (
           <div className="ml-reconnect" role="status">
             <span className="ml-reconnect__dot" aria-hidden="true" />
@@ -75,8 +114,8 @@ export function App() {
           {showLock ? (
             <LockScreen />
           ) : (
-            <ScreenTransition>
-              <Routes>
+            <div className="ml-transition">
+              <Routes location={displayed}>
                 <Route path="/" element={<DashboardScreen />} />
                 <Route path="/calendar" element={<CalendarScreen />} />
                 <Route path="/calendar/new" element={<EventEditorScreen />} />
@@ -87,13 +126,16 @@ export function App() {
                 <Route path="/todo" element={<TodoScreen />} />
                 <Route path="/sensor" element={<SensorHistoryScreen />} />
                 <Route path="/settings" element={<SettingsScreen />} />
+                <Route path="/settings/:section" element={<SettingsScreen />} />
                 {/* Idle/unknown routes return to the dashboard (home + idle screen). */}
                 <Route path="*" element={<DashboardScreen />} />
               </Routes>
-            </ScreenTransition>
+            </div>
           )}
         </div>
       </div>
+      {/* Docked touch keyboard — appears whenever any text field is focused (KEYBOARD.md). */}
+      <OnScreenKeyboard />
     </>
   )
 }

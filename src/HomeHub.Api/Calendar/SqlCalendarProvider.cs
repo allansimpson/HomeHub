@@ -18,9 +18,9 @@ public sealed class SqlCalendarProvider : ICalendarProvider
 
     public string Source => "local";
 
-    public async Task<IReadOnlyList<CalendarEvent>> ListAsync(DateTime fromUtc, DateTime toUtc, CancellationToken ct)
+    public async Task<IReadOnlyList<CalendarEvent>> ListAsync(int? profileId, DateTime fromUtc, DateTime toUtc, CancellationToken ct)
     {
-        // Events that overlap the [from, to) window.
+        // Local calendar is a single shared store — profileId is ignored. Events overlapping [from, to).
         return await _db.CalendarEvents
             .Where(e => e.StartUtc < toUtc && e.EndUtc > fromUtc)
             .OrderBy(e => e.StartUtc)

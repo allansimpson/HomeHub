@@ -66,6 +66,30 @@ public sealed class SqlTaskProvider : ITaskProvider
         return task;
     }
 
+    public async Task<TaskItem?> SetImportantAsync(int id, bool important, int? baseVersion, CancellationToken ct)
+    {
+        var task = await _db.Tasks.FindAsync([id], ct);
+        if (task is null) return null;
+        if (baseVersion is { } v && v != task.Version) throw new ConcurrencyConflictException(TaskItemDto.From(task));
+        task.Important = important;
+        task.UpdatedUtc = DateTime.UtcNow;
+        task.Version++;
+        await _db.SaveChangesAsync(ct);
+        return task;
+    }
+
+    public async Task<TaskItem?> SetTitleAsync(int id, string title, int? baseVersion, CancellationToken ct)
+    {
+        var task = await _db.Tasks.FindAsync([id], ct);
+        if (task is null) return null;
+        if (baseVersion is { } v && v != task.Version) throw new ConcurrencyConflictException(TaskItemDto.From(task));
+        task.Title = title.Trim();
+        task.UpdatedUtc = DateTime.UtcNow;
+        task.Version++;
+        await _db.SaveChangesAsync(ct);
+        return task;
+    }
+
     public async Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct)
     {
         var task = await _db.Tasks.FindAsync([id], ct);

@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { DrillInHeader, ScreenShell } from '../components'
 import { Icon } from '../icons/Icon'
 import { useVoice } from '../app/VoiceProvider'
 import { useSession } from '../app/SessionProvider'
+import { ATTENDANT_NAME } from '../app/attendant'
 import { api, ApiError } from '../api/client'
 import {
   type Conversation,
   type HistoryTurn,
+  clearConversations,
+  deleteConversation,
   exchangeCount,
   formatWhen,
   loadConversations,
@@ -35,7 +38,6 @@ interface PendingImage {
  * spoken back. Text + image upload remain available.
  */
 export function AssistantScreen() {
-  const navigate = useNavigate()
   const { activeProfile, activeProfileId } = useSession()
   const { supported, listening, speaking, partial, startListening, stopListening, speak, stopSpeaking } = useVoice()
 
@@ -45,6 +47,10 @@ export function AssistantScreen() {
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [image, setImage] = useState<PendingImage | null>(null)
+  // History management (THE_ATTENDANT.md §5b/§5c): EDIT toggle → per-row trash → inline confirm; CLEAR ALL modal.
+  const [manageMode, setManageMode] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null)
+  const [clearAllOpen, setClearAllOpen] = useState(false)
   const startedAtRef = useRef<number | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -54,6 +60,9 @@ export function AssistantScreen() {
     setConversations(loadConversations(activeProfileId))
     setActiveConvoId(null)
     setTurns([])
+    setManageMode(false)
+    setPendingDelete(null)
+    setClearAllOpen(false)
   }, [activeProfileId])
 
   useEffect(() => {
@@ -87,9 +96,13 @@ export function AssistantScreen() {
           prompt,
           imageBase64: pendingImage?.base64 ?? null,
           imageMediaType: pendingImage?.mediaType ?? null,
+          profileId: activeProfileId ?? null,
         })
         reply = { role: 'assistant', text: res.text, origin: res.origin, escalated: res.escalated }
-        if (spoken) speak(res.text)
+        // An in-app action (e.g. a task added) → refresh the affected screens without a reload.
+        if (res.action) window.dispatchEvent(new Event('homehub:sync'))
+        // Assistant chat is conversational — Warm.
+        if (spoken) speak(res.text, 'warm')
       } catch (err) {
         if (!(err instanceof ApiError)) {
           setBusy(false)
@@ -134,16 +147,27 @@ export function AssistantScreen() {
     setTurns(convo.turns)
   }, [])
 
-  const onBack = useCallback(() => {
-    if (listening) return stopListening()
-    if (speaking) stopSpeaking()
-    if (activeConvoId !== null) {
-      setActiveConvoId(null) // back to the history / idle list
-      setTurns([])
-      return
-    }
-    navigate('/')
-  }, [listening, stopListening, speaking, stopSpeaking, activeConvoId, navigate])
+  const removeConversation = useCallback((id: string) => {
+    const next = deleteConversation(activeProfileId, id)
+    setConversations(next)
+    setPendingDelete(null)
+    if (next.length === 0) setManageMode(false) // nothing left to manage → back to Idle
+  }, [activeProfileId])
+
+  const clearAll = useCallback(() => {
+    clearConversations(activeProfileId)
+    setConversations([])
+    setClearAllOpen(false)
+    setManageMode(false)
+  }, [activeProfileId])
+
+  // ASSIST has no back button (spec §0) — re-tapping the nav tab re-enters the screen, which routes
+  // back to `conversations.length ? History : Idle`. Each tap yields a fresh location key.
+  const { key: navKey } = useLocation()
+  useEffect(() => {
+    setActiveConvoId(null)
+    setTurns([])
+  }, [navKey])
 
   const onPickImage = useCallback((file: File | undefined) => {
     if (!file) return
@@ -160,8 +184,13 @@ export function AssistantScreen() {
   const inChat = activeConvoId !== null
   const userLabel = activeProfile?.name ?? 'You'
   const hasContent = input.trim().length > 0 || !!image
+  const inHistory = !inChat && !listening && conversations.length > 0
 
-  const headerStatus = speaking ? (
+  const headerStatus = manageMode && inHistory ? (
+    <button type="button" className="ml-managedone" onClick={() => { setManageMode(false); setPendingDelete(null) }}>
+      Done
+    </button>
+  ) : speaking ? (
     <span className="ml-speaking-status">
       <span className="ml-speaking-status__sq" aria-hidden="true" />
       Speaking
@@ -171,7 +200,12 @@ export function AssistantScreen() {
   )
 
   return (
-    <ScreenShell header={<DrillInHeader title="The Attendant" status={headerStatus} onBack={onBack} />}>
+    <ScreenShell
+      avatar={!listening}
+      header={
+        <DrillInHeader title="THE ATTENDANT" status={headerStatus} />
+      }
+    >
       <div className="ml-assistant">
         <div className="ml-assistant__scroll" ref={scrollRef}>
           {listening ? (
@@ -181,7 +215,7 @@ export function AssistantScreen() {
               {turns.map((t, i) => (
                 <div key={i} className={'ml-turn ml-turn--' + t.role}>
                   <div className="ml-turn__label">
-                    {t.role === 'user' ? userLabel : 'Central'}
+                    {t.role === 'user' ? userLabel : ATTENDANT_NAME}
                     {t.role === 'assistant' && t.origin && (
                       <span className={'ml-origin ml-origin--' + t.origin.toLowerCase()}>
                         {t.escalated ? `${t.origin} ↑` : t.origin}
@@ -201,23 +235,58 @@ export function AssistantScreen() {
           ) : conversations.length > 0 ? (
             <div className="ml-history">
               <div className="ml-conversations">
-                <span className="ml-section__tick" aria-hidden="true" />
                 <span className="ml-section__label">Conversations</span>
-                <button type="button" className="ml-newchat" onClick={startNewChat}>
-                  ＋ New Chat
-                </button>
+                {manageMode ? (
+                  <span className="ml-history__hint">Tap to delete</span>
+                ) : (
+                  <span className="ml-conversations__actions">
+                    <button type="button" className="ml-history__edit" onClick={() => setManageMode(true)}>Edit</button>
+                    <button type="button" className="ml-newchat" onClick={startNewChat}>＋ New Chat</button>
+                  </span>
+                )}
               </div>
               {conversations.map((c) => {
                 const n = exchangeCount(c.turns)
+                const meta = (
+                  <span className="ml-history__meta">
+                    <span>{formatWhen(c.lastAt)}</span>
+                    <span className="ml-history__dot" aria-hidden="true" />
+                    <span>{n === 1 ? '1 exchange' : `${n} exchanges`}</span>
+                  </span>
+                )
+                if (manageMode && pendingDelete === c.id) {
+                  return (
+                    <div key={c.id} className="ml-history__confirmwrap">
+                      <div className="ml-history__confirm">
+                        <span className="ml-history__confirmtext">
+                          Delete <span className="ml-history__confirmtitle">“{c.title}”</span>?
+                        </span>
+                        <span className="ml-history__confirmbtns">
+                          <button type="button" className="ml-confirmbtn" onClick={() => setPendingDelete(null)}>Cancel</button>
+                          <button type="button" className="ml-confirmbtn ml-confirmbtn--danger" onClick={() => removeConversation(c.id)}>Delete</button>
+                        </span>
+                      </div>
+                    </div>
+                  )
+                }
+                if (manageMode) {
+                  return (
+                    <div key={c.id} className="ml-history__row ml-history__row--manage">
+                      <span className="ml-history__main">
+                        <span className="ml-history__title">{c.title}</span>
+                        {meta}
+                      </span>
+                      <button type="button" className="ml-history__trash" onClick={() => setPendingDelete(c.id)} aria-label={`Delete “${c.title}”`}>
+                        <Icon id="ico-trash" size="1.25rem" />
+                      </button>
+                    </div>
+                  )
+                }
                 return (
                   <button key={c.id} type="button" className="ml-history__row" onClick={() => openConversation(c)}>
                     <span className="ml-history__main">
                       <span className="ml-history__title">{c.title}</span>
-                      <span className="ml-history__meta">
-                        <span>{formatWhen(c.lastAt)}</span>
-                        <span className="ml-history__dot" aria-hidden="true" />
-                        <span>{n === 1 ? '1 exchange' : `${n} exchanges`}</span>
-                      </span>
+                      {meta}
                     </span>
                     <span className="ml-history__chev" aria-hidden="true">▸</span>
                   </button>
@@ -237,7 +306,6 @@ export function AssistantScreen() {
               <div className="ml-emblem__caption">Microphone stays off until tapped</div>
 
               <div className="ml-section">
-                <span className="ml-section__tick" aria-hidden="true" />
                 <span className="ml-section__label">Try Asking</span>
               </div>
               {SUGGESTIONS.map((s) => (
@@ -249,7 +317,17 @@ export function AssistantScreen() {
           )}
         </div>
 
-        {!listening && (
+        {manageMode && inHistory ? (
+          <div className="ml-assistant__managefoot">
+            <span className="ml-assistant__managecount label">
+              {conversations.length} {conversations.length === 1 ? 'conversation' : 'conversations'}
+            </span>
+            <button type="button" className="ml-clearall" onClick={() => setClearAllOpen(true)}>
+              <Icon id="ico-trash" size="1rem" />
+              <span>Clear All</span>
+            </button>
+          </div>
+        ) : !listening ? (
           <div className="ml-assistant__inputbar">
             {image && <div className="ml-assistant__attached">📎 {image.name}</div>}
             <div className="ml-assistant__inputrow">
@@ -257,14 +335,16 @@ export function AssistantScreen() {
                 <Icon id="ico-add" size="1.25rem" />
                 <input type="file" accept="image/*" hidden onChange={(e) => onPickImage(e.target.files?.[0])} />
               </label>
-              <input
-                ref={inputRef}
-                className="ml-assistant__input"
-                value={input}
-                placeholder="Ask anything…"
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && send(input)}
-              />
+              <span className="ml-assistant__field">
+                <input
+                  ref={inputRef}
+                  className="ml-assistant__input"
+                  value={input}
+                  placeholder="Ask anything…"
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && send(input)}
+                />
+              </span>
               {hasContent ? (
                 <button
                   type="button"
@@ -282,8 +362,28 @@ export function AssistantScreen() {
               )}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
+
+      {clearAllOpen && (
+        <div className="ml-modal" role="dialog" aria-modal="true">
+          <button type="button" className="ml-modal__scrim" aria-label="Cancel" onClick={() => setClearAllOpen(false)} />
+          <div className="ml-modal__dialog">
+            <div className="ml-modal__title">
+              <Icon id="ico-trash" size="1.5rem" />
+              <span className="serif">Clear all conversations?</span>
+            </div>
+            <p className="ml-modal__body">
+              This permanently removes all <span className="ml-modal__count">{conversations.length}</span>{' '}
+              conversation{conversations.length === 1 ? '' : 's'} for {userLabel} from the panel. It can’t be undone.
+            </p>
+            <div className="ml-modal__btns">
+              <button type="button" className="ml-confirmbtn" onClick={() => setClearAllOpen(false)}>Cancel</button>
+              <button type="button" className="ml-confirmbtn ml-confirmbtn--danger" onClick={clearAll}>Clear All</button>
+            </div>
+          </div>
+        </div>
+      )}
     </ScreenShell>
   )
 }
@@ -301,9 +401,13 @@ function ListeningView({ partial, onStop }: { partial: string; onStop: () => voi
         ))}
       </div>
 
-      <button type="button" className="ml-listening__stop" onClick={onStop}>
-        <span className="ml-listening__stopglyph" aria-hidden="true" />
-        <span>Tap to Stop</span>
+      <button type="button" className="ml-emblem ml-emblem--listening" onClick={onStop} aria-label="Tap to stop">
+        <span className="ml-emblem__ring">
+          <span className="ml-emblem__core">
+            <span className="ml-listening__stopglyph" aria-hidden="true" />
+            <span className="ml-emblem__label">Tap to Stop</span>
+          </span>
+        </span>
       </button>
       <div className="ml-emblem__caption">Stops by itself after 5 seconds of quiet</div>
     </div>

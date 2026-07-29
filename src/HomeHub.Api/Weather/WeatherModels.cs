@@ -12,18 +12,22 @@ public record CurrentWeatherDto(
     double? WindMph,
     double? FeelsLikeF);
 
-/// <summary>One hourly-strip column.</summary>
-public record HourlyDto(string Label, double? TempF, string? ShortForecast);
+/// <summary>One hourly period. <see cref="DayKey"/> (local yyyy-MM-dd) groups hours into Day Detail;
+/// <see cref="Pop"/> is precip probability %, <see cref="WindMph"/> the wind speed.</summary>
+public record HourlyDto(string Label, double? TempF, string? ShortForecast, string? DayKey = null, int? Pop = null, double? WindMph = null);
 
-/// <summary>One "week ahead" daily row. Severe days carry the amber condition label.</summary>
-public record DailyDto(string Day, string Condition, double? HighF, double? LowF, bool Severe);
+/// <summary>One "week ahead" daily row. Severe days carry the amber condition label. <see cref="DayKey"/>
+/// (local yyyy-MM-dd) links a row to its hourly periods for the tap-through Day Detail.</summary>
+public record DailyDto(string Day, string Condition, double? HighF, double? LowF, bool Severe, string? DayKey = null);
 
 /// <summary>The cached weather payload served to the client (alerts flow through the alert engine).</summary>
 public record WeatherSnapshotDto(
     CurrentWeatherDto? Current,
     IReadOnlyList<HourlyDto> Hourly,
     IReadOnlyList<DailyDto> Daily,
-    DateTime? FetchedAtUtc)
+    DateTime? FetchedAtUtc,
+    double? Latitude = null,
+    double? Longitude = null)
 {
     public static WeatherSnapshotDto Empty => new(null, [], [], null);
 }

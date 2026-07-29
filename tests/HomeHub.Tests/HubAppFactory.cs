@@ -1,6 +1,8 @@
 namespace HomeHub.Tests;
 
+using HomeHub.Api.Baby;
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
 using HomeHub.Api.Tasks;
@@ -42,6 +44,18 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
             services.AddScoped<ICalendarProvider, SqlCalendarProvider>();
             services.AddScoped<ITaskProvider, SqlTaskProvider>();
             services.AddScoped<IClimateProvider, SimulatedClimateProvider>();
+            // Same reasoning as the AI keys below: a developer with HomeAssistant configured in
+            // user-secrets would otherwise have these tests resolve the real HA-backed provider and
+            // hit their live instance. Force the not-connected provider so behaviour is
+            // machine-independent. (Huckleberry itself is covered by HuckleberryProviderTests
+            // against a stubbed HA.)
+            services.AddScoped<IHuckleberryProvider, NotConnectedHuckleberryProvider>();
+            // Same reasoning, with sharper teeth: the litter-box seam has a *write* side. On a machine
+            // with HomeAssistant in user-secrets, a test touching the cycle endpoint would send a real
+            // reset to a real litter box. Pin both halves to the not-connected implementations; the
+            // recovery ladder is covered by LitterRobotRecoveryTests against a fake robot.
+            services.AddScoped<ILitterRobotProvider, NotConnectedLitterRobotProvider>();
+            services.AddScoped<ILitterRobotCommands, NotConnectedLitterRobotCommands>();
 
             // Tests assert the no-integration fallbacks (simulated assistant, no server STT). Clear any
             // AI keys the developer has in user-secrets so those defaults hold regardless of machine.

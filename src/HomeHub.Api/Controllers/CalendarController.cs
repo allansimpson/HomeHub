@@ -17,27 +17,46 @@ public class CalendarController : ControllerBase
 
     public CalendarController(ICalendarProvider calendar) => _calendar = calendar;
 
-    /// <summary>Events overlapping [from, to). Defaults to the current month if unspecified.</summary>
+    /// <summary>Events overlapping [from, to) for one profile's calendars. Defaults to the current month.</summary>
     [HttpGet("events")]
     public async Task<IReadOnlyList<CalendarEventDto>> Events(
-        [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
+        [FromQuery] DateTime? from, [FromQuery] DateTime? to, [FromQuery] int? profileId, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
         var fromUtc = from?.ToUniversalTime() ?? new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var toUtc = to?.ToUniversalTime() ?? fromUtc.AddMonths(1);
-        var events = await _calendar.ListAsync(fromUtc, toUtc, ct);
+        var events = await _calendar.ListAsync(profileId, fromUtc, toUtc, ct);
         return events.Select(CalendarEventDto.From).ToList();
     }
 
-    /// <summary>Upcoming events over the next <paramref name="days"/> days (dashboard NEXT).</summary>
+    /// <summary>Upcoming events over the next <paramref name="days"/> days for a profile (dashboard NEXT).</summary>
     [HttpGet("upcoming")]
-    public async Task<IReadOnlyList<CalendarEventDto>> Upcoming([FromQuery] int days = 7, CancellationToken ct = default)
+    public async Task<IReadOnlyList<CalendarEventDto>> Upcoming([FromQuery] int days = 7, [FromQuery] int? profileId = null, CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
-        var events = await _calendar.ListAsync(now, now.AddDays(Math.Clamp(days, 1, 31)), ct);
+        var events = await _calendar.ListAsync(profileId, now, now.AddDays(Math.Clamp(days, 1, 31)), ct);
         // Overlap query can include an in-progress event that started earlier; keep those too,
         // but order by start so the soonest surfaces first.
         return events.Select(CalendarEventDto.From).OrderBy(e => e.StartUtc).ToList();
+    }
+
+    /// <summary>The profile's Google calendars with their display selection (501 unless Google is configured).</summary>
+    [HttpGet("calendars")]
+    public async Task<ActionResult<IReadOnlyList<SyncCalendarDto>>> Calendars([FromQuery] int profileId, CancellationToken ct)
+    {
+        if (_calendar is not ICalendarListSyncProvider lister)
+            return StatusCode(501, "Calendar selection needs Google configured.");
+        return Ok(await lister.GetCalendarsAsync(profileId, ct));
+    }
+
+    /// <summary>Replace which calendars a profile displays (empty = show none).</summary>
+    [HttpPut("calendars")]
+    public async Task<IActionResult> SetCalendars(SetSyncedCalendarsInput input, CancellationToken ct)
+    {
+        if (_calendar is not ICalendarListSyncProvider lister)
+            return StatusCode(501, "Calendar selection needs Google configured.");
+        await lister.SetSelectedCalendarsAsync(input.ProfileId, input.SelectedCalendarIds ?? [], ct);
+        return NoContent();
     }
 
     /// <summary>A single event by id (for the editor).</summary>

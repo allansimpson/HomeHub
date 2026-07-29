@@ -13,6 +13,15 @@ public class CalendarEvent
     /// <summary>Google Calendar event id when synced; null for local-only / simulated events.</summary>
     public string? GoogleId { get; set; }
 
+    /// <summary>Owning profile for Google events (per-profile calendars); null for local events.</summary>
+    public int? ProfileId { get; set; }
+
+    /// <summary>The Google calendar this event belongs to; null for local events.</summary>
+    public string? GoogleCalendarId { get; set; }
+
+    /// <summary>Display name of the owning calendar at sync time (for grouping / offline labelling).</summary>
+    public string? CalendarName { get; set; }
+
     /// <summary>Providing source: "local" (simulated) or "google".</summary>
     public required string Source { get; set; }
 

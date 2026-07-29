@@ -120,6 +120,48 @@ public sealed class MicrosoftTodoProvider : ITaskProvider, IListSyncProvider
         return task;
     }
 
+    public async Task<TaskItem?> SetImportantAsync(int id, bool important, int? baseVersion, CancellationToken ct)
+    {
+        var task = await _db.Tasks.FindAsync([id], ct);
+        if (task is null) return null;
+        if (baseVersion is { } v && v != task.Version) throw new ConcurrencyConflictException(TaskItemDto.From(task));
+        task.Important = important;
+        task.UpdatedUtc = DateTime.UtcNow;
+        task.Version++;
+
+        var link = await _db.MicrosoftAccountLinks.FindAsync([task.ProfileId], ct);
+        if (link is not null && !string.IsNullOrEmpty(task.GraphId))
+        {
+            var listId = task.GraphListId ?? await ResolveListAsync(link, ct);
+            await SendAsync<GraphTask>(link, HttpMethod.Patch,
+                $"/me/todo/lists/{listId}/tasks/{task.GraphId}",
+                new { importance = important ? "high" : "normal" }, ct);
+        }
+        await _db.SaveChangesAsync(ct);
+        return task;
+    }
+
+    public async Task<TaskItem?> SetTitleAsync(int id, string title, int? baseVersion, CancellationToken ct)
+    {
+        var task = await _db.Tasks.FindAsync([id], ct);
+        if (task is null) return null;
+        if (baseVersion is { } v && v != task.Version) throw new ConcurrencyConflictException(TaskItemDto.From(task));
+        task.Title = title.Trim();
+        task.UpdatedUtc = DateTime.UtcNow;
+        task.Version++;
+
+        var link = await _db.MicrosoftAccountLinks.FindAsync([task.ProfileId], ct);
+        if (link is not null && !string.IsNullOrEmpty(task.GraphId))
+        {
+            var listId = task.GraphListId ?? await ResolveListAsync(link, ct);
+            await SendAsync<GraphTask>(link, HttpMethod.Patch,
+                $"/me/todo/lists/{listId}/tasks/{task.GraphId}",
+                new { title = task.Title }, ct);
+        }
+        await _db.SaveChangesAsync(ct);
+        return task;
+    }
+
     public async Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct)
     {
         var task = await _db.Tasks.FindAsync([id], ct);

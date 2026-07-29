@@ -170,8 +170,16 @@ namespace HomeHub.Api.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("CalendarName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<DateTime>("EndUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("GoogleCalendarId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("GoogleId")
                         .HasMaxLength(200)
@@ -189,6 +197,9 @@ namespace HomeHub.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
+
+                    b.Property<int?>("ProfileId")
+                        .HasColumnType("int");
 
                     b.Property<string>("Source")
                         .IsRequired()
@@ -215,7 +226,100 @@ namespace HomeHub.Api.Migrations
 
                     b.HasIndex("StartUtc");
 
+                    b.HasIndex("ProfileId", "StartUtc");
+
                     b.ToTable("CalendarEvents");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Calendar.GoogleAccountLink", b =>
+                {
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("CalendarsConfigured")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("PrimaryCalendarId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("RefreshToken")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("ProfileId");
+
+                    b.ToTable("GoogleAccountLinks");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Calendar.SyncedCalendar", b =>
+                {
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("GoogleCalendarId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("CalendarName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("ProfileId", "GoogleCalendarId");
+
+                    b.ToTable("SyncedCalendars");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Cats.LitterRobotRecovery", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("FaultCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<bool>("Manual")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ResultingCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Step")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Slug", "StartedAtUtc");
+
+                    b.ToTable("LitterRobotRecoveries");
                 });
 
             modelBuilder.Entity("HomeHub.Api.Climate.ClimateZone", b =>
@@ -281,7 +385,7 @@ namespace HomeHub.Api.Migrations
                             ProviderRef = "sim-living",
                             SetPointF = 72.0,
                             Source = "simulated",
-                            UpdatedUtc = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                            UpdatedUtc = new DateTime(1, 1, 1, 6, 0, 0, 0, DateTimeKind.Utc)
                         },
                         new
                         {
@@ -294,7 +398,7 @@ namespace HomeHub.Api.Migrations
                             ProviderRef = "sim-bedroom",
                             SetPointF = 70.0,
                             Source = "simulated",
-                            UpdatedUtc = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                            UpdatedUtc = new DateTime(1, 1, 1, 6, 0, 0, 0, DateTimeKind.Utc)
                         },
                         new
                         {
@@ -307,7 +411,7 @@ namespace HomeHub.Api.Migrations
                             ProviderRef = "sim-kitchen",
                             SetPointF = 73.0,
                             Source = "simulated",
-                            UpdatedUtc = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                            UpdatedUtc = new DateTime(1, 1, 1, 6, 0, 0, 0, DateTimeKind.Utc)
                         },
                         new
                         {
@@ -319,7 +423,7 @@ namespace HomeHub.Api.Migrations
                             ProviderRef = "sim-study",
                             SetPointF = 72.0,
                             Source = "simulated",
-                            UpdatedUtc = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                            UpdatedUtc = new DateTime(1, 1, 1, 6, 0, 0, 0, DateTimeKind.Utc)
                         },
                         new
                         {
@@ -331,7 +435,7 @@ namespace HomeHub.Api.Migrations
                             ProviderRef = "sim-loft",
                             SetPointF = 72.0,
                             Source = "simulated",
-                            UpdatedUtc = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                            UpdatedUtc = new DateTime(1, 1, 1, 6, 0, 0, 0, DateTimeKind.Utc)
                         });
                 });
 

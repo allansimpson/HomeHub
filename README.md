@@ -24,6 +24,7 @@ provider-seam model are in **[`PROJECT.md`](PROJECT.md)**.
   - [Climate — Home Assistant](#climate--home-assistant)
   - [AI assistant — OpenAI / local model](#ai-assistant--openai--local-model)
   - [Voice — STT / TTS](#voice--stt--tts)
+- [What belongs in user secrets](#what-belongs-in-user-secrets)
 - [Configuration reference (all keys)](#configuration-reference-all-keys)
 - [Build one deployable unit](#build-one-deployable-unit)
 - [Test](#test)
@@ -150,29 +151,86 @@ dotnet user-secrets set "Weather:UserAgent" "HomeHub/1.0 (you@example.com)"
 
 ### Calendar — Google Calendar
 
-Shared household calendar (display + add/edit/delete). **Fallback:** a fully-working local SQL
-calendar.
+**Per-profile** calendars: each household member links their **own** Google account, and the panel
+shows the **active profile's** selected calendars (mirrors how Microsoft To Do handles per-profile
+lists — cross-sharing between members is done on Google's side). **Fallback:** a fully-working local
+SQL calendar when the OAuth app isn't configured.
 
-**You need:** a Google Cloud OAuth client and a **refresh token** for the household account.
+**You need:** one Google Cloud OAuth **app** (client id/secret, shared by all members) and a
+**refresh token per member**. Only the app lives in config; each member's refresh token lives in a
+`GoogleAccountLink` row, keyed by profile.
 
-1. **Google Cloud Console** → create/select a project → **enable the Google Calendar API**.
-2. **OAuth consent screen** → External → add the household Google account as a test user → add the
-   scope `https://www.googleapis.com/auth/calendar` (read/write).
-3. **Credentials → Create OAuth client ID** (Desktop app is simplest) → note the **client id** and
-   **client secret**.
-4. **Get a refresh token** (one-time): easiest via the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground) —
-   gear icon → *Use your own OAuth credentials* → paste client id/secret → authorize the Calendar
-   scope with the household account → exchange the code → copy the **refresh token**.
+Google recently merged the *OAuth consent screen* and *Credentials* pages into the **Google Auth
+Platform** (left nav: Overview · Branding · Audience · Clients · Data Access). The steps below use
+that newer UI.
+
+1. **Google Cloud Console** → create/select a project (e.g. `HomeHub`) → **APIs & Services → enable
+   the Google Calendar API**.
+2. **Google Auth Platform → Branding** → set an app name + support email.
+3. **Google Auth Platform → Audience** → **User type: External** → under **Test users** add the exact
+   household Google account you'll authorize with. (Without this you'll hit `Error 403: access_denied`
+   — "app has not completed the Google verification process" — at authorize time.)
+4. **Google Auth Platform → Data Access** → add the scope `https://www.googleapis.com/auth/calendar`
+   (read/write).
+5. **Google Auth Platform → Clients → Create OAuth client** →
+   - **Application type: Web application** — *not* Desktop. The refresh token is obtained via the
+     OAuth Playground, which needs a registered redirect URI, and only Web clients allow one.
+   - **Authorized redirect URIs → Add URI:** `https://developers.google.com/oauthplayground`
+     (exact, no trailing slash).
+   - Create → copy the **client id** and **client secret**.
+6. **Get a refresh token** (one-time) via the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground):
+   - **⚙️ gear** → confirm **Access type: Offline** and **Force prompt: Consent Screen** (both are
+     required for a *refresh* token to come back) → check **Use your own OAuth credentials** → paste
+     the client id/secret → **Close**.
+   - **Step 1** → in **Input your own scopes** paste `https://www.googleapis.com/auth/calendar` →
+     **Authorize APIs** → sign in with the household (test-user) account → on the unverified-app
+     warning click **Advanced → Go to <app> (unsafe)** → allow.
+   - Do this once **per member**, each signing in with *their own* Google account.
+   - **Step 2** → **Exchange authorization code for tokens** → copy that member's **`refresh_token`** (`1//…`).
+
+**Configure the app once** (client id/secret only — no token here):
 
 ```bash
 dotnet user-secrets set "Google:ClientId"     "…apps.googleusercontent.com"
 dotnet user-secrets set "Google:ClientSecret" "…"
-dotnet user-secrets set "Google:RefreshToken" "…"
-dotnet user-secrets set "Google:CalendarId"   "primary"   # or a specific shared calendar id
 ```
 
-The refresh token is stored server-side; the app refreshes access tokens silently. Owner-tagging
-(the WHO chips) is kept local and is not pushed to Google.
+**Link each member** by inserting a `GoogleAccountLink` row (same pattern as Microsoft To Do's
+`MicrosoftAccountLinks`). `PrimaryCalendarId` is where that member's new events are created — leave
+it `NULL` for their default calendar; `CalendarsConfigured = 0` means "not chosen yet → sync all"
+(it flips to `1` automatically the first time they toggle in CONFIG → Calendars):
+
+```sql
+SELECT Id, Name FROM Profiles;                 -- find each member's ProfileId
+
+INSERT INTO GoogleAccountLinks (ProfileId, RefreshToken, PrimaryCalendarId, CalendarsConfigured)
+VALUES (<profile-id>, '1//<their-refresh-token>', NULL, 0);
+```
+
+Then, on the panel, open **CONFIG → Calendars** (as that profile) to toggle which of their calendars
+display. The Calendar view and dashboard NEXT show the **active profile's** calendars and refresh
+about every 30 s while on screen, so events added in Google appear without reloading.
+
+**Strictly per-profile** — like Microsoft To Do, a profile shows calendars only when it has its own
+`GoogleAccountLink`. There is no shared fallback: a profile without a row shows no calendars (CONFIG →
+Calendars reads "No Google account linked"). `Google:RefreshToken` / `Google:CalendarId` are no longer
+used — move that token into a `GoogleAccountLink` row for the owning profile, then remove the two
+secrets (see [What belongs in user secrets](#what-belongs-in-user-secrets)). To purge events cached
+under the old shared token: `DELETE FROM CalendarEvents WHERE Source = 'google' AND ProfileId NOT IN
+(SELECT ProfileId FROM GoogleAccountLinks);`
+
+**Finding a specific calendar id:** `primary` is an account's default. For a shared/secondary calendar,
+open [Google Calendar](https://calendar.google.com) → hover it in *My calendars* → **⋮ → Settings and
+sharing → Integrate calendar → Calendar ID** (a `…@group.calendar.google.com` string).
+
+Refresh tokens are stored server-side; the app refreshes access tokens silently, per profile.
+Owner-tagging (the WHO chips) is kept local and is not pushed to Google.
+
+> **Test-mode token lifetime:** while the app's **Publishing status** is *Testing* (unverified),
+> Google expires refresh tokens after **7 days**. For a permanent kiosk, set **Audience → Publishing
+> status → In production** (no Google verification is required for your own account with the
+> non-restricted `calendar` scope). Otherwise just re-run the Playground exchange when the calendar
+> stops updating.
 
 ### Tasks — Microsoft To Do
 
@@ -354,7 +412,50 @@ dotnet user-secrets set "Ai:LocalModel"    "llama3.1"
 ### Voice — STT / TTS
 
 Push-to-talk on the assistant. **STT default:** the kiosk browser's Web Speech API (no config; note
-Chromium streams that audio to Google — not on-LAN). **TTS:** on-device browser speech synthesis.
+Chromium streams that audio to Google — not on-LAN). **TTS default:** on-device browser speech
+synthesis (whatever voices the browser exposes).
+
+**Central voice (optional — Piper):** configure a Piper binary + voice model and the *whole app*
+speaks in that one voice (e.g. `en_US-norman-medium`, the same voice the Pi bridge uses) via
+`POST /api/voice/speak`. The client prefers it automatically and falls back to browser synthesis when
+it isn't configured (or a synth call fails). This is the in-app path — distinct from the Pi voice
+bridge, which speaks Piper audio out the Pi's own speaker.
+
+Piper is one self-contained binary plus a voice-model pair (`.onnx` + `.onnx.json`).
+
+**Windows (test norman in a desktop browser):**
+
+1. Download `piper_windows_amd64.zip` from the [Piper releases](https://github.com/rhasspy/piper/releases)
+   and extract to `C:\piper` — you'll get `piper.exe` plus DLLs and an `espeak-ng-data\` folder (keep
+   that folder next to `piper.exe`; Piper needs it).
+2. Download **both** voice files from
+   [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/norman/medium)
+   into `C:\piper\voices\`: `en_US-norman-medium.onnx` (~60 MB) and `en_US-norman-medium.onnx.json`.
+3. Smoke-test (PowerShell):
+   ```powershell
+   "Hello from Barnaby." | C:\piper\piper.exe --model C:\piper\voices\en_US-norman-medium.onnx --output_file test.wav
+   start test.wav
+   ```
+4. Point the app at it and restart:
+   ```bash
+   dotnet user-secrets set "Voice:Tts:PiperPath"  "C:\piper\piper.exe"
+   dotnet user-secrets set "Voice:Tts:VoiceModel" "C:\piper\voices\en_US-norman-medium.onnx"
+   ```
+
+**Raspberry Pi (deploy):** same idea with the ARM build —
+
+```bash
+# 64-bit Pi OS: piper_linux_aarch64.tar.gz   (32-bit: piper_linux_armv7l.tar.gz)
+mkdir -p /opt/piper && tar -xzf piper_linux_aarch64.tar.gz -C /opt/piper
+# drop the two en_US-norman-medium.onnx / .onnx.json files in /opt/piper/voices/
+dotnet user-secrets set "Voice:Tts:PiperPath"  "/opt/piper/piper"
+dotnet user-secrets set "Voice:Tts:VoiceModel" "/opt/piper/voices/en_US-norman-medium.onnx"
+```
+
+`pip install piper-tts` also works — same `--model` / `--output_file` flags, so the app doesn't care
+which you use. Gotchas: the **`.onnx.json` is required** (Piper won't run with just the `.onnx`), Windows
+needs the `espeak-ng-data\` folder beside `piper.exe`, and the first audio play in a normal desktop
+browser may need a user gesture — the tap-to-speak interaction covers that on the kiosk.
 
 **Server STT (optional, local-first):** post captured audio to `POST /api/voice/transcribe` and it is
 transcribed by `SttRouter` — a **local faster-whisper sidecar** first, falling back to **OpenAI
@@ -377,10 +478,75 @@ dotnet user-secrets set "Voice:Stt:AllowCloudFallback" "true"      # false = LAN
 - Chromium kiosk flags so the mic can open and audio can autoplay without a gesture, e.g.
   `--autoplay-policy=no-user-gesture-required`, and grant microphone permission for the panel's
   origin. See [`deploy/pi-kiosk.md`](deploy/pi-kiosk.md).
-- The mic is **push-to-talk only** (no wake word); the verdigris "microphone is live" banner shows
-  on every screen whenever it's open and cannot be disabled.
+- In the browser panel the mic is **push-to-talk only** (no wake word); the verdigris "microphone is
+  live" banner shows on every screen whenever it's open and cannot be disabled. Hands-free
+  **"Hey Barnaby"** wake-word listening is the separate on-Pi voice bridge —
+  see [`voice-bridge/`](voice-bridge/README.md).
 
 ---
+
+## What belongs in user secrets
+
+Only **config** belongs in user-secrets. Per-member OAuth **refresh tokens live in the database**
+(`GoogleAccountLinks` / `MicrosoftAccountLinks`), never here — so linking or re-linking a member is a
+SQL row, not a secret. This is the complete set of keys the app reads from secrets; anything else can
+be removed. Everything except the connection string and `Weather:UserAgent` is optional (the matching
+feature just falls back to its local/simulated provider when unset).
+
+```bash
+# run all of these in src/HomeHub.Api
+
+# Database — required for any persisted data
+ConnectionStrings:HomeHub
+
+# Weather — UserAgent required by NWS; lat/long optional (default Minneapolis)
+Weather:UserAgent
+Weather:Latitude
+Weather:Longitude
+
+# Sensors — optional (real SensorPush hardware)
+SensorPush:Email
+SensorPush:Password
+
+# Google Calendar — the OAuth APP only. Per-member tokens are GoogleAccountLinks rows.
+Google:ClientId
+Google:ClientSecret
+
+# Microsoft To Do — the OAuth APP only. Per-member tokens are MicrosoftAccountLinks rows.
+Microsoft:ClientId
+Microsoft:ClientSecret
+
+# Climate — optional (Home Assistant)
+HomeAssistant:BaseUrl
+HomeAssistant:Token
+HomeAssistant:EveningScene
+
+# AI assistant — optional
+Ai:OpenAiApiKey
+Ai:OpenAiModel
+Ai:LocalEndpoint
+Ai:LocalModel
+
+# Voice STT — optional
+Voice:Stt:LocalEndpoint
+Voice:Stt:LocalModel
+Voice:Stt:AllowCloudFallback
+
+# Voice TTS (central Piper voice) — optional
+Voice:Tts:PiperPath
+Voice:Tts:VoiceModel
+```
+
+**Remove — no longer used** (superseded by per-profile `GoogleAccountLinks` rows):
+
+```bash
+dotnet user-secrets remove "Google:RefreshToken" --project src/HomeHub.Api
+dotnet user-secrets remove "Google:CalendarId"   --project src/HomeHub.Api
+```
+
+`Google:RefreshToken` moved into `GoogleAccountLinks.RefreshToken` (per profile); `Google:CalendarId`
+is replaced by each profile's `PrimaryCalendarId` plus their CONFIG → Calendars selection. List what
+you currently have with `dotnet user-secrets list --project src/HomeHub.Api`.
 
 ## Configuration reference (all keys)
 
@@ -394,8 +560,8 @@ dotnet user-secrets set "Voice:Stt:AllowCloudFallback" "true"      # false = LAN
 | `Weather:Latitude` / `:Longitude` | `44.98` / `-93.27` | Location for NWS |
 | `Weather:UserAgent` | HomeHub/1.0 (…) | **Required by NWS** — app + contact |
 | `Weather:PollMinutes` | `10` | Weather refresh interval |
-| `Google:ClientId` / `:ClientSecret` / `:RefreshToken` | — | Google OAuth (enables Google Calendar) |
-| `Google:CalendarId` | `primary` | Which calendar to use |
+| `Google:ClientId` / `:ClientSecret` | — | Google OAuth **app** (enables Google Calendar) |
+| *(per-profile)* `GoogleAccountLinks` row | — | Per-member refresh token + calendars (SQL, see above) |
 | `Microsoft:ClientId` / `:ClientSecret` | — | Azure app reg (enables MS To Do) |
 | *(per-profile)* `MicrosoftAccountLinks` row | — | Per-member refresh token (SQL, see above) |
 | `HomeAssistant:BaseUrl` / `:Token` | — | HA URL + long-lived token (enables real climate) |
@@ -407,6 +573,8 @@ dotnet user-secrets set "Voice:Stt:AllowCloudFallback" "true"      # false = LAN
 | `Voice:Stt:AllowCloudFallback` | `true` | Fall back to OpenAI Whisper when local STT is down (`false` = LAN-only) |
 | `Voice:Stt:Prefer` | `local` | Preferred STT engine (`local` / `cloud`) |
 | `Voice:Stt:TimeoutSeconds` | `120` | Local STT request timeout |
+| `Voice:Tts:PiperPath` / `:VoiceModel` | — | Central Piper voice (enables server TTS across the app) |
+| `Voice:Tts:TimeoutSeconds` | `30` | Piper synthesis timeout |
 | `Ai:Routing:DefaultOrigin` | `cloud` | Where unmatched requests go |
 | `Ai:Routing:MinConfidentLength` | `12` | Low-confidence escalation threshold |
 

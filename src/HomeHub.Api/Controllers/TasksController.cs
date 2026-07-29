@@ -48,6 +48,35 @@ public class TasksController : ControllerBase
         }
     }
 
+    [HttpPatch("{id:int}/importance")]
+    public async Task<ActionResult<TaskItemDto>> Importance(int id, TaskImportanceInput input, [FromQuery] int? baseVersion, CancellationToken ct)
+    {
+        try
+        {
+            var updated = await _tasks.SetImportantAsync(id, input.Important, baseVersion, ct);
+            return updated is null ? NotFound() : TaskItemDto.From(updated);
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Conflict(ex.Current);
+        }
+    }
+
+    [HttpPatch("{id:int}/title")]
+    public async Task<ActionResult<TaskItemDto>> Title(int id, TaskTitleInput input, [FromQuery] int? baseVersion, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(input.Title)) return BadRequest("Title is required.");
+        try
+        {
+            var updated = await _tasks.SetTitleAsync(id, input.Title, baseVersion, ct);
+            return updated is null ? NotFound() : TaskItemDto.From(updated);
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Conflict(ex.Current);
+        }
+    }
+
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, [FromQuery] int? baseVersion, CancellationToken ct)
     {

@@ -10,7 +10,7 @@ import { useClimate } from '../app/ClimateProvider'
 import { useConnection } from '../app/ConnectionProvider'
 import { Stepper } from '../components'
 import { formatTime } from '../app/dates'
-import type { ZoneReadingDto, CalendarEventDto, TaskItemDto, ProfileDto, ClimateZoneDto } from '../api/types'
+import type { ZoneReadingDto, CalendarEventDto, TaskItemDto, ClimateZoneDto } from '../api/types'
 
 /** Rooms shown before the dashboard collapses the rest into an "ALL N ROOMS" link (no-scroll). */
 const HOUSE_PREVIEW = 3
@@ -34,7 +34,7 @@ function alertTarget(source: string): string {
 export function DashboardScreen() {
   const { time, date } = useClock()
   const navigate = useNavigate()
-  const { activeProfile, profiles } = useSession()
+  const { activeProfile } = useSession()
   const { zones, alerts } = useSensors()
   const { weather, offline: weatherOffline } = useWeather()
   const { upcoming } = useCalendar()
@@ -48,10 +48,13 @@ export function DashboardScreen() {
   const nextPreview = upcoming.slice(0, NEXT_PREVIEW)
   const nextHidden = upcoming.length - nextPreview.length
 
-  const openTasks = tasks.filter((t) => !t.completed)
-  const tasksPreview = openTasks.slice(0, TASKS_PREVIEW)
-  const tasksHidden = openTasks.length - tasksPreview.length
-  const doneCount = tasks.filter((t) => t.completed).length
+  // TASKS DUE (spec 01): only due-dated open tasks, sorted by urgency (overdue → today → soonest).
+  const dueTasks = tasks
+    .filter((t) => !t.completed && t.dueUtc)
+    .sort((a, b) => new Date(a.dueUtc as string).getTime() - new Date(b.dueUtc as string).getTime())
+  const overdueCount = dueTasks.filter((t) => isOverdue(t.dueUtc as string)).length
+  const tasksPreview = dueTasks.slice(0, TASKS_PREVIEW)
+  const tasksHidden = dueTasks.length - tasksPreview.length
 
   const topAlert = alerts[0]
   const preview = zones.slice(0, HOUSE_PREVIEW)
@@ -89,12 +92,12 @@ export function DashboardScreen() {
     >
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <SectionLabel
+          tick={false}
           label="Next"
           status={upcoming.length === 0 ? 'No engagements' : `${upcoming.length} ${upcoming.length === 1 ? 'engagement' : 'engagements'}`}
         />
         {nextPreview.length === 0 ? (
           <LedgerRow
-            major
             title={<span style={{ color: 'var(--text-muted)' }}>Nothing scheduled</span>}
             sub="Tap to add an engagement"
             onClick={() => navigate('/calendar/new')}
@@ -112,13 +115,13 @@ export function DashboardScreen() {
         )}
 
         <SectionLabel
+          tick={false}
           label="The House"
           status={houseWell ? 'All systems well' : 'Check readings'}
           statusLive={houseWell}
         />
         {preview.length === 0 ? (
           <LedgerRow
-            major
             title={<span style={{ color: 'var(--text-muted)' }}>No readings yet</span>}
             sub="Sensor zones appear once connected"
             onClick={() => navigate('/sensor')}
@@ -134,18 +137,18 @@ export function DashboardScreen() {
         )}
 
         <SectionLabel
-          label="Tasks"
-          status={tasks.length === 0 ? '—' : `${doneCount} of ${tasks.length} done`}
+          tick={false}
+          label="Tasks Due"
+          status={dueTasks.length === 0 ? 'Nothing due' : `${dueTasks.length} due${overdueCount > 0 ? ` · ${overdueCount} overdue` : ''}`}
         />
         {tasksPreview.length === 0 ? (
           <LedgerRow
-            major
-            title={<span style={{ color: 'var(--text-muted)' }}>{tasks.length === 0 ? 'No tasks' : 'All done'}</span>}
-            sub="Tap to add a task"
+            title={<span style={{ color: 'var(--text-muted)' }}>Nothing due</span>}
+            sub="Tap to open your lists"
             onClick={() => navigate('/todo')}
           />
         ) : (
-          tasksPreview.map((t) => <TaskLine key={t.id} task={t} profiles={profiles} onClick={() => navigate('/todo')} />)
+          tasksPreview.map((t) => <TaskDueLine key={t.id} task={t} onClick={() => navigate('/todo')} />)
         )}
         {tasksHidden > 0 && (
           <LedgerRow
@@ -163,22 +166,32 @@ export function DashboardScreen() {
   )
 }
 
-/** Relative-day hint for an event: Today / Tomorrow / weekday. */
-function dayHint(start: Date): string {
+/** Whole-day difference from today (negative = past). */
+function daysFromToday(d: Date): number {
   const now = new Date()
-  const days = Math.round((new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()
+  return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
     - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86_400_000)
-  if (days <= 0) return 'Today'
-  if (days === 1) return 'Tomorrow'
-  return start.toLocaleDateString('en-US', { weekday: 'long' })
 }
 
-/** NEXT event row: Marcellus time (hero = larger) + title + day/location sub. */
+/** A due date is overdue once its calendar day is before today. */
+function isOverdue(dueUtc: string): boolean {
+  return daysFromToday(new Date(dueUtc)) < 0
+}
+
+/** Urgency label + class stem for a due date: OVERDUE / TODAY / weekday. */
+function dueUrgency(dueUtc: string): { label: string; kind: 'overdue' | 'today' | 'upcoming' } {
+  const days = daysFromToday(new Date(dueUtc))
+  if (days < 0) return { label: 'Overdue', kind: 'overdue' }
+  if (days === 0) return { label: 'Today', kind: 'today' }
+  return { label: new Date(dueUtc).toLocaleDateString('en-US', { weekday: 'short' }), kind: 'upcoming' }
+}
+
+/** NEXT event row: Marcellus time (hero = larger) + title + location sub (no day hint per spec 01). */
 function NextRow({ event, hero, onClick }: { event: CalendarEventDto; hero: boolean; onClick: () => void }) {
   const start = formatTime(new Date(event.startUtc))
-  const sub = [dayHint(new Date(event.startUtc)), event.location].filter(Boolean).join(' · ')
+  const sub = event.location ?? ''
   return (
-    <button className={'ml-row ml-row--major ml-row--tappable ml-next' + (hero ? ' ml-next--hero' : '')} onClick={onClick} type="button">
+    <button className={'ml-row ml-row--flush ml-row--tappable ml-next' + (hero ? ' ml-next--hero' : '')} onClick={onClick} type="button">
       <span className="ml-next__time serif">
         {start.time}
         <span className="ml-next__ampm">{start.ampm}</span>
@@ -202,7 +215,7 @@ function ClimateStrip({ zone, stale, onOpen, onStep }: { zone: ClimateZoneDto | 
         ? `${zone.mode === 'Heat' ? 'Heating' : 'Cooling'} to ${zone.setPointF}°`
         : `Holding ${zone.setPointF}°`
   return (
-    <div className="ml-row ml-row--major ml-climatestrip">
+    <div className="ml-row ml-climatestrip">
       <button type="button" className="ml-climatestrip__body" onClick={onOpen}>
         <span className="label ml-climatestrip__label">Climate · {zone?.name ?? '—'}</span>
         <span className={'ml-climatestrip__status' + (stale ? ' ml-stale' : '')}>
@@ -218,12 +231,13 @@ function ClimateStrip({ zone, stale, onOpen, onStep }: { zone: ClimateZoneDto | 
   )
 }
 
-/** One task line: owner chip + title. */
-function TaskLine({ task, profiles, onClick }: { task: TaskItemDto; profiles: ProfileDto[]; onClick: () => void }) {
-  const owner = profiles.find((p) => p.id === task.profileId)
+/** One TASKS DUE line: fixed-width urgency label + urgency dot + title (no owner chip — spec 01). */
+function TaskDueLine({ task, onClick }: { task: TaskItemDto; onClick: () => void }) {
+  const u = dueUrgency(task.dueUtc as string)
   return (
-    <button className="ml-row ml-row--major ml-row--tappable" onClick={onClick} type="button">
-      {owner && <span className="ml-ownerchip" style={{ flex: '0 0 auto' }}>{owner.initial}</span>}
+    <button className="ml-row ml-row--flush ml-row--tappable ml-taskdue" onClick={onClick} type="button">
+      <span className={`ml-taskdue__when ml-taskdue__when--${u.kind}`}>{u.label}</span>
+      <span className={`ml-taskdue__dot ml-taskdue__dot--${u.kind}`} aria-hidden="true" />
       <div className="ml-row__main">
         <div className="ml-row__title" style={{ color: 'var(--text-secondary)' }}>{task.title}</div>
       </div>

@@ -85,11 +85,16 @@ public sealed partial class NwsWeatherProvider : IWeatherProvider
     private static IReadOnlyList<HourlyDto> BuildHourly(ForecastResponse? hourly)
     {
         var periods = hourly?.Properties?.Periods ?? [];
-        return periods.Take(12)
+        // Expose the whole hourly range (~156h) so the Day Detail can group by day; the Tonight strip
+        // just uses the first few. Carry the local day key, precip probability, and wind per hour.
+        return periods.Take(168)
             .Select(p => new HourlyDto(
                 p.StartTime.ToLocalTime().ToString("h tt", CultureInfo.InvariantCulture),
                 p.Temperature,
-                p.ShortForecast))
+                p.ShortForecast,
+                p.StartTime.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                p.ProbabilityOfPrecipitation?.Value is { } pop ? (int)Math.Round(pop) : null,
+                ParseWind(p.WindSpeed)))
             .ToList();
     }
 
@@ -114,7 +119,8 @@ public sealed partial class NwsWeatherProvider : IWeatherProvider
                 Condition: condition,
                 HighF: dayPeriod?.Temperature ?? day.Max(p => p.Temperature),
                 LowF: nightPeriod?.Temperature ?? day.Min(p => p.Temperature),
-                Severe: IsSevereText(condition)));
+                Severe: IsSevereText(condition),
+                DayKey: day.Key.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
         }
         return result;
     }
@@ -178,7 +184,8 @@ public sealed partial class NwsWeatherProvider : IWeatherProvider
         string? TemperatureUnit,
         string? ShortForecast,
         string? WindSpeed,
-        ValueContainer? RelativeHumidity);
+        ValueContainer? RelativeHumidity,
+        ValueContainer? ProbabilityOfPrecipitation);
     private sealed record ValueContainer(double? Value);
     private sealed record AlertsResponse(List<AlertFeature>? Features);
     private sealed record AlertFeature(string? Id, AlertProps? Properties);

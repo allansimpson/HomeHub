@@ -87,10 +87,74 @@ export function createRecognizer(handlers: RecognizerHandlers): Recognizer | nul
   }
 }
 
-/** Speak text through the on-device synthesizer. Cancels any in-progress utterance first.
- * `handlers` let callers track real playback start/end (drives the Speaking UI — THE_ATTENDANT.md). */
-export function speak(text: string, handlers?: { onStart?: () => void; onEnd?: () => void }): void {
-  if (!('speechSynthesis' in window) || !text) {
+interface SpeakHandlers {
+  onStart?: () => void
+  onEnd?: () => void
+}
+
+// Central voice availability, discovered lazily on first use and cached: null = unknown, true =
+// server Piper TTS in play, false = fall back to the browser synthesizer.
+let serverTts: boolean | null = null
+let activeAudio: HTMLAudioElement | null = null
+
+/**
+ * How a line should be delivered. Chosen at the call site — Piper ignores it today, but the server
+ * carries it to Chatterbox after the GPU migration with no change here.
+ */
+export type Prosody = 'neutral' | 'urgent' | 'warm' | 'subdued'
+
+/**
+ * Speak text in the app's central voice (server TTS) when available, else the browser's on-device
+ * synthesizer. Cancels any in-progress speech first. `handlers` fire on real playback start/end so
+ * the Speaking UI (THE_ATTENDANT.md) tracks actual audio, not "reply received".
+ */
+export function speak(text: string, handlers?: SpeakHandlers, prosody: Prosody = 'neutral'): void {
+  if (!text) {
+    handlers?.onEnd?.()
+    return
+  }
+  cancelSpeech()
+  if (serverTts === false) {
+    speakViaBrowser(text, handlers)
+  } else {
+    void speakViaServer(text, handlers, prosody)
+  }
+}
+
+async function speakViaServer(text: string, handlers?: SpeakHandlers, prosody: Prosody = 'neutral'): Promise<void> {
+  try {
+    const res = await fetch('/api/voice/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // Assistant replies are one-off text; caching them would fill the cache with lines never
+      // spoken twice. Fixed phrases (alerts, cues) leave allowCache on.
+      body: JSON.stringify({ text, prosody, allowCache: prosody !== 'warm' }),
+    })
+    if (!res.ok) {
+      serverTts = false // 501 (not configured) / 502 — this session uses the browser voice
+      speakViaBrowser(text, handlers)
+      return
+    }
+    serverTts = true
+    const url = URL.createObjectURL(await res.blob())
+    const audio = new Audio(url)
+    activeAudio = audio
+    const cleanup = () => {
+      URL.revokeObjectURL(url)
+      if (activeAudio === audio) activeAudio = null
+    }
+    audio.onplay = () => handlers?.onStart?.()
+    audio.onended = () => { cleanup(); handlers?.onEnd?.() }
+    audio.onerror = () => { cleanup(); speakViaBrowser(text, handlers) }
+    await audio.play()
+  } catch {
+    serverTts = false
+    speakViaBrowser(text, handlers)
+  }
+}
+
+function speakViaBrowser(text: string, handlers?: SpeakHandlers): void {
+  if (!('speechSynthesis' in window)) {
     handlers?.onEnd?.()
     return
   }
@@ -105,6 +169,13 @@ export function speak(text: string, handlers?: { onStart?: () => void; onEnd?: (
   window.speechSynthesis.speak(utterance)
 }
 
+/** Stop any in-progress speech (browser utterance and/or central-voice audio). */
 export function cancelSpeech(): void {
   if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+  if (activeAudio) {
+    activeAudio.onended = null
+    activeAudio.onerror = null
+    activeAudio.pause()
+    activeAudio = null
+  }
 }

@@ -1,0 +1,352 @@
+namespace HomeHub.Tests;
+
+using HomeHub.Api.Cats;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+/// <summary>
+/// The recovery ladder: which commands get sent, in what order, and — the part that actually protects
+/// the cat — how the outcome is decided.
+/// </summary>
+/// <remarks>
+/// The Litter-Robot accepts commands it then silently drops; a clean cycle requested while a cat is
+/// detected returns success and does nothing. So "the call didn't throw" proves nothing, and these tests
+/// exist to keep the runner honest about that: recovery is only ever reported when the status is
+/// observed to become usable.
+/// </remarks>
+public class LitterRobotRecoveryTests
+{
+    private sealed class FakeTime : TimeProvider
+    {
+        private DateTimeOffset _now = new(2026, 7, 29, 3, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => _now;
+        public void Advance(TimeSpan by) => _now += by;
+    }
+
+    /// <summary>
+    /// A robot whose status only changes when a command it "responds to" arrives. Commands not listed in
+    /// <see cref="ClearsTo"/> are accepted and ignored — modelling the real silent-refusal behaviour.
+    /// </summary>
+    private sealed class FakeRobot : ILitterRobotProvider, ILitterRobotCommands
+    {
+        public string Code { get; set; } = "rdy";
+        public double? LitterPercent { get; set; } = 80;
+        public List<RecoveryStep> Sent { get; } = [];
+        public Dictionary<RecoveryStep, string> ClearsTo { get; } = [];
+        public HashSet<RecoveryStep> Supported { get; } = [RecoveryStep.Reset, RecoveryStep.CleanCycle];
+
+        public bool IsConfigured => true;
+
+        public Task<CatHealth> GetHealthAsync(CancellationToken ct) =>
+            Task.FromResult(new CatHealth(CatIntegrationStatus.Ok, null, null));
+
+        public Task<IReadOnlyList<LitterRobotDescriptor>> GetRobotsAsync(CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<LitterRobotDescriptor>>([new("box", "Box")]);
+
+        public Task<LitterRobotSnapshot?> GetSnapshotAsync(string slug, CancellationToken ct) =>
+            Task.FromResult<LitterRobotSnapshot?>(Snapshot());
+
+        public Task<IReadOnlyList<LitterRobotSnapshot>> GetFreshSnapshotsAsync(CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<LitterRobotSnapshot>>([Snapshot()]);
+
+        private LitterRobotSnapshot Snapshot() => new(
+            "box", "Box", LitterRobotFaults.Classify(Code),
+            WasteDrawerPercent: 20, LitterPercent: LitterPercent, PetWeightLbs: null,
+            TotalCycles: 100, LastSeenUtc: null,
+            FetchedUtc: new DateTimeOffset(2026, 7, 29, 3, 0, 0, TimeSpan.Zero), Stale: false);
+
+        public bool Supports(RecoveryStep step) => Supported.Contains(step);
+
+        private Task Send(RecoveryStep step)
+        {
+            Sent.Add(step);
+            if (ClearsTo.TryGetValue(step, out var next)) Code = next;
+            return Task.CompletedTask;
+        }
+
+        public Task ResetAsync(string slug, CancellationToken ct) => Send(RecoveryStep.Reset);
+        public Task StartCleanCycleAsync(string slug, CancellationToken ct) => Send(RecoveryStep.CleanCycle);
+        public Task ShortResetAsync(string slug, CancellationToken ct) => Send(RecoveryStep.ShortReset);
+        public Task PowerCycleAsync(string slug, CancellationToken ct) => Send(RecoveryStep.PowerCycle);
+    }
+
+    /// <summary>No DbContext: the runner must still work on a shell with no database configured.</summary>
+    private sealed class EmptyServices : IServiceProvider
+    {
+        public object? GetService(Type serviceType) => null;
+    }
+
+    private static LitterRobotRecoveryRunner NewRunner(FakeRobot robot)
+    {
+        // Zero settle windows keep the tests instant; the polling path is exercised by the settle logic
+        // taking a single immediate reading.
+        var options = new CatOptions
+        {
+            Recovery = new RecoveryOptions { ResetSettleSeconds = 0, CycleSettleSeconds = 0 },
+        };
+
+        return new LitterRobotRecoveryRunner(
+            robot,
+            robot,
+            Options.Create(options),
+            new EmptyServices(),
+            NullLogger<LitterRobotRecoveryRunner>.Instance,
+            new FakeTime());
+    }
+
+    // ---- the happy paths ----
+
+    [Fact]
+    public async Task A_reset_that_clears_the_fault_stops_before_the_clean_cycle()
+    {
+        var robot = new FakeRobot { Code = "hpf" };
+        robot.ClearsTo[RecoveryStep.Reset] = "rdy";
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.True(result.Recovered);
+        Assert.Equal(RecoveryStep.Reset, result.Step);
+        Assert.Equal([RecoveryStep.Reset], robot.Sent);
+    }
+
+    [Fact]
+    public async Task A_reset_that_does_not_help_escalates_to_a_clean_cycle()
+    {
+        var robot = new FakeRobot { Code = "p" };
+        robot.ClearsTo[RecoveryStep.CleanCycle] = "ccp";
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.True(result.Recovered);
+        Assert.Equal(RecoveryStep.CleanCycle, result.Step);
+        Assert.Equal([RecoveryStep.Reset, RecoveryStep.CleanCycle], robot.Sent);
+        // A cycle in progress is a recovered box, not a still-faulted one.
+        Assert.Equal("ccp", result.ResultingCode);
+    }
+
+    /// <summary>
+    /// The central guarantee. Both commands are accepted, neither changes anything, and the runner must
+    /// say so rather than reporting the success the HTTP layer saw.
+    /// </summary>
+    [Fact]
+    public async Task Commands_accepted_but_ignored_report_failure_not_success()
+    {
+        var robot = new FakeRobot { Code = "hpf" };
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.False(result.Recovered);
+        Assert.Equal(RecoveryOutcome.Failed, result.Outcome);
+        Assert.Equal("hpf", result.ResultingCode);
+        Assert.Equal([RecoveryStep.Reset, RecoveryStep.CleanCycle], robot.Sent);
+    }
+
+    // ---- the safety gate ----
+
+    /// <summary>A reset re-homes the globe. Nothing may command it while the cat is in there.</summary>
+    [Fact]
+    public async Task No_command_is_sent_while_a_cat_is_detected()
+    {
+        var robot = new FakeRobot { Code = "cd" };
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.Equal(RecoveryOutcome.Aborted, result.Outcome);
+        Assert.Empty(robot.Sent);
+    }
+
+    /// <summary>The gate is not a policy the panel can override — a manual press is refused too.</summary>
+    [Fact]
+    public async Task A_manual_request_cannot_override_the_cat_gate()
+    {
+        var robot = new FakeRobot { Code = "cd" };
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: true, default);
+
+        Assert.Equal(RecoveryOutcome.Aborted, result.Outcome);
+        Assert.Empty(robot.Sent);
+    }
+
+    [Fact]
+    public async Task A_cat_arriving_mid_recovery_stops_the_ladder()
+    {
+        var robot = new FakeRobot { Code = "hpf" };
+        robot.ClearsTo[RecoveryStep.Reset] = "cd";
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.Equal(RecoveryOutcome.Aborted, result.Outcome);
+        Assert.Equal([RecoveryStep.Reset], robot.Sent);
+        Assert.DoesNotContain(RecoveryStep.CleanCycle, robot.Sent);
+    }
+
+    // ---- faults that must not be retried ----
+
+    [Theory]
+    [InlineData("dfs")]
+    [InlineData("sdf")]
+    [InlineData("br")]
+    public async Task Physical_faults_send_no_commands(string code)
+    {
+        var robot = new FakeRobot { Code = code };
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.Equal(RecoveryOutcome.Aborted, result.Outcome);
+        Assert.Empty(robot.Sent);
+        Assert.Contains("physical intervention", result.Detail);
+    }
+
+    [Theory]
+    [InlineData("off")]
+    [InlineData("offline")]
+    public async Task An_unreachable_robot_is_not_commanded(string code)
+    {
+        var robot = new FakeRobot { Code = code };
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.Equal(RecoveryOutcome.Aborted, result.Outcome);
+        Assert.Empty(robot.Sent);
+    }
+
+    [Fact]
+    public async Task An_automatic_attempt_aborts_when_the_fault_cleared_first()
+    {
+        var robot = new FakeRobot { Code = "rdy" };
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.Equal(RecoveryOutcome.Aborted, result.Outcome);
+        Assert.Empty(robot.Sent);
+    }
+
+    // ---- manual ----
+
+    /// <summary>"Cycle now" on a healthy box is a legitimate request, and needs no reset.</summary>
+    [Fact]
+    public async Task A_manual_cycle_on_a_ready_robot_skips_the_reset()
+    {
+        var robot = new FakeRobot { Code = "rdy" };
+        robot.ClearsTo[RecoveryStep.CleanCycle] = "ccp";
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: true, default);
+
+        Assert.True(result.Recovered);
+        Assert.Equal([RecoveryStep.CleanCycle], robot.Sent);
+    }
+
+    // ---- ladder composition ----
+
+    /// <summary>
+    /// With a command provider that can reach them, the gentler short reset goes first — the reason the
+    /// command seam is separate from the read provider.
+    /// </summary>
+    [Fact]
+    public async Task A_provider_that_supports_a_short_reset_tries_it_first()
+    {
+        var robot = new FakeRobot { Code = "hpf" };
+        robot.Supported.Add(RecoveryStep.ShortReset);
+        robot.ClearsTo[RecoveryStep.ShortReset] = "rdy";
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.True(result.Recovered);
+        Assert.Equal([RecoveryStep.ShortReset], robot.Sent);
+    }
+
+    /// <summary>Power cycling is the harshest rung, so the first attempt never reaches for it.</summary>
+    [Fact]
+    public async Task Power_cycling_is_held_back_until_the_gentler_rungs_have_failed()
+    {
+        var robot = new FakeRobot { Code = "hpf" };
+        robot.Supported.Add(RecoveryStep.PowerCycle);
+
+        var first = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+        Assert.False(first.Recovered);
+        Assert.DoesNotContain(RecoveryStep.PowerCycle, robot.Sent);
+
+        robot.Sent.Clear();
+        var second = await NewRunner(robot).AttemptAsync("box", 2, manual: false, default);
+        Assert.False(second.Recovered);
+        Assert.Contains(RecoveryStep.PowerCycle, robot.Sent);
+    }
+
+    [Fact]
+    public async Task A_provider_with_no_reachable_command_errors_rather_than_claiming_success()
+    {
+        var robot = new FakeRobot { Code = "hpf" };
+        robot.Supported.Clear();
+
+        var result = await NewRunner(robot).AttemptAsync("box", 1, manual: false, default);
+
+        Assert.Equal(RecoveryOutcome.Errored, result.Outcome);
+        Assert.Empty(robot.Sent);
+    }
+
+    // ---- episode bookkeeping ----
+
+    /// <summary>
+    /// Counters survive a recovery until the robot has been stable for the confirm window, so a box that
+    /// clears and immediately re-faults keeps spending the same episode's budget instead of resetting it
+    /// and looping all night.
+    /// </summary>
+    [Fact]
+    public void An_episode_only_closes_after_a_sustained_stable_period()
+    {
+        var tracker = new RecoveryTracker();
+        var start = new DateTimeOffset(2026, 7, 29, 3, 0, 0, TimeSpan.Zero);
+        var confirm = TimeSpan.FromMinutes(5);
+        var options = new RecoveryOptions();
+
+        tracker.NoteFault("box", "hpf", start);
+        tracker.NoteAttempt("box", start, options);
+
+        // Recovered, but not yet proven stable.
+        Assert.False(tracker.NoteStable("box", start.AddMinutes(1), confirm));
+        Assert.Equal(1, tracker.Read("box").Attempts);
+
+        // Re-faults inside the window: same episode, budget already spent.
+        tracker.NoteFault("box", "hpf", start.AddMinutes(2));
+        Assert.Equal(1, tracker.Read("box").Attempts);
+
+        // Now genuinely stable for long enough.
+        Assert.False(tracker.NoteStable("box", start.AddMinutes(3), confirm));
+        Assert.True(tracker.NoteStable("box", start.AddMinutes(9), confirm));
+        Assert.Equal(0, tracker.Read("box").Attempts);
+    }
+
+    /// <summary>A different fault code mid-episode is the same problem, not a fresh attempt budget.</summary>
+    [Fact]
+    public void A_changed_fault_code_keeps_the_episode_and_its_counters()
+    {
+        var tracker = new RecoveryTracker();
+        var start = new DateTimeOffset(2026, 7, 29, 3, 0, 0, TimeSpan.Zero);
+
+        tracker.NoteFault("box", "p", start);
+        tracker.NoteAttempt("box", start, new RecoveryOptions());
+        tracker.NoteFault("box", "hpf", start.AddSeconds(30));
+
+        var state = tracker.Read("box");
+        Assert.Equal(1, state.Attempts);
+        Assert.Equal(start, state.FaultSince);
+    }
+
+    [Fact]
+    public void Backoff_is_scheduled_from_the_attempt_that_just_happened()
+    {
+        var tracker = new RecoveryTracker();
+        var now = new DateTimeOffset(2026, 7, 29, 3, 0, 0, TimeSpan.Zero);
+        var options = new RecoveryOptions();
+        options.BackoffMinutes.Clear();
+        options.BackoffMinutes.AddRange([5, 15]);
+
+        tracker.NoteFault("box", "hpf", now);
+        tracker.NoteAttempt("box", now, options);
+
+        Assert.Equal(now.AddMinutes(5), tracker.Read("box").NextDue);
+
+        tracker.NoteAttempt("box", now.AddMinutes(5), options);
+        Assert.Equal(now.AddMinutes(20), tracker.Read("box").NextDue);
+    }
+}

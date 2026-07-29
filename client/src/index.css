@@ -58,6 +58,15 @@ body {
   letter-spacing: 0.26em;
 }
 
+/* Form controls don't inherit type by default — without this they fall back to the browser's
+   font at weight 400, so placeholders read as solid entered text rather than light hints. */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-weight: var(--body-weight);
+}
+
 button {
   font-family: inherit;
   color: inherit;
@@ -66,6 +75,15 @@ button {
   cursor: pointer;
   /* Touch targets are generous; disable the 300ms tap delay. */
   touch-action: manipulation;
+}
+
+/* Touch appliance: never draw the browser's focus-outline box on any control — there is no
+   keyboard tab-navigation, and focus is shown through each control's own styling. This removes
+   the white/blue box that would otherwise appear on the "Add a task" field, the inline task
+   editor, and every other input/button when focused. */
+:focus,
+:focus-visible {
+  outline: none;
 }
 
 svg {

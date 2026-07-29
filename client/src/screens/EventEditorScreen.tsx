@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { ScreenShell, SectionLabel, Stepper } from '../components'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ScreenShell } from '../components'
 import { Icon } from '../icons/Icon'
 import { useSession } from '../app/SessionProvider'
 import { useCalendar } from '../app/CalendarProvider'
 import { useWriteQueue } from '../app/WriteQueueProvider'
 import { api, ApiError } from '../api/client'
-import { formatTime, snapMinutes, weekdayName, monthName } from '../app/dates'
+import { formatTime, snapMinutes, monthName } from '../app/dates'
 
 const STEP = 15 // minutes
 
@@ -17,6 +17,25 @@ function nextHour(): Date {
   return d
 }
 
+/** DATE field value, e.g. "Thu · 16 Jul". */
+function dateLabel(d: Date): string {
+  const wd = d.toLocaleDateString('en-US', { weekday: 'short' })
+  const mon = d.toLocaleDateString('en-US', { month: 'short' })
+  return `${wd} · ${d.getDate()} ${mon}`
+}
+
+/**
+ * Start time for a new event: the next hour, moved onto the day the calendar had selected
+ * (`?date=YYYY-MM-DD`). Without the param — e.g. opened from the dashboard — it stays on today.
+ */
+function initialStart(dateParam: string | null): Date {
+  const base = nextHour()
+  const [y, m, d] = (dateParam ?? '').split('-').map(Number)
+  if (!y || !m || !d) return base
+  base.setFullYear(y, m - 1, d)
+  return base
+}
+
 /**
  * New / Edit Event (spec 10): fully touch-driven — big day/time steppers and WHO chips, no
  * dropdowns. Full-screen over the calendar. Save/Cancel in the header; Edit mode adds Delete.
@@ -24,19 +43,23 @@ function nextHour(): Date {
 export function EventEditorScreen() {
   const navigate = useNavigate()
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const editId = id ? Number(id) : null
-  const { profiles } = useSession()
+  const { profiles, activeProfileId } = useSession()
   const { refresh } = useCalendar()
   const { run } = useWriteQueue()
 
   const [title, setTitle] = useState('')
-  const [start, setStart] = useState<Date>(() => nextHour())
-  const [end, setEnd] = useState<Date>(() => new Date(nextHour().getTime() + 60 * 60_000))
+  const [start, setStart] = useState<Date>(() => initialStart(searchParams.get('date')))
+  const [end, setEnd] = useState<Date>(() => new Date(initialStart(searchParams.get('date')).getTime() + 60 * 60_000))
   const [ownerIds, setOwnerIds] = useState<number[]>([])
   const [location, setLocation] = useState('')
   const [notes, setNotes] = useState('')
   const [version, setVersion] = useState(1)
   const [saving, setSaving] = useState(false)
+  const [pickingDate, setPickingDate] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const bindHold = useHoldRepeat()
 
   useEffect(() => {
     if (editId == null) return
@@ -61,10 +84,16 @@ export function EventEditorScreen() {
     }
   }, [editId])
 
-  const shiftDay = (delta: number) => {
+  const shiftDay = useCallback((delta: number) => {
     setStart((s) => { const n = new Date(s); n.setDate(n.getDate() + delta); return n })
     setEnd((e) => { const n = new Date(e); n.setDate(n.getDate() + delta); return n })
-  }
+  }, [])
+
+  // Jump start/end to a picked calendar day, preserving each end's time-of-day.
+  const setDateTo = useCallback((day: Date) => {
+    setStart((s) => { const n = new Date(day); n.setHours(s.getHours(), s.getMinutes(), 0, 0); return n })
+    setEnd((e) => { const n = new Date(day); n.setHours(e.getHours(), e.getMinutes(), 0, 0); return n })
+  }, [])
 
   const shiftStart = (deltaMin: number) => {
     setStart((s) => {
@@ -97,6 +126,8 @@ export function EventEditorScreen() {
       location: location.trim() || null,
       notes: notes.trim() || null,
       ownerIds,
+      // New events are created on the active profile's Google account (per-profile calendars).
+      profileId: activeProfileId ?? null,
     }
     // Route through the offline write-queue: succeeds now, queues if offline, surfaces conflicts.
     if (editId == null) {
@@ -106,7 +137,7 @@ export function EventEditorScreen() {
     }
     await refresh()
     navigate('/calendar')
-  }, [title, start, end, location, notes, ownerIds, editId, version, saving, run, refresh, navigate])
+  }, [title, start, end, location, notes, ownerIds, activeProfileId, editId, version, saving, run, refresh, navigate])
 
   const remove = useCallback(async () => {
     if (editId == null) return
@@ -123,7 +154,7 @@ export function EventEditorScreen() {
       <button type="button" className="ml-editor-header__cancel" onClick={() => navigate('/calendar')}>
         Cancel
       </button>
-      <span className="ml-editor-header__title serif">{editId == null ? 'New Engagement' : 'Edit Engagement'}</span>
+      <span className="ml-editor-header__title serif">{editId == null ? 'NEW ENGAGEMENT' : 'EDIT ENGAGEMENT'}</span>
       <button type="button" className="ml-editor-header__save" onClick={save} disabled={!title.trim() || saving}>
         Save
       </button>
@@ -131,76 +162,179 @@ export function EventEditorScreen() {
   )
 
   return (
-    <ScreenShell header={header} nav={false}>
+    // A modal over Calendar, but the standard nav stays (CALENDAR lit); no avatar, no back button.
+    <ScreenShell header={header} avatar={false}>
       <div className="ml-editor">
-        <SectionLabel label="Title" />
-        <input
-          className="ml-titleinput serif"
-          value={title}
-          placeholder="Add a title…"
-          onChange={(e) => setTitle(e.target.value)}
-          autoFocus={editId == null}
-        />
-
-        <SectionLabel label="Date" />
-        <div className="ml-datestep">
-          <button type="button" className="ml-iconbtn" onClick={() => shiftDay(-1)} aria-label="Previous day">
-            <Icon id="ico-back" size="1.25rem" />
-          </button>
-          <div className="ml-datestep__label">
-            <span className="serif ml-datestep__date">{`${weekdayName(start)} ${start.getDate()} ${monthName(start)}`}</span>
-          </div>
-          <button type="button" className="ml-iconbtn" onClick={() => shiftDay(1)} aria-label="Next day">
-            <Icon id="ico-chevron-right" size="1.25rem" />
-          </button>
+        {/* TITLE — stacked, Marcellus value + brass caret */}
+        <div className="ml-evt__row ml-evt__row--stacked">
+          <span className="ml-evt__label">Title</span>
+          <span className="ml-evt__titlewrap">
+            <input
+              className="ml-evt__title serif"
+              value={title}
+              placeholder="Add a title…"
+              onChange={(e) => setTitle(e.target.value)}
+              autoFocus={editId == null}
+            />
+            <span className="ml-evt__caret" aria-hidden="true" />
+          </span>
         </div>
 
-        <div className="ml-timecols">
-          <div className="ml-timecol">
-            <SectionLabel label="Begins" />
-            <div className="ml-timestep">
-              <Stepper direction="minus" onStep={() => shiftStart(-STEP)} label="Earlier start" />
-              <span className="ml-timestep__time serif">{startT.time}<span className="ml-timestep__ampm">{startT.ampm}</span></span>
-              <Stepper direction="plus" onStep={() => shiftStart(STEP)} label="Later start" />
-            </div>
-          </div>
-          <div className="ml-timecol">
-            <SectionLabel label="Ends" />
-            <div className="ml-timestep">
-              <Stepper direction="minus" onStep={() => shiftEnd(-STEP)} label="Earlier end" />
-              <span className="ml-timestep__time serif">{endT.time}<span className="ml-timestep__ampm">{endT.ampm}</span></span>
-              <Stepper direction="plus" onStep={() => shiftEnd(STEP)} label="Later end" />
-            </div>
-          </div>
-        </div>
-
-        <SectionLabel label="Who" />
-        <div className="ml-whochips">
-          {profiles.map((p) => (
+        {/* DATE — ◂ / value / ▸ */}
+        <div className="ml-evt__row">
+          <span className="ml-evt__label">Date</span>
+          <span className="ml-evt__ctrl">
+            <button type="button" className="ml-evt__stepbtn" aria-label="Previous day (hold to scrub)" {...bindHold(() => shiftDay(-1))}>◂</button>
             <button
-              key={p.id}
               type="button"
-              className={'ml-chip' + (ownerIds.includes(p.id) ? ' ml-chip--active' : '')}
-              onClick={() => toggleOwner(p.id)}
+              className="ml-evt__value serif"
+              onClick={() => setPickingDate((v) => !v)}
+              aria-expanded={pickingDate}
             >
-              {p.name}
+              {dateLabel(start)}
             </button>
-          ))}
-          <button type="button" className={'ml-chip' + (allSelected ? ' ml-chip--active' : '')} onClick={toggleAll}>
-            All
-          </button>
+            <button type="button" className="ml-evt__stepbtn" aria-label="Next day (hold to scrub)" {...bindHold(() => shiftDay(1))}>▸</button>
+          </span>
+        </div>
+        {pickingDate && (
+          <MonthGridPicker selected={start} onPick={setDateTo} onClose={() => setPickingDate(false)} />
+        )}
+
+        {/* BEGINS / ENDS — − / value / + at the same width so the columns line up */}
+        <div className="ml-evt__row">
+          <span className="ml-evt__label">Begins</span>
+          <span className="ml-evt__ctrl">
+            <button type="button" className="ml-evt__stepbtn ml-evt__stepbtn--pm" aria-label="Earlier start" {...bindHold(() => shiftStart(-STEP))}>−</button>
+            <span className="ml-evt__value serif">{startT.time}<span className="ml-evt__ampm">{startT.ampm}</span></span>
+            <button type="button" className="ml-evt__stepbtn ml-evt__stepbtn--pm" aria-label="Later start" {...bindHold(() => shiftStart(STEP))}>+</button>
+          </span>
+        </div>
+        <div className="ml-evt__row">
+          <span className="ml-evt__label">Ends</span>
+          <span className="ml-evt__ctrl">
+            <button type="button" className="ml-evt__stepbtn ml-evt__stepbtn--pm" aria-label="Earlier end" {...bindHold(() => shiftEnd(-STEP))}>−</button>
+            <span className="ml-evt__value serif">{endT.time}<span className="ml-evt__ampm">{endT.ampm}</span></span>
+            <button type="button" className="ml-evt__stepbtn ml-evt__stepbtn--pm" aria-label="Later end" {...bindHold(() => shiftEnd(STEP))}>+</button>
+          </span>
         </div>
 
-        <SectionLabel label="Where & Notes" />
-        <input className="ml-fieldinput" value={location} placeholder="Add a location…" onChange={(e) => setLocation(e.target.value)} />
-        <input className="ml-fieldinput" value={notes} placeholder="Add a note…" onChange={(e) => setNotes(e.target.value)} />
+        {/* WHO — equal-width multi-select chips */}
+        <div className="ml-evt__row ml-evt__row--stacked">
+          <span className="ml-evt__label">Who</span>
+          <span className="ml-evt__chips">
+            {profiles.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={'ml-chip' + (ownerIds.includes(p.id) ? ' ml-chip--active' : '')}
+                onClick={() => toggleOwner(p.id)}
+              >
+                {p.name}
+              </button>
+            ))}
+            <button type="button" className={'ml-chip' + (allSelected ? ' ml-chip--active' : '')} onClick={toggleAll}>
+              All
+            </button>
+          </span>
+        </div>
+
+        {/* WHERE — label left, plain value right */}
+        <div className="ml-evt__row">
+          <span className="ml-evt__label">Where</span>
+          <input className="ml-evt__where" value={location} placeholder="Add a location…" onChange={(e) => setLocation(e.target.value)} />
+        </div>
+
+        {/* NOTE — open multi-line block closed by a hairline */}
+        <div className="ml-evt__row ml-evt__row--stacked">
+          <span className="ml-evt__label">Note</span>
+          <textarea className="ml-evt__note" value={notes} placeholder="Add a note…" onChange={(e) => setNotes(e.target.value)} />
+        </div>
 
         {editId != null && (
-          <button type="button" className="ml-editor__delete" onClick={remove}>
-            Delete engagement
+          <button
+            type="button"
+            className={'ml-editor__delete' + (confirmDelete ? ' ml-editor__delete--confirm' : '')}
+            onClick={() => (confirmDelete ? void remove() : setConfirmDelete(true))}
+            onBlur={() => setConfirmDelete(false)}
+          >
+            {confirmDelete ? 'Tap again to delete' : 'Delete engagement'}
           </button>
         )}
       </div>
     </ScreenShell>
+  )
+}
+
+/** Press-and-hold repeat for the day arrows: fires once on press, then accelerates while held. */
+function useHoldRepeat() {
+  const timer = useRef<number | null>(null)
+  const stop = useCallback(() => {
+    if (timer.current !== null) { clearTimeout(timer.current); timer.current = null }
+  }, [])
+  useEffect(() => stop, [stop])
+  return useCallback(
+    (fn: () => void) => {
+      const start = () => {
+        fn()
+        let delay = 320
+        const tick = () => {
+          fn()
+          delay = Math.max(70, delay - 45)
+          timer.current = window.setTimeout(tick, delay)
+        }
+        timer.current = window.setTimeout(tick, delay)
+      }
+      return { onPointerDown: start, onPointerUp: stop, onPointerLeave: stop, onPointerCancel: stop }
+    },
+    [stop],
+  )
+}
+
+const DOW_INITIALS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+
+/** Compact month grid for the DATE field (spec 10:29): tap a day to jump the event's date. */
+function MonthGridPicker({ selected, onPick, onClose }: { selected: Date; onPick: (d: Date) => void; onClose: () => void }) {
+  const [view, setView] = useState(() => new Date(selected.getFullYear(), selected.getMonth(), 1))
+  const year = view.getFullYear()
+  const month = view.getMonth()
+  const startPad = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const cells: (Date | null)[] = []
+  for (let i = 0; i < startPad; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d))
+  const isSel = (d: Date) =>
+    d.getFullYear() === selected.getFullYear() && d.getMonth() === selected.getMonth() && d.getDate() === selected.getDate()
+
+  return (
+    <div className="ml-datepicker">
+      <div className="ml-datepicker__head">
+        <button type="button" className="ml-iconbtn" onClick={() => setView(new Date(year, month - 1, 1))} aria-label="Previous month">
+          <Icon id="ico-back" size="1.1rem" />
+        </button>
+        <span className="serif ml-datepicker__month">{`${monthName(view)} ${year}`}</span>
+        <button type="button" className="ml-iconbtn" onClick={() => setView(new Date(year, month + 1, 1))} aria-label="Next month">
+          <Icon id="ico-chevron-right" size="1.1rem" />
+        </button>
+      </div>
+      <div className="ml-datepicker__grid">
+        {DOW_INITIALS.map((d, i) => (
+          <span key={`dow-${i}`} className="ml-datepicker__dow">{d}</span>
+        ))}
+        {cells.map((d, i) =>
+          d ? (
+            <button
+              key={`day-${i}`}
+              type="button"
+              className={'ml-datepicker__day serif' + (isSel(d) ? ' ml-datepicker__day--sel' : '')}
+              onClick={() => { onPick(d); onClose() }}
+            >
+              {d.getDate()}
+            </button>
+          ) : (
+            <span key={`pad-${i}`} />
+          ),
+        )}
+      </div>
+    </div>
   )
 }

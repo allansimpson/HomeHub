@@ -42,8 +42,61 @@ export function IconSprite() {
       <symbol id="ico-signin" viewBox="0 0 24 24">
         <path d="M13 4h5v16h-5M4 12h9M9.5 8l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
       </symbol>
+      {/* Sign out — exact path from CONFIG_SCREEN.md §1 identity row */}
       <symbol id="ico-signout" viewBox="0 0 24 24">
-        <path d="M11 4H6v16h5M10 12h10M16 8l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M16 17l5-5-5-5M21 12H9M12 3H5v18h7" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </symbol>
+      {/*
+        CONFIG — cog. BOTTOM_NAV.md §5 gives a `d` whose right-side vertices sit ~1u higher than
+        their left-side mirrors, so it renders visibly lopsided. This is a 6-tooth cog drawn
+        symmetrically about x=12 (outer r 9.1, root r 6.6, hub r 3.2).
+      */}
+      <symbol id="ico-gear" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M9.29 3.31L14.71 3.31L14.68 5.97L15.88 6.66L18.17 5.31L20.88 10L18.56 11.31L18.56 12.69L20.88 14L18.17 18.69L15.88 17.34L14.68 18.03L14.71 20.69L9.29 20.69L9.32 18.03L8.12 17.34L5.83 18.69L3.12 14L5.44 12.69L5.44 11.31L3.12 10L5.83 5.31L8.12 6.66L9.32 5.97Z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinejoin="round"
+        />
+      </symbol>
+
+      {/* ---- CONFIG category glyphs — exact paths from CONFIG_SCREEN.md §1, stroke 1.4 ---- */}
+      <symbol id="ico-list" viewBox="0 0 24 24">
+        <rect x="4" y="5" width="4" height="4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="4" y="15" width="4" height="4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M11 7h9M11 17h9" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </symbol>
+      <symbol id="ico-lock" viewBox="0 0 24 24">
+        <rect x="5" y="11" width="14" height="10" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M8 11V7a4 4 0 018 0v4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </symbol>
+      <symbol id="ico-warning" viewBox="0 0 24 24">
+        <path d="M12 3l9 16H3z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+        <path d="M12 10v4M12 17v.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </symbol>
+      <symbol id="ico-display" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <path
+          d="M12 4v2M12 18v2M4 12h2M18 12h2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M6 18l1.5-1.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+      </symbol>
+      <symbol id="ico-group" viewBox="0 0 24 24">
+        <circle cx="9" cy="8" r="3" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M3 20a6 6 0 0112 0M16 6a3 3 0 010 6M21 20a6 6 0 00-6-6" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </symbol>
+      {/* Trash — delete a conversation (THE_ATTENDANT.md §5b), stroke 1.4 */}
+      <symbol id="ico-trash" viewBox="0 0 24 24">
+        <path d="M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </symbol>
+      {/* Search — magnifier (ACCOUNT_TODO_LISTS.md §5 search field) */}
+      <symbol id="ico-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M20 20l-3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
       </symbol>
 
       {/* ---- Deco glyphs (same geometric line style) ---- */}

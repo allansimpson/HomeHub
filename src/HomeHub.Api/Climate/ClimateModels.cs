@@ -19,12 +19,33 @@ public record ClimateZoneDto(
     string Mode,
     string? FanMode,
     bool Running,
-    string Source)
+    string Source,
+    /// <summary>Local clock estimate of when the set point is reached, e.g. "8:10 PM"; null when already there / off.</summary>
+    string? ReachesAtLocal)
 {
-    public static ClimateZoneDto From(ClimateZone z) => new(
-        z.Id, z.Name, Math.Round(z.CurrentTempF),
-        z.Mode == ClimateMode.Off ? null : Math.Round(z.SetPointF),
-        z.Mode.ToString(), z.FanMode, z.Mode != ClimateMode.Off, z.Source);
+    /// <summary>Rough minutes to move one °F — enough for a plausible "reaches by" estimate on the panel.</summary>
+    private const double MinutesPerDegree = 6;
+
+    public static ClimateZoneDto From(ClimateZone z)
+    {
+        var current = Math.Round(z.CurrentTempF);
+        var running = z.Mode != ClimateMode.Off;
+        var setPoint = running ? Math.Round(z.SetPointF) : (double?)null;
+        return new(
+            z.Id, z.Name, current, setPoint,
+            z.Mode.ToString(), z.FanMode, running, z.Source,
+            EstimateReachesAt(z.Mode, current, setPoint));
+    }
+
+    /// <summary>Only Cool/Heat with a &gt;=1° gap produce an ETA (Fan/Auto/Off hold, so none).</summary>
+    private static string? EstimateReachesAt(ClimateMode mode, double currentF, double? setPointF)
+    {
+        if (setPointF is not { } target || (mode != ClimateMode.Cool && mode != ClimateMode.Heat)) return null;
+        var delta = Math.Abs(currentF - target);
+        if (delta < 1) return null;
+        var reachesAt = DateTime.Now.AddMinutes(delta * MinutesPerDegree);
+        return reachesAt.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture);
+    }
 }
 
 /// <summary>Set-point change payload (°F).</summary>

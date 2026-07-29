@@ -4,7 +4,7 @@ A local, always-listening voice front-end for the HomeHub kiosk. Runs on the Ras
 mic + speaker; the heavy lifting (STT, the assistant) happens on the home server via the HomeHub API.
 
 ```
-openWakeWord ("Hey Cleo", local)  →  capture (webrtcvad)  →  POST /api/voice/transcribe
+openWakeWord ("Hey Barnaby", local)  →  capture (webrtcvad)  →  POST /api/voice/transcribe
       →  POST /api/assistant/chat  →  Piper "norman" TTS  →  back to listening
 ```
 
@@ -44,19 +44,19 @@ curl -L -O $BASE/en_US-norman-medium.onnx.json   # must sit beside the .onnx
 `en_US-norman-medium` outputs 22.05 kHz — keep `TTS_SAMPLE_RATE=22050` (default). Test:
 
 ```bash
-echo "Hello from Cleo." | piper --model voices/en_US-norman-medium.onnx --output-raw \
+echo "Hello from Barnaby." | piper --model voices/en_US-norman-medium.onnx --output-raw \
   | aplay -r 22050 -f S16_LE -t raw -c 1 -
 ```
 
-## The "Hey Cleo" wake model (openWakeWord)
+## The "Hey Barnaby" wake model (openWakeWord)
 
-openWakeWord has no built-in "Hey Cleo", so train a custom one (the phrase is synthesized, no recording
+openWakeWord has no built-in "Hey Barnaby", so train a custom one (the phrase is synthesized, no recording
 needed):
 
 1. Open openWakeWord's **automatic model training** notebook (Google Colab) from the openWakeWord repo.
-2. Set the target phrase to `hey cleo`; it generates synthetic TTS samples + negatives and trains an
+2. Set the target phrase to `hey barnaby`; it generates synthetic TTS samples + negatives and trains an
    ONNX model.
-3. Download `hey_cleo.onnx` to `/opt/homehub-voice/models/` and set `WAKE_MODEL_PATH` to it.
+3. Download `hey_barnaby.onnx` to `/opt/homehub-voice/models/` and set `WAKE_MODEL_PATH` to it.
 
 Until then the bridge falls back to the pretrained `WAKE_MODEL` (default `hey_jarvis`) so you can test
 the pipeline — it logs a warning that it's a stand-in. Tune `WAKE_THRESHOLD` (0.3–0.7) for your room.
@@ -85,7 +85,7 @@ All settings are environment variables (see `.env.example` and `config.py`). Com
 | Var | Default | Purpose |
 |---|---|---|
 | `HOMEHUB_API_BASE_URL` | `http://localhost:5220` | HomeHub API base |
-| `WAKE_MODEL_PATH` | — | Custom `hey_cleo.onnx` (falls back to `WAKE_MODEL`) |
+| `WAKE_MODEL_PATH` | — | Custom `hey_barnaby.onnx` (falls back to `WAKE_MODEL`) |
 | `WAKE_THRESHOLD` | `0.5` | Detection score cutoff |
 | `MIC_DEVICE` / `APLAY_DEVICE` | default | Specific input/output devices |
 | `END_SILENCE_MS` | `900` | Trailing silence that ends a capture |

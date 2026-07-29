@@ -18,6 +18,12 @@ public interface ITaskProvider
     /// match, throws <see cref="Data.ConcurrencyConflictException"/> (409).</summary>
     Task<TaskItem?> SetCompletedAsync(int id, bool completed, int? baseVersion, CancellationToken ct);
 
+    /// <summary>Set/clear a task's ★ importance flag (same optimistic-concurrency check).</summary>
+    Task<TaskItem?> SetImportantAsync(int id, bool important, int? baseVersion, CancellationToken ct);
+
+    /// <summary>Rename a task (inline edit on the TODO screen), same optimistic-concurrency check.</summary>
+    Task<TaskItem?> SetTitleAsync(int id, string title, int? baseVersion, CancellationToken ct);
+
     /// <summary>Delete a task, with the same optional optimistic-concurrency check.</summary>
     Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct);
 }

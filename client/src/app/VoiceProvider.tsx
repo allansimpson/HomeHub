@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createRecognizer, speak as speakText, cancelSpeech, speechSupported } from './speech'
+import { createRecognizer, speak as speakText, cancelSpeech, speechSupported, type Prosody } from './speech'
 import type { Recognizer } from './speech'
 
 /** Auto-stop after this much trailing silence (spec: ~5 seconds), reset whenever speech is heard. */
@@ -16,12 +16,13 @@ interface VoiceState {
   supported: boolean
   micLive: boolean
   listening: boolean
-  /** True while Piper/on-device TTS is actually playing a reply (drives the brass Speaking UI). */
+  /** True while server/on-device TTS is actually playing a reply (drives the brass Speaking UI). */
   speaking: boolean
   partial: string
   startListening: (onResult: (text: string) => void) => void
   stopListening: () => void
-  speak: (text: string) => void
+  /** Speak a line. `prosody` is how it should be delivered — Piper ignores it, Chatterbox won't. */
+  speak: (text: string, prosody?: Prosody) => void
   /** Halt playback without opening the mic (the "Tap to stop" chip). */
   stopSpeaking: () => void
 }
@@ -87,8 +88,8 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
     [supported, cleanup],
   )
 
-  const speak = useCallback((text: string) => {
-    speakText(text, { onStart: () => setSpeaking(true), onEnd: () => setSpeaking(false) })
+  const speak = useCallback((text: string, prosody: Prosody = 'neutral') => {
+    speakText(text, { onStart: () => setSpeaking(true), onEnd: () => setSpeaking(false) }, prosody)
   }, [])
 
   const stopSpeaking = useCallback(() => {

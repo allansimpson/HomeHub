@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { DrillInHeader, ScreenShell, ScrollArea, Stepper } from '../components'
 import { useClimate } from '../app/ClimateProvider'
 import { useConnection } from '../app/ConnectionProvider'
@@ -14,7 +13,10 @@ function statusLine(z: ClimateZoneDto): string {
   if (z.mode === 'Auto') return `Holding ${z.setPointF}°`
   const verb = z.mode === 'Cool' ? 'Cooling' : 'Heating'
   if (Math.round(z.currentTempF) === Math.round(z.setPointF)) return `At set point ${z.setPointF}°`
-  return `${verb} to ${z.setPointF}°`
+  // "COOLING — REACHES 72° NEAR 8:10 PM" when we have an ETA (spec 08 status footer).
+  return z.reachesAtLocal
+    ? `${verb} — reaches ${z.setPointF}° near ${z.reachesAtLocal}`
+    : `${verb} to ${z.setPointF}°`
 }
 
 /**
@@ -24,7 +26,6 @@ function statusLine(z: ClimateZoneDto): string {
  * the provider's reported state.
  */
 export function ClimateScreen() {
-  const navigate = useNavigate()
   const { zones, adjustSetPoint, setMode, applyScene } = useClimate()
   const { stale } = useConnection()
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -38,10 +39,9 @@ export function ClimateScreen() {
         title="Climate"
         status={`${running} of ${zones.length} running`}
         statusLive={running > 0}
-        onBack={() => navigate('/')}
       />
     ),
-    [running, zones.length, navigate],
+    [running, zones.length],
   )
 
   return (

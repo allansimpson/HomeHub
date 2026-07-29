@@ -188,6 +188,17 @@ additive behind existing seams: Govee-via-HA sensors (`ISensorProvider`), assist
 (wiring the assistant to the calendar/todo/climate seams), HA WebSocket live push, and SignalR
 backend→client push.
 
+**Now scoped, with their own authoritative design docs** (this file stays authoritative for
+architecture, seams and conventions; each doc owns its workstream's stages):
+
+- **`huckleberry-integration.md`** — Huckleberry baby tracking via Home Assistant + BLE scale
+  capture. Stages H1–H4, S1–S3. Consumes the HA WebSocket live push listed above (H4 builds it).
+- **`voice-tts.md`** — voice *output*; companion to §6 above, which owns STT and assistant
+  routing. Stage 8R (prosody/cache refactor of the shipped `ITextToSpeech` seam) and Stage 8.5
+  (Chatterbox, deferred until a GPU is installed).
+
+Active build order and the human-gated verification items live in `TODO.md`.
+
 ## 12 · Build history (condensed)
 
 0 Foundation & shell · 1 Profiles/PIN/settings · 2 Sensors + alert engine (**live-verified**) ·

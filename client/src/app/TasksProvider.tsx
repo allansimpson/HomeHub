@@ -16,6 +16,8 @@ interface TasksState {
   offline: boolean
   refresh: () => Promise<void>
   toggleTask: (task: TaskItemDto) => Promise<void>
+  setImportant: (task: TaskItemDto, important: boolean) => Promise<void>
+  renameTask: (task: TaskItemDto, title: string) => Promise<void>
   deleteTask: (task: TaskItemDto) => Promise<void>
   createTask: (input: TaskCreateInput) => Promise<void>
 }
@@ -76,6 +78,42 @@ export function TasksProvider({ children }: { children: ReactNode }) {
     [run, refresh],
   )
 
+  const setImportant = useCallback(
+    async (task: TaskItemDto, important: boolean) => {
+      setTasks((cur) => cur.map((t) => (t.id === task.id ? { ...t, important } : t)))
+      const outcome = await run({
+        domain: 'task',
+        method: 'PATCH',
+        path: `/tasks/${task.id}/importance`,
+        body: { important },
+        baseVersion: task.version,
+        label: `${important ? 'Star' : 'Unstar'} “${task.title}”`,
+      })
+      if (outcome.kind === 'ok') setTasks((cur) => cur.map((t) => (t.id === task.id ? (outcome.data as TaskItemDto) : t)))
+      else if (outcome.kind !== 'queued') await refresh()
+    },
+    [run, refresh],
+  )
+
+  const renameTask = useCallback(
+    async (task: TaskItemDto, title: string) => {
+      const next = title.trim()
+      if (!next || next === task.title) return
+      setTasks((cur) => cur.map((t) => (t.id === task.id ? { ...t, title: next } : t)))
+      const outcome = await run({
+        domain: 'task',
+        method: 'PATCH',
+        path: `/tasks/${task.id}/title`,
+        body: { title: next },
+        baseVersion: task.version,
+        label: `Rename “${task.title}”`,
+      })
+      if (outcome.kind === 'ok') setTasks((cur) => cur.map((t) => (t.id === task.id ? (outcome.data as TaskItemDto) : t)))
+      else if (outcome.kind !== 'queued') await refresh()
+    },
+    [run, refresh],
+  )
+
   const deleteTask = useCallback(
     async (task: TaskItemDto) => {
       setTasks((cur) => cur.filter((t) => t.id !== task.id))
@@ -127,8 +165,8 @@ export function TasksProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo<TasksState>(
-    () => ({ tasks, loading, offline, refresh, toggleTask, deleteTask, createTask }),
-    [tasks, loading, offline, refresh, toggleTask, deleteTask, createTask],
+    () => ({ tasks, loading, offline, refresh, toggleTask, setImportant, renameTask, deleteTask, createTask }),
+    [tasks, loading, offline, refresh, toggleTask, setImportant, renameTask, deleteTask, createTask],
   )
 
   return <TasksContext.Provider value={value}>{children}</TasksContext.Provider>

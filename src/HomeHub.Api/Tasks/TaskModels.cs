@@ -24,6 +24,12 @@ public record TaskCreateInput(int ProfileId, string Title, string? Note, DateTim
 /// <summary>Toggle payload for completing / un-completing a task.</summary>
 public record TaskCompleteInput(bool Completed);
 
+/// <summary>Toggle payload for a task's ★ importance flag.</summary>
+public record TaskImportanceInput(bool Important);
+
+/// <summary>New title when a task is renamed inline on the TODO screen.</summary>
+public record TaskTitleInput(string Title);
+
 /// <summary>A Microsoft To Do list offered for syncing, with its current selected state.</summary>
 public record SyncListDto(string GraphListId, string Name, bool Selected);
 

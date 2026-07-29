@@ -19,7 +19,11 @@
   height: 100%;
 }
 
-/* ---------- Route motion (restrained — appliance, not phone) ---------- */
+/* ---------- Route motion (View Transitions API — restrained appliance, not phone) ----------
+ * Only the routed screen area animates; the surrounding chrome (bottom nav, banners) updates
+ * instantly beneath it so the active tab responds without a blur. Direction comes from the
+ * `data-vt` attribute App sets before each transition. ml-slideup below is still used by the
+ * on-screen keyboard's slide-in. */
 @keyframes ml-slideup {
   from {
     opacity: 0;
@@ -30,23 +34,44 @@
     transform: none;
   }
 }
-@keyframes ml-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+
+/* Lift the screen content into its own transition so the chrome (root) can snap. */
+.app-viewport {
+  view-transition-name: screen;
 }
-.ml-transition--slideup {
-  animation: ml-slideup 220ms ease-out;
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none; /* nav + banners update instantly under the animating screen */
 }
-.ml-transition--fade {
-  animation: ml-fade 150ms ease-out;
+::view-transition-old(screen),
+::view-transition-new(screen) {
+  animation-duration: 240ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+/* Default (tab ↔ tab): soft cross-fade. */
+::view-transition-old(screen) { animation-name: ml-vt-fade-out; }
+::view-transition-new(screen) { animation-name: ml-vt-fade-in; }
+/* Drill-in: the new screen rises as the old fades. */
+html[data-vt='slideup']::view-transition-new(screen) { animation-name: ml-vt-up-in; }
+html[data-vt='slideup']::view-transition-old(screen) { animation-name: ml-vt-fade-out; }
+/* Back out: the new screen settles down. */
+html[data-vt='slidedown']::view-transition-new(screen) { animation-name: ml-vt-down-in; }
+html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-fade-out; }
+
+@keyframes ml-vt-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ml-vt-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes ml-vt-up-in {
+  from { opacity: 0; transform: translateY(1.25rem); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ml-vt-down-in {
+  from { opacity: 0; transform: translateY(-1.25rem); }
+  to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ml-transition--slideup,
-  .ml-transition--fade {
+  ::view-transition-old(screen),
+  ::view-transition-new(screen) {
     animation: none;
   }
 }
@@ -64,11 +89,42 @@
   background: var(--bg-screen);
   overflow: hidden;
 }
+/* Positioning context for the global account avatar — starts BELOW any full-width banner. */
+.ml-shell__body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .ml-shell__content {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* ---------- Global account avatar (spec 13) ---------- */
+.ml-avatar {
+  position: absolute;
+  top: 1.25rem; /* 20px */
+  right: 1.25rem;
+  z-index: 5;
+  width: 3rem; /* 48px */
+  height: 3rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: var(--control-border) solid var(--brass-dim); /* signed out: hairline ring */
+  color: var(--text-muted);
+  font-size: 1.125rem;
+}
+.ml-avatar--in {
+  border: max(2px, 0.125rem) solid var(--live-accent); /* signed in: 2px verdigris ring */
+  background: var(--bg-profile-selected);
+  color: var(--brass-bright);
 }
 /* Dashboard content never scrolls; it is the idle display. */
 .ml-shell__content--fixed {
@@ -93,21 +149,30 @@
 
 /* ---------- Headers ---------- */
 .ml-header {
-  padding: 1.75rem var(--gutter) 0; /* 28px 34px 0 */
+  /* Right padding is 88px (34px gutter + ~54px) so right-aligned header content clears the
+     global account avatar pinned at top:20/right:20 — spec 13. */
+  padding: 1.75rem 5.5rem 0 var(--gutter); /* 28px 88px 0 34px */
   flex: 0 0 auto;
+}
+/* No avatar on this screen (e.g. the Config index) — reclaim the reserved clearance. */
+.ml-shell__body--noavatar .ml-header {
+  padding-right: var(--gutter);
 }
 .ml-header--drillin {
   display: flex;
   align-items: center;
   gap: 1rem;
+  /* Match the Marcellus title's line box so headers never change height between views. */
+  min-height: 1.875rem; /* 30px */
 }
 .ml-dash-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
+  min-height: 1.875rem; /* 30px — same header height as every other view */
 }
 .ml-dash-header__clock {
-  font-size: 2.5rem; /* 40px */
+  font-size: 1.875rem; /* 30px — matches the other view headers */
   line-height: 1;
   color: var(--text-primary);
 }
@@ -116,8 +181,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.375rem;
-  padding-top: 0.35rem;
+  gap: 0.1875rem;
 }
 .ml-dash-header__date {
   font-size: 0.6875rem; /* 11px */
@@ -165,16 +229,81 @@
 
 /* ---------- Back button (44×44) ---------- */
 .ml-backbtn {
-  width: 2.75rem;
+  width: 2.75rem; /* 44px */
   height: 2.75rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  border: var(--control-border) solid var(--brass-dim); /* 1px #5C5342 */
+  color: var(--brass-bright); /* ◂ glyph #C8A877 */
+  font-size: 1rem; /* 16px */
+  line-height: 1;
   flex: 0 0 auto;
 }
 .ml-backbtn:active {
-  color: var(--brass-bright);
+  background: var(--bg-active);
+}
+
+/* ---------- Ledger hairlines (inset) ----------
+ * Row separators are inset to the gutter so they align with the header's double rule instead of
+ * running edge to edge. Drawn as a ::before rule rather than border-top, because a border spans
+ * the full box width (padding sits inside it). Rows already pad to var(--gutter), so the rule
+ * lines up exactly with their content.
+ */
+.ml-row,
+.ml-todorow,
+.ml-history__row,
+.ml-task,
+.ml-dayrow,
+.ml-week__row,
+.ml-climatezone,
+.ml-suggestion {
+  position: relative;
+  border-top: none;
+}
+.ml-row::before,
+.ml-todorow::before,
+.ml-history__row::before,
+.ml-task::before,
+.ml-dayrow::before,
+.ml-week__row::before,
+.ml-climatezone::before,
+.ml-suggestion::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--gutter);
+  right: var(--gutter);
+  height: var(--hairline-px);
+  background: var(--rule-minor);
+}
+.ml-row--major::before {
+  background: var(--rule-major);
+}
+.ml-climatezone--expanded::before {
+  background: var(--bg-zone-expand-rule);
+}
+/* Rows that sit flush inside their section — no rule at all (dashboard NEXT + TASKS DUE). */
+.ml-row--flush::before {
+  content: none;
+}
+/* Leading row of a group carries no rule (nothing hangs under a label / search field). */
+.ml-config-index .ml-row:first-child::before,
+.ml-listrows > .ml-row:first-child::before,
+.ml-section + .ml-suggestion::before,
+.ml-conversations + .ml-history__row::before {
+  content: none;
+}
+/* …and close each group with a rule under its final row. */
+.ml-suggestion:last-child::after,
+.ml-history__row:last-child::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: var(--gutter);
+  right: var(--gutter);
+  height: var(--hairline-px);
+  background: var(--rule-minor);
 }
 
 /* ---------- Section label row ---------- */
@@ -207,6 +336,23 @@
 .ml-section__status--live {
   color: var(--live-text);
 }
+/* Collapsible section header (persistent open/closed state) */
+.ml-section--toggle {
+  width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+.ml-section--toggle .ml-section__label { flex: 1 1 auto; }
+.ml-section--toggle .ml-section__status { margin-left: 0; margin-right: 0.625rem; }
+.ml-section__chevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+.ml-section--toggle:not(.ml-section--open) .ml-section__chevron { transform: rotate(-90deg); }
 
 /* ---------- Ledger row ---------- */
 .ml-row {
@@ -214,10 +360,10 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.875rem var(--gutter); /* ~14px vertical */
-  border-top: var(--hairline-px) solid var(--rule-minor);
-}
-.ml-row--major {
-  border-top-color: var(--rule-major);
+  /* LedgerRow renders a <button> when tappable; form controls size to fit-content, so without
+     these a tappable row would shrink to its content instead of spanning full width. */
+  width: 100%;
+  text-align: left;
 }
 .ml-row--tappable:active {
   background: var(--bg-active);
@@ -248,45 +394,31 @@
 }
 
 /* ---------- Bottom nav ---------- */
+/* Exact per BOTTOM_NAV.md: own plane (#101215) + 2px brass top rule, 7 items space-around. */
 .ml-nav {
   flex: 0 0 auto;
   display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 1rem 1.25rem 1.375rem; /* 16px 20px 22px */
   background: var(--bg-nav);
-  border-top: var(--hairline-px) solid var(--rule-major);
+  border-top: var(--rule-brass-px) solid var(--brass);
 }
 .ml-nav__item {
-  flex: 1 1 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.375rem;
-  padding: 0.75rem 0 0.625rem;
-  color: var(--text-disabled);
+  gap: 0.375rem; /* 6px */
+  color: var(--text-disabled); /* #5F584B */
 }
+/* Active tab = bright-brass icon + label only (no underline tick / diamond). */
 .ml-nav__item--active {
-  color: var(--brass);
+  color: var(--brass-bright); /* #C8A877 */
 }
 .ml-nav__label {
-  font-size: 0.5625rem; /* ~9px */
-  letter-spacing: 0.2em;
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.28em;
   text-transform: uppercase;
-}
-.ml-nav__tick {
-  width: 1rem; /* 16px */
-  height: var(--hairline-px);
-  background: var(--brass);
-  margin-top: 0.125rem;
-}
-.ml-nav__tick--hidden {
-  visibility: hidden;
-}
-/* Dashboard's active item uses a small brass diamond instead of the underline tick. */
-.ml-nav__diamond {
-  width: 0.375rem;
-  height: 0.375rem;
-  background: var(--brass);
-  transform: rotate(45deg);
-  margin-top: 0.0625rem;
 }
 
 /* ---------- Stepper (− / +) ---------- */
@@ -354,6 +486,14 @@
 .ml-toggle--on .ml-toggle__thumb {
   background: var(--brass-bright);
   transform: translateX(1.75rem);
+}
+/* Verdigris ON style for app-level "smart" switches (Today / All) — spec §4. */
+.ml-toggle--live.ml-toggle--on {
+  border-color: var(--live-dim);
+  background: var(--live-fill-b);
+}
+.ml-toggle--live.ml-toggle--on .ml-toggle__thumb {
+  background: var(--live-text);
 }
 
 /* ---------- Alert banner (amber; severe adds hazard stripe) ---------- */
@@ -483,8 +623,9 @@
 .ml-miclive {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem var(--gutter);
+  justify-content: center; /* dot + text sit centred on the banner */
+  gap: 0.75rem; /* 12px */
+  padding: 0.8125rem 1.5rem; /* 13px 24px */
   background: var(--live-fill-a);
   border-bottom: 0.125rem solid var(--live-accent);
   color: var(--live-text);
@@ -492,14 +633,17 @@
 .ml-miclive__dot {
   width: 0.625rem; /* 10px */
   height: 0.625rem;
+  border-radius: 50%; /* glowing round indicator */
   background: var(--live-text);
   box-shadow: 0 0 0.75rem var(--live-accent);
   flex: 0 0 auto;
 }
 .ml-miclive__text {
-  font-size: 0.6875rem;
+  font-size: 0.6875rem; /* 11px */
   letter-spacing: 0.34em;
   text-transform: uppercase;
+  /* Tracking adds a trailing space after the last glyph; pull it back so the text reads centred. */
+  margin-right: -0.34em;
 }
 
 /* ---------- Offline chip ---------- */
@@ -536,7 +680,7 @@
 .ml-scroll__inner::-webkit-scrollbar {
   display: none;
 }
-/* Bottom fade-out gradient into the background. */
+/* Bottom fade-out gradient into the background (hidden once scrolled to the end). */
 .ml-scroll::after {
   content: '';
   position: absolute;
@@ -546,6 +690,49 @@
   height: 3rem;
   background: linear-gradient(to bottom, transparent, var(--bg-screen));
   pointer-events: none;
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+.ml-scroll--end::after {
+  opacity: 0;
+}
+/* 3px brass position tick riding a hairline track at the right edge (spec 11). */
+.ml-scroll__track {
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  right: 0.125rem;
+  width: 0.1875rem; /* 3px */
+  background: var(--rule-minor);
+  pointer-events: none;
+}
+.ml-scroll__tick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 1.5rem;
+  background: var(--brass);
+}
+.ml-scroll__caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.625rem;
+  text-align: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass);
+  pointer-events: none;
+}
+/* 2-line clamp utility for long titles in scrolling lists (spec 11). */
+.ml-clamp2 {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 /* ---------- Lock / PIN screen (spec 06) ---------- */
@@ -661,6 +848,9 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 0.75rem; /* 12px */
   width: 100%;
+  /* Pin the key cell to the spec's 128×78: 3×128 + 2×12 gap = 25.5rem, centred. */
+  max-width: 25.5rem;
+  margin-inline: auto;
 }
 .ml-pinpad__key {
   min-height: 4.875rem; /* 78px */
@@ -867,15 +1057,18 @@
 /* ---------- Calendar screen ---------- */
 .ml-cal-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.625rem;
+  min-height: 1.875rem; /* 30px — same header height as every other view */
 }
 .ml-cal-header__month {
-  font-size: 2.25rem; /* 36px */
+  font-size: 1.875rem; /* 30px — matches the other screen titles */
+  line-height: 1;
   color: var(--text-primary);
 }
 .ml-cal-header__year {
   font-size: 1.25rem; /* 20px */
+  line-height: 1;
   color: var(--text-muted);
 }
 .ml-cal-header__actions {
@@ -883,6 +1076,11 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+/* Header controls sized to the 30px header row (they scale up 4× on the 4K panel). */
+.ml-cal-header .ml-iconbtn {
+  width: 1.875rem;
+  height: 1.875rem;
 }
 .ml-iconbtn {
   width: 2.75rem;
@@ -902,7 +1100,8 @@
   color: var(--brass-bright);
 }
 .ml-calgrid {
-  padding: 0.75rem var(--gutter) 0.25rem;
+  /* Breathing room between the header's double rule and the month grid. */
+  padding: 1.75rem var(--gutter) 0.25rem;
   flex: 0 0 auto;
 }
 .ml-calgrid__dow,
@@ -988,6 +1187,38 @@
   color: var(--brass);
 }
 
+/* ---------- Dashboard TASKS DUE rows (spec 01) ---------- */
+.ml-taskdue {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem; /* 10px */
+}
+.ml-taskdue__when {
+  flex: 0 0 3.75rem; /* 60px fixed urgency column */
+  font-size: 0.625rem; /* ~10px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-taskdue__when--overdue {
+  color: var(--alert);
+}
+.ml-taskdue__when--today {
+  color: var(--brass-bright);
+}
+.ml-taskdue__dot {
+  flex: 0 0 auto;
+  width: 0.375rem; /* 6px */
+  height: 0.375rem;
+  background: var(--text-muted); /* square — no radius (deco) */
+}
+.ml-taskdue__dot--overdue {
+  background: var(--alert);
+}
+.ml-taskdue__dot--today {
+  background: var(--brass-bright);
+}
+
 /* ---------- Event editor ---------- */
 .ml-editor-header {
   display: flex;
@@ -1030,10 +1261,132 @@
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  padding-bottom: 2rem;
+  padding: 0.75rem var(--gutter); /* 12px 34px */
 }
 .ml-editor::-webkit-scrollbar {
   display: none;
+}
+
+/* ---------- Event editor field rows (CALENDAR_NEW_EVENT.md §3) ---------- */
+.ml-evt__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0; /* 16px */
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-evt__row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.625rem;
+}
+.ml-evt__label {
+  flex: 0 0 auto;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+/* Title value: Marcellus with a brass caret riding its right edge. */
+.ml-evt__titlewrap {
+  display: flex;
+  align-items: center;
+  gap: 0.1875rem;
+}
+.ml-evt__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 1.5rem; /* 24px */
+  color: var(--text-primary);
+}
+.ml-evt__caret {
+  flex: 0 0 auto;
+  width: 0.125rem; /* 2px */
+  height: 1.5rem; /* 24px */
+  background: var(--brass-bright);
+}
+/* Stepper clusters — value min-width keeps DATE/BEGINS/ENDS buttons vertically aligned. */
+.ml-evt__ctrl {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem; /* 16px */
+}
+.ml-evt__stepbtn {
+  flex: 0 0 auto;
+  width: 2.5rem; /* 40px */
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1;
+}
+.ml-evt__stepbtn--pm {
+  font-size: 1.125rem; /* 18px for − / + */
+}
+.ml-evt__value {
+  min-width: 9.375rem; /* 150px */
+  text-align: center;
+  background: none;
+  border: none;
+  font-size: 1.375rem; /* 22px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-evt__ampm {
+  font-size: 0.8125rem; /* 13px */
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+.ml-evt__chips {
+  display: flex;
+  gap: 0.5rem;
+}
+.ml-evt__chips .ml-chip {
+  flex: 1 1 0;
+}
+.ml-evt__where {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: right;
+  font-size: 0.9375rem; /* 15px */
+  color: var(--text-secondary);
+}
+/* Note: open text block — no box, just the row's closing hairline. */
+.ml-evt__note {
+  width: 100%;
+  min-height: 6.875rem; /* 110px */
+  resize: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.ml-evt__where::placeholder,
+.ml-evt__note::placeholder,
+.ml-evt__title::placeholder {
+  color: var(--text-disabled);
+}
+/* These fields are deliberately boxless (the row's hairline is the only rule), so the browser's
+   default focus ring would draw a box around the text. Touch-only kiosk — the caret is the cue. */
+.ml-evt__title:focus,
+.ml-evt__where:focus,
+.ml-evt__note:focus,
+.ml-assistant__input:focus,
+.ml-settings__searchfield:focus {
+  outline: none;
 }
 .ml-titleinput {
   width: 100%;
@@ -1066,10 +1419,70 @@
   gap: 1rem;
   padding: 0.5rem var(--gutter) 1rem;
 }
+.ml-datestep__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
 .ml-datestep__date {
   font-size: 1.875rem; /* 30px */
   color: var(--text-primary);
   text-align: center;
+}
+.ml-datestep__hint {
+  font-size: 0.5625rem; /* ~9px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Inline month-grid picker for the DATE field */
+.ml-datepicker {
+  margin: 0 var(--gutter) 1rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-nav);
+}
+.ml-datepicker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.75rem;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+}
+.ml-datepicker__month {
+  font-size: 1.125rem;
+  color: var(--brass-bright);
+}
+.ml-datepicker__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.125rem;
+  padding: 0.5rem;
+}
+.ml-datepicker__dow {
+  text-align: center;
+  font-size: 0.5625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+  padding-bottom: 0.25rem;
+}
+.ml-datepicker__day {
+  aspect-ratio: 1.1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+.ml-datepicker__day--sel {
+  background: var(--brass);
+  color: var(--bg-screen);
 }
 .ml-timecols {
   display: flex;
@@ -1103,11 +1516,19 @@
 }
 .ml-editor__delete {
   display: block;
-  margin: 1.5rem var(--gutter) 0;
+  margin: 1.5rem 0 0;
   font-size: 0.6875rem;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--alert);
+  color: var(--danger); /* terracotta destructive accent (spec §4) */
+}
+.ml-editor__delete--confirm {
+  /* .ml-editor already pads to the gutter, so 100% here matches the field-row hairlines exactly. */
+  width: 100%;
+  padding: 0.75rem;
+  text-align: center;
+  background: var(--danger); /* terracotta — same destructive accent as the idle state */
+  color: var(--bg-screen);
 }
 
 /* ---------- Assistant screen ---------- */
@@ -1133,15 +1554,17 @@
   align-items: center;
 }
 .ml-emblem {
-  margin: 2rem 0 0.5rem;
+  padding: 3.25rem 0 2.125rem; /* 52px 0 34px */
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
+/* The push-to-talk emblem is round — one of the few circular elements, like the avatars. */
 .ml-emblem__ring {
   width: 10.625rem; /* 170px */
   height: 10.625rem;
   border: var(--control-border) solid var(--brass-dim);
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1150,6 +1573,7 @@
   width: 8.375rem; /* 134px */
   height: 8.375rem;
   border: 0.125rem solid var(--brass);
+  border-radius: 50%;
   background: var(--bg-profile-selected);
   display: flex;
   flex-direction: column;
@@ -1165,10 +1589,11 @@
   color: var(--brass-bright);
 }
 .ml-emblem__caption {
-  font-size: 0.625rem;
-  letter-spacing: 0.16em;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.26em;
   text-transform: uppercase;
   color: var(--text-disabled);
+  margin-top: 1.25rem; /* 20px */
   margin-bottom: 1rem;
 }
 .ml-assistant__idle .ml-section {
@@ -1176,8 +1601,11 @@
 }
 .ml-suggestion {
   width: 100%;
-  border-top: var(--hairline-px) solid var(--rule-minor);
   text-align: left;
+  padding-block: 1rem; /* 16px */
+}
+.ml-suggestion .ml-row__title {
+  color: var(--text-secondary);
 }
 /* Transcript */
 .ml-transcript {
@@ -1274,18 +1702,17 @@
 @media (prefers-reduced-motion: reduce) {
   .ml-waveform__bar { animation: none; }
 }
-.ml-listening__stop {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.875rem 1.5rem;
-  border: 0.125rem solid var(--live-accent);
+/* Listening reuses the 170/134 emblem in verdigris, with a solid square stop glyph (spec §4). */
+.ml-emblem--listening .ml-emblem__ring {
+  border-color: var(--live-dim);
+}
+.ml-emblem--listening .ml-emblem__core {
+  border-color: var(--live-accent);
   background: var(--live-fill-b);
   color: var(--live-text);
-  font-size: 0.625rem;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  margin-top: 0.5rem;
+}
+.ml-emblem--listening .ml-emblem__label {
+  color: var(--live-text);
 }
 .ml-listening__stopglyph {
   width: 1.625rem; /* 26px */
@@ -1296,8 +1723,7 @@
 /* Input bar */
 .ml-assistant__inputbar {
   flex: 0 0 auto;
-  border-top: var(--hairline-px) solid var(--rule-major);
-  padding: 0.5rem var(--gutter) 0.75rem;
+  padding: 0.875rem var(--gutter) 1.375rem; /* 14px 34px 22px */
 }
 .ml-assistant__attached {
   font-size: 0.6875rem;
@@ -1307,7 +1733,17 @@
 .ml-assistant__inputrow {
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.875rem; /* 14px */
+}
+/* Text field: bordered box holding the input plus a brass caret pinned at its right edge. */
+.ml-assistant__field {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* 12px */
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 1rem 1.125rem; /* 16px 18px */
 }
 .ml-assistant__imgbtn {
   flex: 0 0 auto;
@@ -1324,14 +1760,15 @@
   flex: 1 1 auto;
   min-width: 0;
   background: transparent;
-  border: var(--control-border) solid var(--border-inactive);
-  padding: 0.75rem;
-  font-size: 0.9375rem;
+  border: none; /* the wrapping .ml-assistant__field draws the box */
+  padding: 0;
+  font-size: 0.9375rem; /* 15px */
   color: var(--text-primary);
   caret-color: var(--brass-bright);
 }
 .ml-assistant__input::placeholder {
   color: var(--text-disabled);
+  opacity: 0.6; /* slightly transparent — it's a placeholder, not entered text */
 }
 .ml-assistant__send {
   flex: 0 0 auto;
@@ -1360,6 +1797,9 @@
   gap: 0.75rem;
   padding: 0 var(--gutter);
   margin: 1.25rem 0 0.25rem;
+  /* Fixed height so the label + the list below don't shift when EDIT swaps the tall +NEW CHAT
+     button for the shorter TAP TO DELETE text (kept ≥ the button's height). */
+  min-height: 2.25rem;
 }
 .ml-newchat {
   margin-left: auto;
@@ -1379,7 +1819,6 @@
   width: 100%;
   text-align: left;
   padding: 0.9375rem var(--gutter);
-  border-top: var(--hairline-px) solid var(--rule-minor);
   background: transparent;
   cursor: pointer;
 }
@@ -1413,6 +1852,175 @@
   flex: 0 0 auto;
   font-size: 1rem;
   color: var(--text-disabled);
+}
+
+/* ---- Assistant history · manage / delete (THE_ATTENDANT.md §5b/§5c) ---- */
+.ml-conversations__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+}
+.ml-conversations__actions .ml-newchat {
+  margin-left: 0;
+}
+.ml-history__edit {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ml-history__hint {
+  margin-left: auto;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Manage-mode row keeps the div layout; trash sits where the chevron was. */
+.ml-history__trash {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.5rem;
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+}
+.ml-managedone {
+  padding: 0.4375rem 0.875rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+/* Inline delete confirm — the row expands in place, doesn't overlay others. */
+.ml-history__confirmwrap {
+  padding: 0.625rem var(--gutter) 0.9375rem;
+}
+.ml-history__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.125rem;
+  border-left: 0.1875rem solid var(--danger);
+  background: var(--bg-danger-fill);
+}
+.ml-history__confirmtext {
+  font-size: 0.875rem; /* 14px */
+  color: var(--text-secondary);
+}
+.ml-history__confirmtitle {
+  color: var(--text-primary);
+}
+.ml-history__confirmbtns {
+  display: flex;
+  gap: 0.75rem;
+}
+/* Shared destructive-confirm buttons (inline confirm + Clear All modal). */
+.ml-confirmbtn {
+  flex: 1 1 0;
+  padding: 0.6875rem 0;
+  text-align: center;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ml-confirmbtn--danger {
+  border-color: var(--danger);
+  background: var(--bg-danger-fill);
+  color: var(--danger);
+}
+/* Manage footer (above nav) — count + CLEAR ALL, replaces the input bar in manage mode. */
+.ml-assistant__managefoot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem var(--gutter) 1.375rem;
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-assistant__managecount {
+  color: var(--text-muted);
+}
+.ml-clearall {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* ---- Modal confirm (Clear All) ---- */
+.ml-modal {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gutter);
+}
+.ml-modal__scrim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(12, 13, 15, 0.72);
+  cursor: pointer;
+}
+.ml-modal__dialog {
+  position: relative;
+  z-index: 7;
+  width: 100%;
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1.625rem;
+  background: var(--bg-menu);
+  border: var(--control-border) solid var(--brass-dim);
+  border-left: 0.1875rem solid var(--danger);
+}
+.ml-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--danger);
+}
+.ml-modal__title .serif {
+  font-size: 1.375rem; /* 22px */
+  color: var(--text-primary);
+}
+.ml-modal__body {
+  font-size: 0.875rem; /* 14px */
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ml-modal__count {
+  color: var(--text-primary);
+}
+.ml-modal__btns {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
 }
 
 /* Assistant · Speaking sub-state (THE_ATTENDANT.md · 4) */
@@ -1504,11 +2112,7 @@
 }
 
 /* ---------- Climate screen ---------- */
-.ml-climatezone {
-  border-top: var(--hairline-px) solid var(--rule-minor);
-}
 .ml-climatezone--expanded {
-  border-top-color: var(--bg-zone-expand-rule);
   background: var(--bg-screen);
 }
 .ml-climatezone__row {
@@ -1563,26 +2167,34 @@
 .ml-climatezone__panel {
   padding: 0.5rem var(--gutter) 1.5rem;
 }
+/* Fixed-width block: − and + are pinned to the ends so they never shift as the set point changes
+   width ("—" vs "72°" vs "100°"); the numeral flexes and centres between them. */
 .ml-climate__setpoint {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   gap: 1.5rem;
+  width: 21rem;
+  max-width: 100%;
+  margin: 0 auto;
   padding: 0.5rem 0 1.25rem;
 }
 .ml-climate__setpoint .ml-stepper {
+  flex: 0 0 auto;
   width: 4.75rem; /* 76px */
   height: 4.75rem;
 }
 .ml-climate__setval {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 6rem;
 }
 .ml-climate__setval .serif {
   font-size: 4rem; /* 64px */
   line-height: 1;
+  white-space: nowrap;
   color: var(--text-primary);
 }
 .ml-climate__setcaption {
@@ -1671,107 +2283,6 @@
   gap: 0.5rem;
 }
 
-/* ---------- Account control (global, spec 13) ---------- */
-.ml-header { padding-right: 4.5rem; } /* reserve room so right-aligned header content clears the avatar */
-.ml-account {
-  position: fixed;
-  top: 1.25rem;
-  right: 1.25rem;
-  width: 3rem; /* 48px */
-  height: 3rem;
-  border-radius: 50%;
-  border: var(--hairline-px) solid var(--rule-major);
-  background: var(--bg-profile-selected);
-  color: var(--text-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 40;
-  cursor: pointer;
-}
-.ml-account--in { border: 0.125rem solid var(--live-accent); }
-.ml-account--yield { top: 5.5rem; }
-.ml-account__initial { font-size: 1.25rem; color: var(--brass-bright); }
-.ml-account__backdrop { position: fixed; inset: 0; z-index: 45; }
-.ml-account__menu {
-  position: fixed;
-  top: 4.75rem;
-  right: 1.25rem;
-  width: min(21rem, calc(100vw - 2.5rem));
-  background: #191c20;
-  border: var(--hairline-px) solid var(--rule-major);
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-}
-.ml-account__menu--yield { top: 9rem; }
-.ml-account__id {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1.125rem;
-  border-bottom: var(--hairline-px) solid var(--rule-major);
-}
-.ml-account__idavatar {
-  flex: 0 0 auto;
-  width: 3rem;
-  height: 3rem;
-  border-radius: 50%;
-  border: 0.125rem solid var(--brass);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.25rem;
-  color: var(--brass-bright);
-}
-.ml-account__idavatar--out { border: var(--hairline-px) solid var(--rule-major); color: var(--text-muted); }
-.ml-account__idcol { display: flex; flex-direction: column; gap: 0.3rem; }
-.ml-account__idname { font-size: 1.25rem; color: var(--text-primary); }
-.ml-account__idstatus {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.6875rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--live-text);
-}
-.ml-account__idstatus--muted { color: var(--text-muted); }
-.ml-account__dot { width: 0.375rem; height: 0.375rem; border-radius: 50%; background: var(--live-text); }
-.ml-account__row {
-  display: flex;
-  align-items: center;
-  gap: 0.875rem;
-  padding: 1rem 1.125rem;
-  background: transparent;
-  color: var(--text-secondary);
-  border-bottom: var(--hairline-px) solid var(--rule-major);
-  cursor: pointer;
-  text-align: left;
-}
-.ml-account__row:last-child { border-bottom: none; }
-.ml-account__rowlabel { flex: 1 1 auto; font-size: 1rem; }
-.ml-account__rowmeta { font-size: 0.8125rem; letter-spacing: 0.14em; color: var(--text-muted); }
-.ml-account__row--danger { color: #c07a5a; }
-.ml-account__explain {
-  padding: 1.125rem;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  color: var(--text-muted);
-  border-bottom: var(--hairline-px) solid var(--rule-major);
-}
-.ml-account__signin {
-  margin: 1.125rem;
-  padding: 0.875rem;
-  border: var(--control-border) solid var(--brass);
-  background: var(--bg-active);
-  color: var(--brass-bright);
-  font-size: 0.8125rem;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
 /* ---------- To-Do screen ---------- */
 /* Revamped TODO (spec 03): profile/SYNCED header, underline list tabs, grouped body, collapsible
    completed, and a list-targeted add bar. */
@@ -1794,6 +2305,18 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--brass-bright);
+}
+/* TODO top-level tab header: title left, sync state right. Identity is the global avatar. */
+.ml-todo__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 1.875rem; /* 30px — same header height as every other view */
+}
+.ml-todo__title {
+  font-size: 1.875rem; /* 30px */
+  line-height: 1; /* tight line box so the header doesn't run taller than the title */
+  color: var(--text-primary);
 }
 .ml-todo__sync {
   display: inline-flex;
@@ -1823,14 +2346,51 @@
   font-size: 1rem;
   color: var(--brass-bright);
 }
+/* Overflowing list tabs: a wrapper with left/right fades that appear only on the scrollable side,
+   keeping the row visually within the content width. */
+.ml-todo__tabswrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.ml-todo__tabswrap::before,
+.ml-todo__tabswrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3rem;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+.ml-todo__tabswrap::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-screen), transparent);
+}
+.ml-todo__tabswrap::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-screen), transparent);
+}
+.ml-todo__tabswrap--start::before { opacity: 1; }
+.ml-todo__tabswrap--end::after { opacity: 1; }
 .ml-todo__listtabs {
   display: flex;
   gap: 1.625rem; /* 26px */
-  padding: 0.75rem var(--gutter) 0;
-  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  padding: 1.75rem var(--gutter) 0; /* breathing room below the header's double rule */
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-x;
   overflow-x: auto;
   scrollbar-width: none;
   flex: 0 0 auto;
+  /* Gutter-inset bottom rule, matching the ledger hairlines. Painted as a background rather than a
+     border (which would span the full width) or a ::after (which would scroll with the tabs). */
+  background-image: linear-gradient(var(--rule-minor), var(--rule-minor));
+  background-repeat: no-repeat;
+  background-position: var(--gutter) 100%;
+  background-size: calc(100% - 2 * var(--gutter)) var(--hairline-px);
 }
 .ml-todo__listtabs::-webkit-scrollbar { display: none; }
 .ml-todo__listtab {
@@ -1854,7 +2414,6 @@
   gap: 0.625rem;
   padding: 1rem var(--gutter) 0.375rem;
 }
-.ml-todo__grouptick { width: 0.875rem; height: 0.1875rem; background: var(--brass); }
 .ml-todo__grouplabel {
   font-size: 0.6875rem; /* 11px */
   letter-spacing: 0.32em;
@@ -1867,7 +2426,6 @@
   align-items: center;
   gap: 0.875rem;
   padding: 0.75rem var(--gutter);
-  border-top: var(--hairline-px) solid var(--rule-minor);
 }
 .ml-todorow--done { opacity: 0.45; }
 .ml-todorow__check {
@@ -1889,16 +2447,38 @@
 }
 .ml-todorow__main { flex: 1 1 auto; min-width: 0; }
 .ml-todorow__title {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: text; /* the title reads as editable text, not a control */
+  font-family: inherit;
   font-size: 0.9375rem; /* 15px */
   font-weight: 300;
   color: var(--text-primary);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* wrap to 2 lines then clamp (spec 11) */
+  line-clamp: 2;
 }
 .ml-todorow--done .ml-todorow__title {
   text-decoration: line-through;
   color: var(--text-secondary);
+}
+/* Inline title editor — sits in the row where the title was, no boxed chrome. */
+.ml-todorow__edit {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: var(--hairline-px) solid var(--brass-dim);
+  padding: 0 0 0.1rem;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 300;
+  color: var(--text-primary);
+  caret-color: var(--brass-bright);
 }
 .ml-todorow__meta { display: flex; align-items: center; gap: 0.625rem; margin-top: 0.2rem; }
 .ml-todorow__due { font-size: 0.6875rem; letter-spacing: 0.06em; color: var(--text-muted); }
@@ -1913,20 +2493,73 @@
   border: var(--hairline-px) solid var(--rule-major);
   padding: 0.1rem 0.4rem;
 }
-.ml-todorow__star { flex: 0 0 auto; font-size: 1.125rem; color: var(--text-disabled); }
+.ml-todorow__star { flex: 0 0 auto; font-size: 1.125rem; color: var(--text-disabled); background: none; border: none; padding: 0.25rem 0.5rem; }
 .ml-todorow__star--on { color: var(--brass-bright); }
 .ml-todo__completed { display: flex; flex-direction: column; }
+/* Header row: chevron+label+count on the left, the muted CLEAR affordance on the right (§3). */
 .ml-todo__completedhead {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 1rem var(--gutter) 0.375rem;
+  justify-content: space-between;
+  padding: 1.125rem var(--gutter) 0.375rem;
+}
+.ml-todo__completedtoggle {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
   background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.ml-todo__completedchev { font-size: 0.8125rem; color: var(--text-muted); }
+.ml-todo__completedlabel {
   font-size: 0.6875rem;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.3em;
   text-transform: uppercase;
   color: var(--brass);
+}
+.ml-todo__completedcount { font-size: 0.6875rem; letter-spacing: 0.14em; color: var(--text-muted); }
+/* CLEAR: muted (not terracotta) — clearing done items is routine, not destructive of active data. */
+.ml-todo__clear {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  padding: 0.25rem 0;
+  color: var(--text-muted);
   cursor: pointer;
+}
+.ml-todo__clear span {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+/* Armed confirm (terracotta), the inset-confirm pattern shared with the Attendant manage view. */
+.ml-todo__clearconfirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.25rem var(--gutter) 0.375rem;
+}
+.ml-todo__clearcancel,
+.ml-todo__cleargo {
+  background: transparent;
+  border: var(--hairline-px) solid var(--rule-major);
+  padding: 0.4rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ml-todo__clearcancel { color: var(--text-muted); }
+.ml-todo__cleargo {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--bg-danger-soft);
 }
 .ml-todo__addbar {
   flex: 0 0 auto;
@@ -1964,6 +2597,46 @@
   text-transform: uppercase;
   color: var(--text-muted);
 }
+/* Tappable TO <list> ▾ chip + its list picker (spec 03 §36-37) */
+.ml-todo__addtargetwrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.ml-todo__addtarget--btn {
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--brass);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.ml-todo__targetmenu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.5rem);
+  min-width: 9rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-nav);
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-todo__targetopt {
+  padding: 0.75rem 0.875rem;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+}
+.ml-todo__targetopt:last-child {
+  border-bottom: none;
+}
+.ml-todo__targetopt--active {
+  color: var(--brass-bright);
+  background: var(--bg-active);
+}
 .ml-todo__empty {
   display: flex;
   flex-direction: column;
@@ -1971,6 +2644,22 @@
   gap: 0.75rem;
   padding: 4rem var(--gutter);
   color: var(--text-muted);
+  text-align: center;
+}
+.ml-todo__emptyhint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  max-width: 18rem;
+}
+.ml-todo__chooselists {
+  margin-top: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
 }
 
 /* --- legacy owner-axis To-Do styles (retained; superseded by the list-axis TODO above) --- */
@@ -1989,7 +2678,6 @@
   align-items: center;
   gap: 1rem;
   padding: 0.9375rem var(--gutter);
-  border-top: var(--hairline-px) solid var(--rule-minor);
 }
 .ml-task--done {
   opacity: 0.45;
@@ -2084,6 +2772,238 @@
 .ml-tonight-note {
   color: var(--alert);
 }
+.ml-weather {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* NOW · HOURLY · RADAR segment control */
+.ml-weather__segments {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.875rem var(--gutter) 0.5rem;
+}
+.ml-weather__seg {
+  flex: 1 1 0;
+  padding: 0.75rem 0.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: transparent;
+  color: var(--text-disabled);
+  font-size: 0.8125rem;
+  letter-spacing: 0.2em;
+  cursor: pointer;
+}
+.ml-weather__seg--active {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+/* Day Detail header stepper */
+/* The standard header reserves 88px on the right for the account avatar; this header has no
+   right-aligned content, so restore a symmetric gutter and the stepper centres on screen. */
+.ml-weather__dayhead {
+  padding-right: var(--gutter);
+}
+/* Fixed-width stepper: the arrows are pinned to the ends so they never move as the day name
+   changes length (widest case "WEDNESDAY 00"); the name flexes and centres between them. */
+.ml-weather__daystep {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 20rem;
+  margin: 0 auto;
+}
+.ml-weather__dayarrow {
+  /* Sized to the title's line box so the HOURLY header matches NOW / RADAR exactly. */
+  flex: 0 0 auto;
+  width: 1.875rem;
+  height: 1.875rem;
+  border: var(--control-border) solid var(--rule-major);
+  background: transparent;
+  color: var(--brass-bright);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.ml-weather__dayarrow:disabled { opacity: 0.3; }
+.ml-weather__dayname {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: 1.5rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+  text-align: center;
+}
+.ml-week__hint {
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  text-transform: none;
+  color: var(--text-muted);
+}
+.ml-week__row--tap {
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.ml-week__chev { flex: 0 0 auto; color: var(--text-disabled); font-size: 1rem; margin-left: 0.5rem; }
+
+/* Day Detail body */
+.ml-daydetail__summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  padding: 1rem var(--gutter) 0.5rem;
+}
+.ml-daydetail__temp { font-size: 2.75rem; color: var(--text-primary); }
+.ml-daydetail__peak {
+  font-size: 0.8125rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-daydetail__peak--severe { color: var(--alert); }
+.ml-daydetail__hilo { margin-left: auto; font-size: 0.8125rem; color: var(--text-muted); }
+.ml-daychart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.375rem;
+  height: 9rem;
+  padding: 1.25rem var(--gutter) 0.5rem;
+}
+.ml-daychart__col {
+  flex: 1 1 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+.ml-daychart__val { font-size: 0.5625rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
+.ml-daychart__bar {
+  width: 100%;
+  background: linear-gradient(var(--brass-bright), #6b5636);
+}
+.ml-dayrows { display: flex; flex-direction: column; }
+.ml-dayrow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem var(--gutter);
+}
+.ml-dayrow__hour { flex: 0 0 4.5rem; font-size: 1rem; color: var(--text-primary); }
+.ml-dayrow__cond {
+  flex: 1 1 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-dayrow__pop {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--live-text);
+  min-width: 3.5rem;
+}
+.ml-dayrow__popdot { width: 0.375rem; height: 0.375rem; border-radius: 50%; }
+.ml-dayrow__popdot--high { background: var(--alert); }
+.ml-dayrow__popdot--mid { background: var(--brass-bright); }
+.ml-dayrow__popdot--low { background: var(--live-accent); }
+.ml-dayrow__wind { flex: 0 0 auto; font-size: 0.8125rem; color: var(--text-muted); min-width: 4rem; text-align: right; }
+
+/* Radar */
+.ml-radar { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 0.5rem var(--gutter) 0.875rem; }
+.ml-radar__map {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  border: var(--control-border) solid var(--border-inactive);
+  overflow: hidden;
+}
+.ml-radar__tilelabel {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.875rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-radar__legend {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.625rem;
+  background: rgba(20, 23, 26, 0.7);
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.ml-radar__legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.ml-radar__key { width: 0.75rem; height: 0.75rem; }
+.ml-radar__key--light { background: var(--live-accent); }
+.ml-radar__key--mod { background: var(--brass-bright); }
+.ml-radar__key--heavy { background: var(--alert); }
+.ml-radar__map { background: var(--bg-screen); }
+.ml-radar__tilelabel, .ml-radar__legend, .ml-radar__marker { z-index: 2; }
+.ml-radar__tiles { position: absolute; z-index: 1; }
+.ml-radar__basetile { position: absolute; width: 256px; height: 256px; }
+.ml-radar__tile { position: absolute; width: 256px; height: 256px; }
+.ml-radar__attrib {
+  position: absolute; bottom: 0.4rem; right: 0.6rem; z-index: 2;
+  font-size: 0.5rem; letter-spacing: 0.06em; color: var(--text-disabled);
+}
+.ml-radar__err {
+  position: absolute; inset: auto 0 42% 0; text-align: center; z-index: 2;
+  font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted);
+}
+.ml-radar__marker {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 0.875rem; height: 0.875rem; border-radius: 50%;
+  border: 0.1875rem solid var(--text-primary); background: var(--bg-screen);
+}
+.ml-radar__range { flex: 1 1 auto; accent-color: var(--brass); cursor: pointer; }
+.ml-radar__pauseglyph {
+  width: 0.5rem; height: 0.875rem;
+  border-left: 0.1875rem solid var(--brass-bright);
+  border-right: 0.1875rem solid var(--brass-bright);
+}
+.ml-radar__scrubber { flex: 0 0 auto; display: flex; align-items: center; gap: 0.875rem; padding-top: 0.75rem; }
+.ml-radar__play {
+  flex: 0 0 auto; width: 3rem; height: 3rem;
+  border: var(--control-border) solid var(--brass); background: var(--bg-active);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.ml-radar__playglyph {
+  width: 0; height: 0;
+  border-top: 0.4375rem solid transparent;
+  border-bottom: 0.4375rem solid transparent;
+  border-left: 0.6875rem solid var(--brass-bright);
+}
+.ml-radar__track {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+.ml-radar__now { color: var(--brass-bright); }
 .ml-weather__current {
   display: flex;
   align-items: center;
@@ -2151,7 +3071,6 @@
   align-items: center;
   gap: 0.875rem;
   padding: 0.875rem var(--gutter);
-  border-top: var(--hairline-px) solid var(--rule-minor);
 }
 .ml-week__day {
   min-width: 6.875rem; /* 110px */
@@ -2193,6 +3112,173 @@
   font-size: 0.625rem;
   letter-spacing: 0.24em;
   color: var(--alert);
+}
+/* CONFIG identity header (spec 07): avatar + name + synced badge + sign-out */
+.ml-identity {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem; /* 18px */
+  padding: 1.5rem var(--gutter); /* 24px 34px */
+}
+.ml-identity__avatar {
+  flex: 0 0 auto;
+  width: 4rem; /* 64px */
+  height: 4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: max(1px, 0.09375rem) solid var(--live-accent); /* verdigris ring = signed in */
+  border-radius: 50%; /* avatars are the one round element (spec) */
+  background: var(--bg-profile-selected); /* subtle dark fill */
+  font-size: 1.625rem;
+  color: var(--brass-bright); /* brass initial */
+}
+.ml-identity__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-identity__name {
+  font-size: 1.5rem; /* 24px */
+  color: var(--text-primary);
+}
+.ml-identity__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-identity__statusdot {
+  width: 0.375rem; /* 6px */
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--live-accent);
+}
+.ml-identity__signout {
+  flex: 0 0 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5625rem; /* 9px */
+  padding: 0.6875rem 1rem; /* 11px 16px */
+  background: none;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--danger); /* terracotta — the destructive accent */
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+/* Category rows on the CONFIG index: 19px vertical, hairline-separated. */
+.ml-config-index .ml-row {
+  padding-block: 1.1875rem; /* 19px */
+}
+.ml-config-index .ml-row:first-child {
+  border-top: none; /* no double line directly under the identity row */
+}
+/* CONFIG index row leading icon — 22px brass */
+.ml-configlink__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 1rem; /* 16px */
+  color: var(--brass-bright);
+}
+.ml-configlink__title {
+  font-size: 1rem; /* 16px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+}
+/* CONFIG index row right side: optional brass meta + dim drill chevron */
+.ml-configlink__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.ml-configlink__meta {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-configlink__chevron {
+  font-size: 1rem; /* 16px */
+  line-height: 1;
+  color: var(--text-disabled);
+}
+/* To-Do Lists screen (ACCOUNT_TODO_LISTS.md) */
+.ml-settings__intro {
+  padding: 0.875rem var(--gutter) 0.25rem; /* 14px 34px 4px */
+  font-size: 0.8125rem; /* 13px */
+  font-weight: 300;
+  color: var(--text-muted);
+}
+/* Sync-state / view-description sub-label under a row title */
+.ml-listrow__state {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+/* Smart-Views descriptions are set in caps; list sync-state stays sentence case (spec §3 / §5). */
+.ml-listrow__state--caps {
+  text-transform: uppercase;
+}
+/* Footer summary above the nav, hairline-topped */
+.ml-settings__footcount {
+  border-top: var(--hairline-px) solid var(--rule-major);
+  padding: 0.9375rem var(--gutter); /* 15px 34px */
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Row groups under a section label / search box: separators sit BETWEEN rows, so the leading
+   row carries no top border (nothing hangs directly under the label or the search field). */
+.ml-listrows > .ml-row:first-child {
+  border-top: none;
+}
+/* Search field: bordered box with a leading magnifier */
+.ml-settings__searchbox {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* 12px */
+  margin: 0.25rem var(--gutter);
+  padding: 0.8125rem 1rem; /* 13px 16px */
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+}
+.ml-settings__searchfield {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.875rem; /* 14px */
+  font-weight: 300;
+}
+.ml-settings__searchfield::placeholder {
+  color: var(--text-disabled);
+}
+/* Household member ring avatar (spec 07 household) */
+.ml-memberavatar {
+  flex: 0 0 auto;
+  width: 2.25rem; /* 36px */
+  height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.875rem;
+  border: max(1px, 0.0625rem) solid var(--brass-dim);
+  border-radius: 50%;
+  font-size: 0.75rem;
+  color: var(--brass);
+}
+.ml-memberavatar--owner {
+  border-color: var(--live-accent);
+  color: var(--live-text);
 }
 /* Immutable "ALWAYS ON" mic indicator (verdigris, privacy-forward). */
 .ml-alwayson {
@@ -2285,4 +3371,119 @@
   font-size: 0.8125rem;
   color: var(--text-muted);
   max-width: 22rem;
+}
+
+/* ---------- On-screen keyboard (KEYBOARD.md) ---------- */
+/* Docked at the bottom over any text-entry screen; covers the bottom nav while up. */
+.ml-kb {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  animation: ml-slideup 160ms ease;
+}
+/* Entry context above the keys: CANCEL · label · SAVE, then the live value + caret. */
+.ml-kb__context {
+  background: var(--bg-screen);
+  border-top: var(--hairline-px) solid var(--rule-major);
+  padding: 0.75rem var(--gutter) 1rem;
+}
+.ml-kb__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.ml-kb__cancel,
+.ml-kb__save {
+  font-family: inherit;
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  background: transparent;
+}
+.ml-kb__cancel { border: var(--control-border) solid var(--border-inactive); color: var(--text-muted); }
+.ml-kb__save { border: var(--control-border) solid var(--brass); background: var(--bg-active); color: var(--brass-bright); }
+.ml-kb__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-kb__field {
+  margin-top: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+}
+.ml-kb__value {
+  display: inline-flex;
+  align-items: center;
+  font-size: 1.625rem; /* Marcellus 26px */
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1.95rem;
+}
+.ml-kb__caret {
+  display: inline-block;
+  width: 0.125rem; /* 2px */
+  height: 1.625rem; /* 26px */
+  background: var(--brass-bright);
+  margin: 0 0.03em;
+  animation: ml-kbcaret 1s steps(1) infinite;
+}
+@keyframes ml-kbcaret { 50% { opacity: 0; } }
+/* The key panel — same plane as the bottom nav, 2px brass top border. */
+.ml-kb__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem; /* 7px */
+  background: var(--bg-nav);
+  border-top: var(--hairline-px) solid var(--brass);
+  padding: 1rem 0.75rem 1.25rem;
+}
+.ml-kb__row { display: flex; gap: 0.4375rem; }
+.ml-kb__row--inset { padding: 0 1.375rem; } /* stagger the a–l row like a real QWERTY */
+.ml-kb__key {
+  flex: 1 1 0;
+  height: 3.5rem; /* 56px */
+  border: var(--control-border) solid var(--border-inactive);
+  background: #1A1C1F;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 1.1875rem; /* 19px */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ml-kb__key:active,
+.ml-kb__key--active {
+  background: var(--bg-active);
+  border-color: var(--brass);
+  color: var(--brass-bright);
+}
+.ml-kb__key--brass { color: var(--brass-bright); }
+.ml-kb__key--switch { color: var(--text-muted); font-size: 0.8125rem; letter-spacing: 0.08em; }
+.ml-kb__key--space { color: var(--text-muted); font-size: 0.75rem; letter-spacing: 0.14em; }
+.ml-kb__key--return {
+  background: var(--bg-active);
+  border-color: var(--brass);
+  color: var(--brass-bright);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
 }

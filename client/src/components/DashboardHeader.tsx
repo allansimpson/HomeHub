@@ -21,7 +21,7 @@ export function DashboardHeader({ clock, date, conditions, offline }: DashboardH
     <header className="ml-header ml-dash-header">
       <div className="ml-dash-header__clock serif">{clock}</div>
       <div className="ml-dash-header__right">
-        {/* Profile chip removed — identity now lives in the global AccountControl (spec 13). */}
+        {/* Profile chip removed — identity + switch/sign-out live under the Account nav tab. */}
         {offline ? (
           <OfflineChip />
         ) : (

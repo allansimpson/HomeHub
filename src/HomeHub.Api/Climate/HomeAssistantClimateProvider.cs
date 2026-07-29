@@ -1,35 +1,36 @@
 namespace HomeHub.Api.Climate;
 
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json.Serialization;
 using HomeHub.Api.Data;
+using HomeHub.Api.HomeAssistant;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 /// <summary>
-/// Home Assistant climate provider over HA's REST API (long-lived token): read all
-/// <c>climate.*</c> entities and call services to set temperature / mode / scenes. The local
-/// <see cref="ClimateZone"/> table is the offline cache. Only used behind <see cref="IClimateProvider"/>
-/// and only when HA is configured. (Live push via HA's WebSocket is a later enhancement; reads
-/// are poll-based, matching the sensor/weather pattern.) No HA specifics leak past this class.
+/// Home Assistant climate provider: read all <c>climate.*</c> entities and call services to set
+/// temperature / mode / scenes. The local <see cref="ClimateZone"/> table is the offline cache.
+/// Only used behind <see cref="IClimateProvider"/> and only when HA is configured. (Live push via
+/// HA's WebSocket is Stage H4; reads are poll-based, matching the sensor/weather pattern.) No HA
+/// specifics leak past this class.
 /// </summary>
+/// <remarks>
+/// Stage H2: the HTTP plumbing that used to live here (base URL, bearer header, <c>api/states</c>
+/// and <c>api/services/*</c> calls) moved to the shared <see cref="HomeAssistantClient"/> so
+/// Huckleberry rides the same client. Behaviour is unchanged.
+/// </remarks>
 public sealed class HomeAssistantClimateProvider : IClimateProvider
 {
-    private readonly HttpClient _http;
+    private readonly HomeAssistantClient _ha;
     private readonly HomeHubDbContext _db;
     private readonly HomeAssistantOptions _options;
     private readonly ILogger<HomeAssistantClimateProvider> _logger;
 
     public HomeAssistantClimateProvider(
-        HttpClient http, HomeHubDbContext db, IOptions<HomeAssistantOptions> options, ILogger<HomeAssistantClimateProvider> logger)
+        HomeAssistantClient ha, HomeHubDbContext db, IOptions<HomeAssistantOptions> options, ILogger<HomeAssistantClimateProvider> logger)
     {
-        _http = http;
+        _ha = ha;
         _db = db;
         _options = options.Value;
         _logger = logger;
-        _http.BaseAddress = new Uri(_options.BaseUrl!.TrimEnd('/') + "/");
-        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _options.Token);
     }
 
     public string Source => "homeassistant";
@@ -38,9 +39,9 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
     {
         try
         {
-            var states = await _http.GetFromJsonAsync<List<HaState>>("api/states", ct) ?? [];
+            var states = await _ha.GetStatesAsync("climate.", ct);
             var order = 0;
-            foreach (var s in states.Where(s => s.EntityId?.StartsWith("climate.") == true))
+            foreach (var s in states)
             {
                 await UpsertAsync(s, order++, ct);
             }
@@ -61,7 +62,7 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
     {
         var z = await _db.ClimateZones.FindAsync([id], ct);
         if (z is null) return null;
-        await CallServiceAsync("climate/set_temperature", new { entity_id = z.ProviderRef, temperature = Math.Round(setPointF) }, ct);
+        await _ha.CallServiceAsync("climate", "set_temperature", new { entity_id = z.ProviderRef, temperature = Math.Round(setPointF) }, ct);
         z.SetPointF = setPointF;
         z.UpdatedUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
@@ -72,7 +73,7 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
     {
         var z = await _db.ClimateZones.FindAsync([id], ct);
         if (z is null) return null;
-        await CallServiceAsync("climate/set_hvac_mode", new { entity_id = z.ProviderRef, hvac_mode = ToHaMode(mode) }, ct);
+        await _ha.CallServiceAsync("climate", "set_hvac_mode", new { entity_id = z.ProviderRef, hvac_mode = ToHaMode(mode) }, ct);
         z.Mode = mode;
         z.UpdatedUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
@@ -86,7 +87,7 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
             var zones = await _db.ClimateZones.Where(z => z.Source == Source).ToListAsync(ct);
             foreach (var z in zones)
             {
-                await CallServiceAsync("climate/set_hvac_mode", new { entity_id = z.ProviderRef, hvac_mode = "off" }, ct);
+                await _ha.CallServiceAsync("climate", "set_hvac_mode", new { entity_id = z.ProviderRef, hvac_mode = "off" }, ct);
                 z.Mode = ClimateMode.Off;
                 z.UpdatedUtc = DateTime.UtcNow;
             }
@@ -94,7 +95,7 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
         }
         else if (scene.Equals("evening", StringComparison.OrdinalIgnoreCase))
         {
-            await CallServiceAsync("scene/turn_on", new { entity_id = _options.EveningScene }, ct);
+            await _ha.CallServiceAsync("scene", "turn_on", new { entity_id = _options.EveningScene }, ct);
         }
     }
 
@@ -102,7 +103,7 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
     {
         var mode = FromHaMode(s.State);
         var name = _options.ZoneNames.GetValueOrDefault(s.EntityId!)
-            ?? s.Attributes?.FriendlyName ?? s.EntityId!;
+            ?? s.FriendlyName ?? s.EntityId!;
         var existing = await _db.ClimateZones.FirstOrDefaultAsync(z => z.Source == Source && z.ProviderRef == s.EntityId, ct);
         if (existing is null)
         {
@@ -111,10 +112,10 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
                 Name = name,
                 Source = Source,
                 ProviderRef = s.EntityId!,
-                CurrentTempF = s.Attributes?.CurrentTemperature ?? 0,
-                SetPointF = s.Attributes?.Temperature ?? 72,
+                CurrentTempF = s.GetDouble("current_temperature") ?? 0,
+                SetPointF = s.GetDouble("temperature") ?? 72,
                 Mode = mode,
-                FanMode = s.Attributes?.FanMode,
+                FanMode = s.GetString("fan_mode"),
                 DisplayOrder = order,
                 UpdatedUtc = DateTime.UtcNow,
             });
@@ -122,19 +123,13 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
         else
         {
             existing.Name = name;
-            existing.CurrentTempF = s.Attributes?.CurrentTemperature ?? existing.CurrentTempF;
-            existing.SetPointF = s.Attributes?.Temperature ?? existing.SetPointF;
+            existing.CurrentTempF = s.GetDouble("current_temperature") ?? existing.CurrentTempF;
+            existing.SetPointF = s.GetDouble("temperature") ?? existing.SetPointF;
             existing.Mode = mode;
-            existing.FanMode = s.Attributes?.FanMode;
+            existing.FanMode = s.GetString("fan_mode");
             existing.DisplayOrder = order;
             existing.UpdatedUtc = DateTime.UtcNow;
         }
-    }
-
-    private async Task CallServiceAsync(string service, object payload, CancellationToken ct)
-    {
-        using var res = await _http.PostAsJsonAsync($"api/services/{service}", payload, ct);
-        res.EnsureSuccessStatusCode();
     }
 
     private static string ToHaMode(ClimateMode mode) => mode switch
@@ -154,15 +149,4 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
         "auto" or "heat_cool" => ClimateMode.Auto,
         _ => ClimateMode.Off,
     };
-
-    // ---- HA REST shapes (partial; HA uses snake_case) ----
-    private sealed record HaState(
-        [property: JsonPropertyName("entity_id")] string? EntityId,
-        [property: JsonPropertyName("state")] string? State,
-        [property: JsonPropertyName("attributes")] HaAttributes? Attributes);
-    private sealed record HaAttributes(
-        [property: JsonPropertyName("current_temperature")] double? CurrentTemperature,
-        [property: JsonPropertyName("temperature")] double? Temperature,
-        [property: JsonPropertyName("fan_mode")] string? FanMode,
-        [property: JsonPropertyName("friendly_name")] string? FriendlyName);
 }

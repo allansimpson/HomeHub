@@ -29,3 +29,16 @@ class HomeHubClient:
         )
         resp.raise_for_status()
         return resp.json()
+
+    def speak(self, text: str, prosody: str = "warm") -> bytes | None:
+        """Synthesize in the app's central voice. Returns WAV bytes, or None when the server has
+        no TTS configured (501) so the caller can use its local voice instead."""
+        resp = requests.post(
+            f"{self._base}/api/voice/speak",
+            json={"text": text, "prosody": prosody, "allowCache": True},
+            timeout=self._timeout,
+        )
+        if resp.status_code == 501:
+            return None
+        resp.raise_for_status()
+        return resp.content

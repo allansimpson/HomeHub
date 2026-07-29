@@ -2,11 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import { api, ApiError } from '../api/client'
 import type { CalendarEventDto } from '../api/types'
+import { useSession } from './SessionProvider'
 
 /**
- * Upcoming household events for the dashboard NEXT section, refreshed on an interval. The
- * Calendar screen fetches its own visible month range; after any create/edit/delete it calls
- * {@link refresh} so the dashboard reflects the change immediately.
+ * Upcoming events for the dashboard NEXT section, refreshed on an interval. Scoped to the active
+ * profile's calendars (per-profile Google calendars). The Calendar screen fetches its own visible
+ * month range; after any create/edit/delete it calls {@link refresh} so the dashboard reflects it.
  */
 interface CalendarState {
   upcoming: CalendarEventDto[]
@@ -20,13 +21,14 @@ const CalendarContext = createContext<CalendarState | null>(null)
 const POLL_MS = 2 * 60_000
 
 export function CalendarProvider({ children }: { children: ReactNode }) {
+  const { activeProfileId } = useSession()
   const [upcoming, setUpcoming] = useState<CalendarEventDto[]>([])
   const [loading, setLoading] = useState(true)
   const [offline, setOffline] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
-      const next = await api.getUpcoming(7)
+      const next = await api.getUpcoming(7, activeProfileId ?? undefined)
       setUpcoming(next)
       setOffline(false)
     } catch (err) {
@@ -35,7 +37,7 @@ export function CalendarProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeProfileId])
 
   useEffect(() => {
     let cancelled = false

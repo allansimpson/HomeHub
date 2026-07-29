@@ -47,6 +47,26 @@ export function saveConversation(profileId: number | null, convo: Conversation):
   return next
 }
 
+/** Remove one conversation; returns the updated list (THE_ATTENDANT.md · Manage / delete). */
+export function deleteConversation(profileId: number | null, id: string): Conversation[] {
+  const next = loadConversations(profileId).filter((c) => c.id !== id)
+  try {
+    localStorage.setItem(key(profileId), JSON.stringify(next))
+  } catch {
+    /* best-effort */
+  }
+  return next
+}
+
+/** Remove every conversation for a profile (THE_ATTENDANT.md · Clear All). */
+export function clearConversations(profileId: number | null): void {
+  try {
+    localStorage.removeItem(key(profileId))
+  } catch {
+    /* best-effort */
+  }
+}
+
 export function newConversationId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }

@@ -44,6 +44,14 @@
   --alert: #D08A2E;
   --alert-ink: #171207;
 
+  /* Terracotta — the destructive accent (sign out / delete only) */
+  --danger: #C07A5A;
+  --bg-danger-soft: #1C1512;     /* inline delete-confirm block fill */
+  --bg-danger-fill: #2A1713;     /* destructive button fill */
+
+  /* Anchored menu / modal dialog surface (spec 13 + Attendant Clear All) */
+  --bg-menu: #191C20;
+
   /* Body font weight — bumped to 400 under daylight boost */
   --body-weight: 300;
 

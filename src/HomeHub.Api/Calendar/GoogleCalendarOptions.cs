@@ -1,10 +1,11 @@
 namespace HomeHub.Api.Calendar;
 
 /// <summary>
-/// Google Calendar OAuth config, bound from the <c>Google</c> section. Secrets are never
-/// committed: user-secrets in dev, env vars in prod (e.g. <c>Google__RefreshToken</c>). The
-/// household grants consent once; the stored refresh token yields access tokens silently.
-/// When <see cref="IsConfigured"/> is false the app uses the local SQL calendar instead.
+/// Google Calendar OAuth config, bound from the <c>Google</c> section. Only the OAuth *app*
+/// (client id/secret) lives here; each profile's own refresh token lives in
+/// <see cref="GoogleAccountLink"/>, mirroring Microsoft To Do — there is no shared fallback token,
+/// so calendars are strictly per profile. Secrets are never committed: user-secrets in dev, env
+/// vars in prod. When <see cref="IsConfigured"/> is false the app uses the local SQL calendar.
 /// </summary>
 public sealed class GoogleCalendarOptions
 {
@@ -12,16 +13,11 @@ public sealed class GoogleCalendarOptions
 
     public string? ClientId { get; set; }
     public string? ClientSecret { get; set; }
-    public string? RefreshToken { get; set; }
-
-    /// <summary>Calendar id to read/write; "primary" is the household account's main calendar.</summary>
-    public string CalendarId { get; set; } = "primary";
 
     public string TokenUrl { get; set; } = "https://oauth2.googleapis.com/token";
     public string ApiBaseUrl { get; set; } = "https://www.googleapis.com/calendar/v3";
 
+    /// <summary>The OAuth app is configured — the provider activates and reads per-profile links.</summary>
     public bool IsConfigured =>
-        !string.IsNullOrWhiteSpace(ClientId)
-        && !string.IsNullOrWhiteSpace(ClientSecret)
-        && !string.IsNullOrWhiteSpace(RefreshToken);
+        !string.IsNullOrWhiteSpace(ClientId) && !string.IsNullOrWhiteSpace(ClientSecret);
 }

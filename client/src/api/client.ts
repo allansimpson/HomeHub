@@ -9,6 +9,7 @@ import type {
   WeatherSnapshotDto,
   CalendarEventDto,
   CalendarEventInput,
+  SyncCalendarDto,
   TaskItemDto,
   TaskCreateInput,
   SyncListDto,
@@ -90,11 +91,18 @@ export const api = {
   // ---- Weather ----
   getWeather: () => request<WeatherSnapshotDto>('/weather'),
 
-  // ---- Calendar ----
-  getEvents: (fromIso: string, toIso: string) =>
-    request<CalendarEventDto[]>(`/calendar/events?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`),
-  getUpcoming: (days = 7) => request<CalendarEventDto[]>(`/calendar/upcoming?days=${days}`),
+  // ---- Calendar (per active profile) ----
+  getEvents: (fromIso: string, toIso: string, profileId?: number) =>
+    request<CalendarEventDto[]>(
+      `/calendar/events?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}${profileId != null ? `&profileId=${profileId}` : ''}`,
+    ),
+  getUpcoming: (days = 7, profileId?: number) =>
+    request<CalendarEventDto[]>(`/calendar/upcoming?days=${days}${profileId != null ? `&profileId=${profileId}` : ''}`),
   getEvent: (id: number) => request<CalendarEventDto>(`/calendar/events/${id}`),
+  // ---- Calendar selection (choose which Google calendars display) ----
+  getCalendars: (profileId: number) => request<SyncCalendarDto[]>(`/calendar/calendars?profileId=${profileId}`),
+  setCalendars: (profileId: number, selectedCalendarIds: string[]) =>
+    request<void>('/calendar/calendars', { method: 'PUT', ...json({ profileId, selectedCalendarIds }) }),
   createEvent: (input: CalendarEventInput) =>
     request<CalendarEventDto>('/calendar/events', { method: 'POST', ...json(input) }),
   updateEvent: (id: number, input: CalendarEventInput) =>
@@ -107,6 +115,8 @@ export const api = {
   createTask: (input: TaskCreateInput) => request<TaskItemDto>('/tasks', { method: 'POST', ...json(input) }),
   completeTask: (id: number, completed: boolean) =>
     request<TaskItemDto>(`/tasks/${id}/complete`, { method: 'PATCH', ...json({ completed }) }),
+  setTaskImportant: (id: number, important: boolean) =>
+    request<TaskItemDto>(`/tasks/${id}/importance`, { method: 'PATCH', ...json({ important }) }),
   deleteTask: (id: number) => request<void>(`/tasks/${id}`, { method: 'DELETE' }),
   // ---- To Do list selection (choose which Microsoft lists sync) ----
   getTaskLists: (profileId: number) => request<SyncListDto[]>(`/tasks/lists?profileId=${profileId}`),

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { BottomNav } from './BottomNav'
 import { DoubleRule } from './DoubleRule'
+import { AccountAvatar } from './AccountAvatar'
 
 interface ScreenShellProps {
   /** The screen header (DashboardHeader or DrillInHeader). */
@@ -14,6 +15,12 @@ interface ScreenShellProps {
   nav?: boolean
   /** Dashboard is the idle display and must never scroll its content. */
   fixedContent?: boolean
+  /**
+   * Show the global account avatar (default true where the nav is shown). The Config *index* sets
+   * this false — its identity row is the account surface, so the avatar would be redundant there
+   * (CONFIG_SCREEN.md §1).
+   */
+  avatar?: boolean
 }
 
 /**
@@ -27,14 +34,21 @@ export function ScreenShell({
   rule = true,
   nav = true,
   fixedContent = false,
+  avatar = true,
 }: ScreenShellProps) {
+  const showAvatar = nav && avatar
   return (
     <div className="ml-shell">
       {banner}
-      {header}
-      {rule && <DoubleRule />}
-      <div className={'ml-shell__content' + (fixedContent ? ' ml-shell__content--fixed' : '')}>
-        {children}
+      {/* Body is the avatar's positioning context, so the avatar always sits BELOW a full-width
+          banner (severe alert / mic live) rather than on top of it — spec 13. */}
+      <div className={'ml-shell__body' + (showAvatar ? '' : ' ml-shell__body--noavatar')}>
+        {showAvatar && <AccountAvatar />}
+        {header}
+        {rule && <DoubleRule />}
+        <div className={'ml-shell__content' + (fixedContent ? ' ml-shell__content--fixed' : '')}>
+          {children}
+        </div>
       </div>
       {nav && <BottomNav />}
     </div>

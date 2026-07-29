@@ -1,8 +1,11 @@
 """The bridge loop: wake → capture → transcribe → assistant → speak, then back to listening.
 
-The mic is owned here for the whole voice turn, and while Piper is speaking the wake detector is not
-running (the loop is sequential), so the reply can't self-trigger "Hey Cleo". After speaking we flush
-buffered audio and reset the detector before listening again.
+The mic is owned here for the whole voice turn, and while the reply is being spoken the wake detector
+is not running (the loop is sequential), so the reply can't self-trigger "Hey Barnaby". After speaking
+we flush buffered audio and reset the detector before listening again.
+
+Speech goes through the HomeHub API's voice endpoint so the bridge shares the panel's voice, prosody
+and phrase cache; a local Piper covers when the server is unreachable (see tts.SpeechOutput).
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import webrtcvad
 from .api import HomeHubClient
 from .audio import WAKE_FRAME, MicStream, capture_utterance, pcm_to_wav
 from .config import Config
-from .tts import PiperTTS
+from .tts import SpeechOutput
 from .wake import WakeWord
 
 log = logging.getLogger("homehub_voice.bridge")
@@ -28,8 +31,8 @@ def run(cfg: Config) -> None:
     mic = MicStream(device=cfg.mic_device)
     wake = WakeWord(cfg)
     vad = webrtcvad.Vad(cfg.vad_aggressiveness)
-    tts = PiperTTS(cfg)
     api = HomeHubClient(cfg)
+    tts = SpeechOutput(cfg, api)
     history: deque[dict] = deque(maxlen=cfg.history_turns * 2)
 
     mic.start()
@@ -57,7 +60,8 @@ def run(cfg: Config) -> None:
             if answer:
                 history.append({"role": "assistant", "text": answer})
                 log.info("Reply [%s]: %s", origin or "?", answer)
-                tts.speak(answer)
+                # Assistant chat is conversational, so it speaks Warm (Piper ignores it; Chatterbox won't).
+                tts.speak(answer, prosody="warm")
 
             _resume(mic, wake)
     except KeyboardInterrupt:

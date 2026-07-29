@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ScreenShell, ScrollArea, SectionLabel, BackButton } from '../components'
+import { ScreenShell, ScrollArea, SectionLabel } from '../components'
 import { Icon } from '../icons/Icon'
 import { useSession } from '../app/SessionProvider'
 import { api, ApiError } from '../api/client'
@@ -9,13 +9,16 @@ import { addMonths, dayKey, formatTime, isSameDay, monthGrid, monthName, startOf
 
 const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
+/** Re-sync the visible month on a timer so Google-added events appear without navigating away. */
+const REFRESH_MS = 30_000
+
 /**
  * Calendar (spec 02): month grid + the selected day's agenda. Today is a brass block; days with
  * events get a brass dash. The header + opens the event editor; tapping an agenda row edits it.
  */
 export function CalendarScreen() {
   const navigate = useNavigate()
-  const { profiles } = useSession()
+  const { profiles, activeProfileId } = useSession()
   const [activeMonth, setActiveMonth] = useState(() => startOfMonth(new Date()))
   const [selected, setSelected] = useState(() => new Date())
   const [events, setEvents] = useState<CalendarEventDto[]>([])
@@ -24,17 +27,26 @@ export function CalendarScreen() {
     const from = startOfMonth(activeMonth)
     const to = addMonths(activeMonth, 1)
     try {
-      setEvents(await api.getEvents(from.toISOString(), to.toISOString()))
+      setEvents(await api.getEvents(from.toISOString(), to.toISOString(), activeProfileId ?? undefined))
     } catch (err) {
       if (!(err instanceof ApiError)) throw err
     }
-  }, [activeMonth])
+  }, [activeMonth, activeProfileId])
 
   useEffect(() => {
     void load()
-    const onSync = () => void load()
-    window.addEventListener('homehub:sync', onSync)
-    return () => window.removeEventListener('homehub:sync', onSync)
+    // Poll while the calendar is on screen (each getEvents re-syncs Google server-side), and also
+    // refresh immediately after a write-queue replay. Pauses when the tab is hidden to avoid waste.
+    const tick = () => { if (!document.hidden) void load() }
+    const id = window.setInterval(tick, REFRESH_MS)
+    const onVisible = () => { if (!document.hidden) void load() }
+    window.addEventListener('homehub:sync', tick)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(id)
+      window.removeEventListener('homehub:sync', tick)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [load])
 
   const eventDays = useMemo(() => new Set(events.map((e) => dayKey(new Date(e.startUtc)))), [events])
@@ -56,7 +68,6 @@ export function CalendarScreen() {
 
   const header = (
     <header className="ml-header ml-cal-header">
-      <BackButton onClick={() => navigate('/')} />
       <span className="ml-cal-header__month serif">{monthName(activeMonth).toUpperCase()}</span>
       <span className="ml-cal-header__year serif">{activeMonth.getFullYear()}</span>
       <div className="ml-cal-header__actions">
@@ -66,7 +77,12 @@ export function CalendarScreen() {
         <button type="button" className="ml-iconbtn" onClick={() => setActiveMonth(addMonths(activeMonth, 1))} aria-label="Next month">
           <Icon id="ico-chevron-right" size="1.125rem" />
         </button>
-        <button type="button" className="ml-iconbtn ml-iconbtn--accent" onClick={() => navigate('/calendar/new')} aria-label="New event">
+        <button
+          type="button"
+          className="ml-iconbtn ml-iconbtn--accent"
+          onClick={() => navigate(`/calendar/new?date=${dayKey(selected)}`)}
+          aria-label="New event"
+        >
           <Icon id="ico-add" size="1.375rem" />
         </button>
       </div>
@@ -108,10 +124,11 @@ export function CalendarScreen() {
       </div>
 
       <SectionLabel
+        tick={false}
         label={`${weekdayName(selected)} ${selected.getDate()}${isSameDay(selected, today) ? ' — Today' : ''}`}
         status={`${agenda.length} ${agenda.length === 1 ? 'engagement' : 'engagements'}`}
       />
-      <ScrollArea>
+      <ScrollArea caption="Scroll for more ▾">
         {agenda.length === 0 ? (
           <div className="ml-cal-empty">Nothing scheduled</div>
         ) : (
@@ -134,7 +151,7 @@ function AgendaRow({ event, profiles, onClick }: { event: CalendarEventDto; prof
         <span className="ml-agenda__ampm">{start.ampm}</span>
       </span>
       <div className="ml-row__main">
-        <div className="ml-row__title">{event.title}</div>
+        <div className="ml-row__title ml-clamp2">{event.title}</div>
         {event.location && <div className="ml-row__sub">{event.location}</div>}
       </div>
       <div className="ml-agenda__owners">

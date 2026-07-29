@@ -29,6 +29,11 @@ interface SessionState {
   completeUnlock: (id: number) => Promise<void>
   /** Force the lock (idle timeout) if the active profile opted into a PIN. */
   lockNow: () => void
+  /**
+   * Clear the session entirely — the panel drops to the shared/guest state (CONFIG_SCREEN.md §3).
+   * Unlike lockNow this always applies, PIN or not; switching profiles happens afterwards.
+   */
+  signOut: () => Promise<void>
 }
 
 const SessionContext = createContext<SessionState | null>(null)
@@ -92,6 +97,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     async (id: number) => {
       const target = profiles.find((p) => p.id === id) ?? null
       setActiveProfileId(id)
+      // Keep settings.activeProfileId (read by the CONFIG screen and others) in lockstep with the
+      // activeProfileId state (read by the avatar) so the two can't disagree between refreshes.
+      setSettings((s) => (s ? { ...s, activeProfileId: id } : s))
       setLocked(requiresPin(target))
       try {
         await api.setActiveProfile(id)
@@ -106,6 +114,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const completeUnlock = useCallback(async (id: number) => {
     setActiveProfileId(id)
+    setSettings((s) => (s ? { ...s, activeProfileId: id } : s))
     setLocked(false)
     try {
       await api.setActiveProfile(id)
@@ -120,6 +129,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const active = profiles.find((p) => p.id === activeProfileId) ?? null
     if (requiresPin(active)) setLocked(true)
   }, [profiles, activeProfileId])
+
+  const signOut = useCallback(async () => {
+    setActiveProfileId(null)
+    setSettings((s) => (s ? { ...s, activeProfileId: null } : s))
+    setLocked(false)
+    try {
+      await api.setActiveProfile(null)
+      setOffline(false)
+    } catch (err) {
+      if (err instanceof ApiError) setOffline(true)
+      else throw err
+    }
+  }, [])
 
   const activeProfile = useMemo(
     () => profiles.find((p) => p.id === activeProfileId) ?? null,
@@ -139,8 +161,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       switchProfile,
       completeUnlock,
       lockNow,
+      signOut,
     }),
-    [profiles, settings, activeProfileId, activeProfile, locked, loading, offline, refresh, switchProfile, completeUnlock, lockNow],
+    [profiles, settings, activeProfileId, activeProfile, locked, loading, offline, refresh, switchProfile, completeUnlock, lockNow, signOut],
   )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
