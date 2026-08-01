@@ -24,4 +24,32 @@ public class HouseholdSettings
 
     /// <summary>Which profile is currently active on the panel (persists across reboots). Null = none chosen.</summary>
     public int? ActiveProfileId { get; set; }
+
+    /// <summary>
+    /// What the household calls the cat, used wherever the litter box reports one.
+    /// </summary>
+    /// <remarks>
+    /// Kept by the panel, not the robot. The Litter-Robot reports that <em>a</em> cat is present and
+    /// never which one, so this is not identity — with one cat in the household it is simply the
+    /// better word than "cat", and every sentence that uses it falls back to the literal word when it
+    /// is unset. It is the only litter setting that needs no round-trip to Home Assistant, which is
+    /// why it lives here rather than in <c>CatOptions</c>: the household edits it, so it cannot sit in
+    /// a config file.
+    /// </remarks>
+    public string? CatName { get; set; }
+
+    /// <summary>
+    /// Waste-drawer fullness, as a percentage, at which the panel asks for the litter to be changed.
+    /// </summary>
+    /// <remarks>
+    /// Household-editable and therefore here rather than in <c>CatOptions</c>, for the same reason as
+    /// <see cref="CatName"/>: a config file is not a surface the household can reach.
+    /// <para>
+    /// This is deliberately <b>ahead</b> of the robot's own drawer-full fault, which only fires once
+    /// the box has stopped cycling. By then the choice has already been made for you. Eighty percent
+    /// is roughly a day or two of warning at a typical fill rate — enough to change it at a convenient
+    /// moment rather than at the moment the cat is waiting.
+    /// </para>
+    /// </remarks>
+    public int LitterFullPercent { get; set; } = 80;
 }

@@ -22,6 +22,17 @@ public interface ILitterRobotProvider
     /// a cached status would mean commanding the robot based on where it was up to ten seconds ago.
     /// </summary>
     Task<IReadOnlyList<LitterRobotSnapshot>> GetFreshSnapshotsAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Levels, weights and fault-class share over the last <paramref name="days"/>, from Home
+    /// Assistant's recorder. Null when the robot isn't known.
+    /// </summary>
+    /// <remarks>
+    /// HomeHub stores no litter time series of its own, so this is the recorder's to give — and the
+    /// recorder purges. The result says whether the window was actually covered rather than quietly
+    /// returning a shorter one.
+    /// </remarks>
+    Task<LitterRobotHistory?> GetHistoryAsync(string slug, int days, CancellationToken ct);
 }
 
 /// <summary>
@@ -57,4 +68,38 @@ public interface ILitterRobotCommands
     /// Power off, wait, power on. Throws <see cref="NotSupportedException"/> when unsupported.
     /// </summary>
     Task PowerCycleAsync(string slug, CancellationToken ct);
+
+    /// <summary>
+    /// Zero the waste-drawer reading, after a person has emptied it.
+    /// </summary>
+    /// <remarks>
+    /// Destructive in the only sense that matters here: pressing it without emptying the drawer leaves
+    /// the panel confidently reporting 0% on a full drawer until the robot next refuses to cycle. The
+    /// UI holds to confirm and asks the emptied-it question first.
+    /// </remarks>
+    Task ResetWasteDrawerAsync(string slug, CancellationToken ct);
+
+    /// <summary>
+    /// Reset the litter level to full, after a person has topped the globe up. Same shape and the same
+    /// hazard as <see cref="ResetWasteDrawerAsync"/> — claiming a full globe that isn't full is how the
+    /// recovery loop's litter floor gets bypassed.
+    /// </summary>
+    Task ResetLitterLevelAsync(string slug, CancellationToken ct);
+
+    /// <summary>
+    /// Set one of the robot's toggles. Fire-and-forget like every other command here — confirm by
+    /// re-reading <see cref="LitterRobotSnapshot.Controls"/>, not by this returning.
+    /// </summary>
+    Task SetSwitchAsync(string slug, LitterRobotSwitch which, bool on, CancellationToken ct);
+
+    /// <summary>
+    /// Move one of the robot's multi-position settings.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="SetSwitchAsync"/> because these genuinely are not booleans — the night
+    /// light is Off/Low/Medium/High. <paramref name="option"/> must be one of the values the entity
+    /// declares; the caller checks that against the snapshot, because Home Assistant rejects an
+    /// unknown option with an error that says nothing useful about which options exist.
+    /// </remarks>
+    Task SetSelectAsync(string slug, LitterRobotSelect which, string option, CancellationToken ct);
 }

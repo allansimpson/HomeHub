@@ -4,7 +4,7 @@ A local, always-listening voice front-end for the HomeHub kiosk. Runs on the Ras
 mic + speaker; the heavy lifting (STT, the assistant) happens on the home server via the HomeHub API.
 
 ```
-openWakeWord ("Hey Barnaby", local)  →  capture (webrtcvad)  →  POST /api/voice/transcribe
+openWakeWord ("Hey/Oh Barnaby", local)  →  capture (webrtcvad)  →  POST /api/voice/transcribe
       →  POST /api/assistant/chat  →  Piper "norman" TTS  →  back to listening
 ```
 
@@ -48,18 +48,38 @@ echo "Hello from Barnaby." | piper --model voices/en_US-norman-medium.onnx --out
   | aplay -r 22050 -f S16_LE -t raw -c 1 -
 ```
 
-## The "Hey Barnaby" wake model (openWakeWord)
+## The wake models — "Hey Barnaby" and "Oh Barnaby" (openWakeWord)
 
-openWakeWord has no built-in "Hey Barnaby", so train a custom one (the phrase is synthesized, no recording
-needed):
+**One model per phrase.** openWakeWord matches *acoustics against a trained model*, not text, so two
+phrases means two `.onnx` files. Listing a phrase in `WAKE_PHRASE` without training a model for it
+changes the log line and nothing else — the bridge will never wake to it.
+
+openWakeWord ships neither phrase, so train both (they're synthesized, no recording needed):
 
 1. Open openWakeWord's **automatic model training** notebook (Google Colab) from the openWakeWord repo.
-2. Set the target phrase to `hey barnaby`; it generates synthetic TTS samples + negatives and trains an
-   ONNX model.
-3. Download `hey_barnaby.onnx` to `/opt/homehub-voice/models/` and set `WAKE_MODEL_PATH` to it.
+2. Run it once with target phrase `hey barnaby`, then again with `oh barnaby`. Each run generates
+   synthetic TTS samples + negatives and trains an ONNX model.
+3. Download both to `/opt/homehub-voice/models/` and list them comma-separated:
 
-Until then the bridge falls back to the pretrained `WAKE_MODEL` (default `hey_jarvis`) so you can test
-the pipeline — it logs a warning that it's a stand-in. Tune `WAKE_THRESHOLD` (0.3–0.7) for your room.
+```bash
+WAKE_MODEL_PATH=/opt/homehub-voice/models/hey_barnaby.onnx,/opt/homehub-voice/models/oh_barnaby.onnx
+WAKE_PHRASE=Hey Barnaby, Oh Barnaby
+```
+
+All listed models are scored on every frame and **any one of them opens the mic**. Startup logs which
+loaded (`Wake models loaded: hey_barnaby, oh_barnaby`), each trigger logs which fired
+(`Wake word detected (oh_barnaby)`), and a path that doesn't exist is logged as an **error** rather
+than passed over — otherwise that phrase would just silently never work.
+
+Until you have custom models the bridge falls back to the pretrained `WAKE_MODEL` (default
+`hey_jarvis`) so you can test the pipeline; it warns that it's a stand-in. Tune `WAKE_THRESHOLD`
+(0.3–0.7) for your room.
+
+> **"Oh Barnaby" is the harder of the two.** It is shorter and its leading vowel carries less
+> acoustic distinctiveness than "hey", so it is more prone to false triggers on ordinary
+> conversation. If the panel starts waking on its own, raise `WAKE_THRESHOLD` — and note the
+> threshold is shared by both models, so tuning for the weaker one makes the stronger one less
+> sensitive too. Per-model thresholds would need a change here.
 
 ## Run
 
@@ -68,7 +88,7 @@ cd /opt/homehub-voice && . .venv/bin/activate
 python -m homehub_voice
 ```
 
-Say the wake word, then your request. Logs show `Heard:` (transcript) and `Reply [Local|Cloud]:`.
+Say either wake phrase, then your request. Logs show `Heard:` (transcript) and `Reply [Local|Cloud]:`.
 
 ## Run as a service
 
@@ -85,7 +105,7 @@ All settings are environment variables (see `.env.example` and `config.py`). Com
 | Var | Default | Purpose |
 |---|---|---|
 | `HOMEHUB_API_BASE_URL` | `http://localhost:5220` | HomeHub API base |
-| `WAKE_MODEL_PATH` | — | Custom `hey_barnaby.onnx` (falls back to `WAKE_MODEL`) |
+| `WAKE_MODEL_PATH` | — | Comma-separated custom `.onnx` paths, one per phrase (falls back to `WAKE_MODEL`) |
 | `WAKE_THRESHOLD` | `0.5` | Detection score cutoff |
 | `MIC_DEVICE` / `APLAY_DEVICE` | default | Specific input/output devices |
 | `END_SILENCE_MS` | `900` | Trailing silence that ends a capture |

@@ -1,0 +1,2806 @@
+/* ==========================================================================
+   MEALS (design_handoff_meals — MEALS_SCREEN.md)
+
+   Every value here is the spec's 540×960 reference px ÷ 16. Hairlines stay in device px via
+   --control-border / --hairline-px so they don't scale into fat blurry lines at 4K.
+
+   Palette discipline for the whole section:
+     · brass  — structure, labels, numerals
+     · amber  — ONLY where something is actionable within minutes (a prep note now, a save conflict)
+     · terracotta — ONLY recipe delete
+     · verdigris — ONLY the folder's TONIGHT marker. One thing, section-wide.
+   Nothing here means anything by colour alone: NO STEPS, AS WRITTEN, SKIPPED and EDITED are words.
+   ========================================================================== */
+
+/* IBM Plex Mono is the spec's face for amounts, URLs and addresses. It is not bundled with the
+   panel's fonts, so this falls through to the platform's monospace — same role, same tabular
+   read, no webfont to ship. Swap --font-mono in tokens.css if the face is ever added. */
+.mono {
+  font-family: var(--font-mono, ui-monospace, 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Shared Meals chrome ---------- */
+
+/* Modal header: CANCEL · title · optional confirm, on a 1fr auto 1fr grid so the title stays
+   optically centred whatever the two flanking controls are. */
+.ml-mealmodal__header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 1.625rem var(--gutter) 0; /* 26px 34px 0 */
+  flex: 0 0 auto;
+}
+.ml-mealmodal__cancel {
+  justify-self: start;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.8125rem 1.375rem; /* 13px 22px */
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.24em;
+  color: var(--text-muted);
+}
+.ml-mealmodal__cancel:active {
+  background: var(--bg-active);
+}
+.ml-mealmodal__title {
+  font-size: 1.5rem; /* 24px */
+  line-height: 1;
+  color: var(--text-primary);
+  text-align: center;
+}
+.ml-mealmodal__confirm {
+  justify-self: end;
+}
+
+/* The section's rule line — states a rule the screen obeys, never a status. */
+.ml-mealrule {
+  padding: 0.75rem var(--gutter) 1rem;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.18em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+.ml-meallabel {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 1.25rem var(--gutter) 0.5rem; /* 20px 34px 8px */
+}
+.ml-meallabel__text {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-meallabel__status {
+  margin-left: auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Chevron — present only on rows that actually drill in. Its absence is the affordance that tells
+   you a deleted recipe's night is now plain text. */
+.ml-mealchev {
+  flex: 0 0 auto;
+  font-size: 1.1875rem; /* 19px */
+  line-height: 1;
+  color: var(--brass-dim);
+}
+
+/* Attribution strip (5a). Brass, deliberately not amber — a shared recipe improving is the system
+   working, and amber here would teach people to ignore amber. */
+.ml-attrib {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0.875rem var(--gutter) 0;
+  padding: 0.875rem 1rem;
+  border: var(--control-border) solid var(--border-inactive);
+}
+.ml-attrib__avatar {
+  flex: 0 0 auto;
+  width: 2.125rem; /* 34px */
+  height: 2.125rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-profile-selected);
+  color: var(--brass-bright);
+  font-size: 0.875rem;
+}
+.ml-attrib__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-attrib__what {
+  font-size: 0.8125rem; /* 13px */
+  color: var(--text-secondary);
+}
+.ml-attrib__meta {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+.ml-attrib__action {
+  margin-left: auto;
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.625rem 0.875rem;
+  min-height: 2.75rem; /* 44px — nothing interactive goes under this */
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--brass-bright);
+}
+
+/* Amber strip. Reserved for the next few minutes; lateness is NOT amber. */
+.ml-mealalert {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem var(--gutter) 0;
+  padding: 0.875rem 1.125rem;
+  border: var(--control-border) solid var(--alert);
+}
+.ml-mealalert__glyph {
+  flex: 0 0 auto;
+  color: var(--alert);
+}
+.ml-mealalert__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-mealalert__title {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.22em;
+  color: var(--alert);
+}
+.ml-mealalert__text {
+  font-size: 0.875rem; /* 14px */
+  color: var(--text-secondary);
+}
+.ml-mealalert__action {
+  margin-left: auto;
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--alert);
+  padding: 0.75rem 0.875rem;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--alert);
+  text-decoration: none;
+}
+
+/* History column (folder). TONIGHT is the section's one live status and its one verdigris. */
+.ml-histcol {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.125rem;
+  text-align: right;
+}
+.ml-histcol__value {
+  font-size: 1.0625rem; /* 17px */
+  line-height: 1;
+  color: var(--text-secondary);
+}
+.ml-histcol__caption {
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.18em;
+  color: var(--text-disabled);
+}
+.ml-histcol--live .ml-histcol__value {
+  color: var(--live-text);
+}
+
+/* Shared FOLDER control (Meals home + week planner footers). */
+.ml-mealfolderbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 0.25rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+
+/* ==========================================================================
+   1 · Meals home (6a)
+   ========================================================================== */
+
+.ml-mealhome__tonightlabel {
+  padding: 1.25rem var(--gutter) 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.34em;
+  color: var(--brass);
+}
+.ml-mealhome__dishbtn,
+.ml-mealhome__nothing {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem var(--gutter) 0;
+  text-align: left;
+}
+/* The largest text on the screen, by design. Do not shrink it to fit more rows below —
+   MEALS_BEHAVIOURS §8 is explicit that the daily-use line wins. */
+.ml-mealhome__dish {
+  font-size: 2.25rem; /* 36px */
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+.ml-mealhome__dish--empty {
+  color: var(--text-disabled);
+}
+.ml-mealhome__dishmeta {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-mealhome__plantonight {
+  margin-top: 0.5rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  padding: 1rem 1.5rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  color: var(--brass-bright);
+}
+
+.ml-mealhome__startby {
+  display: flex;
+  margin: 1.125rem var(--gutter) 0;
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-mealhome__startmain {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1.125rem 1.25rem;
+  min-width: 0;
+}
+.ml-mealhome__startlabel {
+  font-size: 0.625rem;
+  letter-spacing: 0.26em;
+  color: var(--brass);
+}
+/* Lateness stays primary-text, never amber: a late dinner is information, not an alert. */
+.ml-mealhome__starttime {
+  font-size: 2.375rem; /* 38px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-mealhome__startnote {
+  font-size: 0.6875rem;
+  font-weight: 300;
+  color: var(--text-muted);
+}
+.ml-mealhome__cook {
+  flex: 0 0 9.375rem; /* 150px */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-left: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+}
+.ml-mealhome__cook:disabled {
+  color: var(--text-disabled);
+  background: none;
+}
+
+.ml-mealhome__lastnight {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem var(--gutter) 0;
+  padding: 0.875rem 1.125rem;
+  border: var(--control-border) solid var(--border-inactive);
+}
+.ml-mealhome__lastmain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-mealhome__lastlabel {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  color: var(--text-muted);
+}
+.ml-mealhome__lastq {
+  font-size: 0.9375rem; /* 15px */
+  color: var(--text-secondary);
+}
+.ml-mealhome__yes,
+.ml-mealhome__no {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  padding: 0 1.125rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+}
+.ml-mealhome__yes {
+  margin-left: auto;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+}
+.ml-mealhome__no {
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+}
+
+.ml-mealhome__weekhead {
+  display: flex;
+  align-items: baseline;
+  padding: 1.25rem var(--gutter) 0;
+}
+.ml-mealhome__weeklabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.32em;
+  color: var(--brass);
+}
+.ml-mealhome__planlink {
+  margin-left: auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--brass-bright);
+}
+.ml-mealhome__week {
+  padding: 0.375rem var(--gutter) 0;
+}
+.ml-mealhome__day {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.8125rem 0; /* 13px */
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+.ml-mealhome__dayname {
+  flex: 0 0 2.875rem; /* 46px */
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass);
+}
+.ml-mealhome__daymain {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
+}
+.ml-mealhome__daytitle {
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-mealhome__daytitle--empty {
+  color: var(--text-disabled);
+}
+/* Amber, because a lead-time line IS actionable — "pork out Friday night" is a thing to do. */
+.ml-mealhome__daylead {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--alert);
+}
+
+.ml-mealhome__footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem var(--gutter);
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-mealhome__count {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+
+/* ==========================================================================
+   2 · Week planner (4c)
+   ========================================================================== */
+
+.ml-mealweek__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem var(--gutter) 0.75rem;
+}
+.ml-mealweek__page {
+  width: 2.5rem; /* 40px */
+  height: 2.75rem; /* 44px min target, up from the spec's 36 — nothing goes under 44 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--brass-bright);
+  font-size: 0.9375rem;
+}
+.ml-mealweek__label {
+  font-size: 1.25rem; /* 20px */
+  color: var(--text-primary);
+}
+.ml-mealweek__pagerrule {
+  height: var(--hairline-px);
+  margin: 0 var(--gutter);
+  background: var(--rule-major);
+}
+.ml-mealweek__teach {
+  padding: 1.125rem var(--gutter) 0.125rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+/* Seven equal blocks filling the remaining height — the whole week is visible without scrolling,
+   which is the point of a week view on a wall. */
+.ml-mealweek__days {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ml-mealweek__day {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+}
+/* Today carries a brass edge and a raised plane. The left padding drops by the 3px the border
+   takes so the date column stays on the same optical line as every other day. */
+.ml-mealweek__day--today {
+  border-left: 0.1875rem solid var(--brass);
+  padding-left: calc(var(--gutter) - 0.1875rem);
+  background: #181a1d;
+}
+.ml-mealweek__date {
+  flex: 0 0 2.875rem; /* 46px */
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+.ml-mealweek__weekday {
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  color: var(--brass);
+}
+.ml-mealweek__day--today .ml-mealweek__weekday {
+  color: var(--brass-bright);
+}
+.ml-mealweek__daynum {
+  font-size: 1.5625rem; /* 25px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-mealweek__slots {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.ml-mealweek__slot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.ml-mealweek__slotletter {
+  flex: 0 0 1.625rem; /* 26px */
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+.ml-mealweek__slotletter--dinner {
+  color: var(--brass);
+}
+.ml-mealweek__slotmain {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  padding: 0.375rem 0;
+}
+.ml-mealweek__entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.ml-mealweek__title,
+.ml-mealweek__free {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9375rem; /* 15px on the non-dinner slots */
+}
+.ml-mealweek__title {
+  color: var(--text-primary);
+}
+.ml-mealweek__free {
+  color: var(--text-secondary);
+}
+.ml-mealweek__entry--dinner .ml-mealweek__title,
+.ml-mealweek__entry--dinner .ml-mealweek__free {
+  font-size: 1.0625rem; /* 17px — dinner is the line people read from across the room */
+}
+.ml-mealweek__linked {
+  flex: 0 0 auto;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+.ml-mealweek__for {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+.ml-mealweek__empty {
+  font-size: 0.9375rem;
+  color: var(--text-disabled);
+}
+.ml-mealweek__empty--dinner {
+  font-size: 1.0625rem;
+}
+.ml-mealweek__open {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ml-mealweek__footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem var(--gutter);
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-mealweek__footnote {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+.ml-mealweek__settingslink {
+  font-size: inherit;
+  letter-spacing: inherit;
+  color: var(--brass-bright);
+}
+
+/* ==========================================================================
+   3 · Assign a night (4b)
+   ========================================================================== */
+
+.ml-assign__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 1rem;
+}
+.ml-assign__slots {
+  display: flex;
+  margin: 1rem var(--gutter) 0;
+  border: var(--control-border) solid var(--border-inactive);
+}
+.ml-assign__slot {
+  flex: 1 1 0;
+  padding: 0.875rem 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+  border-left: var(--control-border) solid var(--border-inactive);
+}
+.ml-assign__slot:first-child {
+  border-left: none;
+}
+.ml-assign__slot--active {
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+
+.ml-assign__chosen {
+  margin: 1.125rem var(--gutter) 0;
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 1.125rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+.ml-assign__chosentop {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+}
+.ml-assign__chosenmain {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-assign__chosentitle {
+  font-size: 1.0625rem;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+.ml-assign__chosenmeta {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+.ml-assign__change {
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0 0.8125rem;
+  min-height: 2.75rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+.ml-assign__minorrule {
+  height: var(--hairline-px);
+  background: var(--rule-minor);
+}
+.ml-assign__cooking {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+.ml-assign__cookingmain {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-assign__cookinglabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  color: var(--brass);
+}
+/* The consequence in plain words. The number is already in the stepper; repeating it would say
+   nothing, so this says what the number means instead. */
+.ml-assign__cookingsays {
+  font-size: 0.6875rem;
+  font-weight: 300;
+  color: var(--text-muted);
+}
+.ml-assign__stepper,
+.ml-recipe__stepper,
+.ml-edit__stepper {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-assign__servings,
+.ml-recipe__servingsvalue,
+.ml-edit__basevalue {
+  min-width: 3.625rem; /* 58px */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5625rem; /* 25px */
+  color: var(--text-primary);
+}
+.ml-assign__leftovers {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.8125rem 1rem;
+  min-height: 2.75rem;
+  text-align: left;
+}
+.ml-assign__check {
+  flex: 0 0 auto;
+  width: 1.5rem; /* 24px */
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--bg-screen);
+}
+.ml-assign__check--on {
+  background: var(--brass);
+  border-color: var(--brass);
+}
+.ml-assign__leftoverstext {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.ml-assign__grouprule,
+.ml-add__grouprule,
+.ml-mealset__grouprule,
+.ml-recipe__grouprule,
+.ml-cook__grouprule,
+.ml-folder__grouprule {
+  height: var(--hairline-px);
+  margin: 1.125rem var(--gutter) 0;
+  background: var(--rule-major);
+}
+
+.ml-assign__chips,
+.ml-add__chips,
+.ml-mealset__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5625rem;
+  padding: 0 var(--gutter);
+}
+.ml-assign__chip,
+.ml-add__chip,
+.ml-mealset__chip {
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0 1.125rem;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  letter-spacing: 0.16em;
+  color: var(--text-secondary);
+}
+.ml-assign__chip--active,
+.ml-add__chip--active {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-assign__typewrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0 1rem;
+  min-height: 2.75rem;
+  color: var(--text-muted);
+}
+.ml-assign__typeglyph {
+  font-size: 0.9375rem;
+}
+.ml-assign__type {
+  width: 9rem;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  letter-spacing: 0.16em;
+}
+.ml-assign__type::placeholder {
+  color: var(--text-muted);
+}
+.ml-assign__typed {
+  margin: 0.75rem var(--gutter) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+.ml-assign__typedvalue {
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.875rem 1rem;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+.ml-assign__promote {
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0.9375rem 1.125rem;
+  font-size: 0.875rem;
+  color: var(--brass-bright);
+  text-align: left;
+}
+.ml-assign__pickhead {
+  display: flex;
+  align-items: baseline;
+  padding-right: var(--gutter);
+}
+.ml-assign__pickhead .ml-meallabel {
+  flex: 1 1 auto;
+}
+.ml-assign__sort,
+.ml-folder__sortctl {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+  min-height: 2.75rem;
+}
+.ml-assign__list {
+  padding: 0 var(--gutter);
+}
+.ml-assign__row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.9375rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+.ml-assign__row .ml-assign__check {
+  width: 1.75rem; /* 28px in the pick list */
+  height: 1.75rem;
+}
+.ml-assign__rowmain {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
+}
+.ml-assign__rowtitle {
+  font-size: 1.0625rem;
+  color: var(--text-primary);
+}
+.ml-assign__row--selected .ml-assign__rowtitle {
+  font-weight: 400;
+}
+.ml-assign__rowmeta {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+.ml-assign__nofolder {
+  padding: 1.25rem 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+/* Footer bar carries the 2px brass top rule that marks a committing surface. */
+.ml-assign__bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: var(--rule-brass-px) solid var(--brass);
+  background: var(--bg-nav);
+  padding: 1.125rem var(--gutter) 1.375rem;
+}
+.ml-assign__barnote {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-assign__done {
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  padding: 0.9375rem 1.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  color: var(--brass-bright);
+}
+
+/* ==========================================================================
+   4 · What actually happened (6b)
+   ========================================================================== */
+
+.ml-confirm__dish {
+  padding: 0 var(--gutter);
+  font-size: 2rem; /* 32px */
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+.ml-confirm__meta {
+  padding: 0.375rem var(--gutter) 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-confirm__gone {
+  padding: 2rem var(--gutter);
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+}
+.ml-confirm__targets {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1.5rem var(--gutter) 0;
+}
+.ml-confirm__ate,
+.ml-confirm__didnt {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 1.625rem 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+}
+.ml-confirm__ate {
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-confirm__didnt {
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+}
+.ml-confirm__ate--on,
+.ml-confirm__didnt--on {
+  border-color: var(--brass-bright);
+}
+.ml-confirm__cross {
+  font-size: 1.625rem;
+  line-height: 1;
+}
+.ml-confirm__option {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0 var(--gutter) 0.625rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 1.0625rem 1.125rem;
+  width: calc(100% - 2 * var(--gutter));
+  text-align: left;
+}
+.ml-confirm__option:disabled {
+  opacity: 0.55;
+}
+.ml-confirm__optiontext {
+  flex: 1 1 auto;
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+.ml-confirm__optionnote {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-disabled);
+}
+.ml-confirm__why {
+  margin: 1rem var(--gutter) 0;
+  border: var(--control-border) solid var(--rule-minor);
+  padding: 1.25rem;
+}
+.ml-confirm__whylabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  color: #9a917f;
+}
+.ml-confirm__whytext {
+  margin-top: 0.625rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.ml-confirm__why .ml-mealrule {
+  padding: 0.875rem 0 0;
+}
+
+/* ==========================================================================
+   5–6 · Recipe folder + search (6d / 4a / 3b / 1e)
+   ========================================================================== */
+
+.ml-attendantrow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.875rem var(--gutter) 0;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 1rem 1.125rem;
+}
+.ml-attendantrow__frame {
+  flex: 0 0 auto;
+  width: 2.125rem;
+  height: 2.125rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-attendantrow__mark {
+  width: 0.75rem;
+  height: 0.75rem;
+  background: var(--brass);
+}
+.ml-attendantrow__main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-attendantrow__text {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+.ml-attendantrow__by {
+  font-size: 0.5625rem;
+  letter-spacing: 0.24em;
+  color: var(--text-disabled);
+}
+.ml-attendantrow__action {
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0 0.9375rem;
+  min-height: 2.75rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--brass-bright);
+}
+.ml-attendantrow__dismiss {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  color: var(--text-disabled);
+}
+
+/* Hairline, not filled: browsing is primary on a folder this size, so search does not shout. */
+.ml-folder__search {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem var(--gutter) 0;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 1rem 1.125rem;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  text-align: left;
+}
+.ml-folder__search span {
+  color: var(--text-disabled);
+}
+.ml-folder__sorts {
+  display: flex;
+  margin: 0.75rem var(--gutter) 0;
+  border: var(--control-border) solid var(--border-inactive);
+}
+.ml-folder__sort {
+  flex: 1 1 0;
+  padding: 0.75rem 0;
+  min-height: 2.75rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+  border-left: var(--control-border) solid var(--border-inactive);
+}
+.ml-folder__sort:first-child {
+  border-left: none;
+}
+.ml-folder__sort--active {
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+/* Horizontal scroll with the last chip clipping at the gutter — the clip is the affordance that
+   says there is more, so no "+N" counter is needed. */
+.ml-folder__chips {
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.875rem 0 0.75rem var(--gutter);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ml-folder__chips::-webkit-scrollbar {
+  display: none;
+}
+.ml-folder__chip {
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0 1rem;
+  min-height: 2.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.ml-folder__chip--active {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-folder__caption {
+  padding: 0.5rem var(--gutter);
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+.ml-folder__grouphead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+  padding: 1rem var(--gutter) 0.375rem;
+}
+.ml-folder__groupname {
+  font-size: 0.6875rem;
+  letter-spacing: 0.32em;
+  color: var(--brass);
+}
+.ml-folder__groupcount {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.ml-reciperow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 1rem var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+/* A row that is already on tonight's plate is still browsable, just visibly spoken for. */
+.ml-reciperow--tonight {
+  opacity: 0.75;
+}
+.ml-reciperow__main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-reciperow__title {
+  font-size: 1.0625rem;
+  color: var(--text-primary);
+}
+.ml-reciperow__title--partial {
+  color: var(--text-secondary);
+}
+.ml-reciperow__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+.ml-reciperow__tag,
+.ml-searchrow__tag {
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.1875rem 0.4375rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+.ml-folder__footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem var(--gutter);
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-folder__count {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-folder__archived {
+  font-size: inherit;
+  letter-spacing: inherit;
+  color: var(--brass-bright);
+}
+.ml-folder__add {
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  padding: 0.75rem 1.25rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+.ml-folder__nofilter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 2.5rem var(--gutter);
+}
+.ml-folder__nofiltertitle {
+  font-size: 1.375rem;
+  color: var(--text-primary);
+}
+.ml-folder__clearfilter {
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0.75rem 1.125rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+
+/* Search, active (3b) */
+.ml-folder__searchhead {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.625rem var(--gutter) 0;
+  flex: 0 0 auto;
+}
+.ml-folder__searchfield {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border: var(--control-border) solid var(--brass);
+  padding: 0 1.125rem;
+  min-height: 3.25rem;
+  color: var(--brass-bright);
+  min-width: 0;
+}
+.ml-folder__searchinput {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 1rem;
+  caret-color: var(--brass-bright);
+}
+.ml-folder__clear {
+  flex: 0 0 auto;
+  width: 1.625rem;
+  height: 1.625rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+.ml-folder__cancel {
+  flex: 0 0 auto;
+  min-height: 2.75rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
+}
+.ml-searchrow {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  width: 100%;
+  padding: 1rem var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+.ml-searchrow__main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-searchrow__title {
+  font-size: 1.125rem;
+  color: var(--text-primary);
+}
+.ml-searchrow__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+/* The matched characters, brassed — every result shows why it is a result. */
+.ml-searchrow__hit {
+  color: var(--brass-bright);
+}
+
+/* First run (1e) */
+.ml-emptyfolder {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.25rem;
+  padding: 0 var(--gutter);
+  overflow-y: auto;
+}
+.ml-emptyfolder__title {
+  font-size: 1.625rem;
+  color: var(--text-primary);
+}
+.ml-emptyfolder__body {
+  max-width: 25.625rem; /* 410px */
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: #9a917f;
+}
+.ml-emptyfolder__phone {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 1.5rem;
+}
+.ml-emptyfolder__qr {
+  flex: 0 0 auto;
+  width: 8rem; /* 128px */
+  height: 8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  background: repeating-linear-gradient(45deg, #1b1e22 0 6px, #15171a 6px 12px);
+}
+.ml-emptyfolder__qrlabel {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.625rem;
+  color: var(--text-disabled);
+}
+.ml-emptyfolder__phonemain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.ml-emptyfolder__phonelabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  color: var(--brass);
+}
+.ml-emptyfolder__address {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.ml-emptyfolder__phonenote {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.ml-emptyfolder__add {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 1.125rem 1.25rem;
+  text-align: left;
+}
+.ml-emptyfolder__plus {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brass-bright);
+}
+.ml-emptyfolder__addtext {
+  flex: 1 1 auto;
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+/* Honestly labelled rather than hidden: typing on a wall really is slower, and saying so is
+   kinder than letting someone discover it a third of the way through a recipe. */
+.ml-emptyfolder__slower {
+  flex: 0 0 auto;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+.ml-emptyfolder .ml-mealrule {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ==========================================================================
+   7 · Recipe detail (1f / 1g / 5a)
+   ========================================================================== */
+
+.ml-recipe__skeleton {
+  flex: 1 1 auto;
+  padding: 2rem var(--gutter);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+.ml-recipe__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.8125rem var(--gutter) 0;
+}
+.ml-recipe__cuisine {
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  color: var(--brass);
+}
+.ml-recipe__times {
+  margin-left: auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+  text-align: right;
+}
+.ml-recipe__servings,
+.ml-edit__base {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem var(--gutter) 0.75rem;
+}
+.ml-recipe__servingsmain,
+.ml-edit__basemain {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-recipe__servingslabel,
+.ml-edit__baselabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  color: var(--brass);
+}
+.ml-recipe__ratio,
+.ml-edit__basenote {
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+.ml-recipe__lead {
+  margin: 0 var(--gutter);
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 1.25rem;
+}
+.ml-recipe__lead .ml-meallabel {
+  padding: 0 0 0.625rem;
+}
+.ml-recipe__leadline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+.ml-recipe__leadtick {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--brass);
+}
+/* Inert on purpose: the affordance is drawn so the shape of the feature is legible, and adding
+   notes is not in this stage. It is not styled as a live control. */
+.ml-recipe__leadadd {
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.9375rem 1.125rem;
+  font-size: 0.875rem;
+  color: var(--text-disabled);
+}
+.ml-recipe__lines {
+  padding: 0 var(--gutter);
+}
+.ml-recipe__subhead,
+.ml-edit__subhead {
+  padding: 1rem 0 0.25rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  color: #9a917f;
+}
+.ml-recipe__line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  padding: 0.75rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+/* An 8px gutter tick marks a line that scales; the same 8px as an empty spacer keeps the text
+   edge straight for the lines that do not. */
+.ml-recipe__tick {
+  flex: 0 0 0.5rem;
+  height: var(--hairline-px);
+  background: none;
+}
+.ml-recipe__tick--on {
+  background: var(--brass);
+}
+.ml-recipe__linetext {
+  flex: 1 1 auto;
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+.ml-recipe__linetext--raw {
+  color: var(--text-secondary);
+}
+.ml-recipe__aswritten {
+  flex: 0 0 auto;
+  font-size: 0.5625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-disabled);
+}
+.ml-recipe__steps {
+  padding: 0 var(--gutter);
+}
+.ml-recipe__step {
+  display: flex;
+  gap: 1rem;
+  padding: 0.75rem 0;
+}
+.ml-recipe__stepnum {
+  flex: 0 0 1.25rem;
+  font-size: 1.125rem;
+  color: var(--brass);
+}
+.ml-recipe__steptext {
+  flex: 1 1 auto;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ml-recipe__nomethod {
+  margin: 1rem var(--gutter);
+  border: var(--control-border) solid var(--rule-minor);
+  padding: 1.625rem 1.375rem;
+}
+.ml-recipe__nomethodtext {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.ml-recipe__nomethodactions {
+  display: flex;
+  gap: 0.875rem;
+  margin-top: 1.125rem;
+}
+.ml-recipe__addsteps {
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0.875rem 1.125rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+.ml-recipe__opensource {
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.875rem 1.125rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.ml-recipe__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 0.875rem;
+  border-top: var(--rule-brass-px) solid var(--brass);
+  background: var(--bg-nav);
+  padding: 1.125rem var(--gutter) 1.375rem;
+}
+.ml-recipe__plan {
+  flex: 1 1 auto;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  padding: 1rem 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  color: var(--brass-bright);
+}
+.ml-recipe__edit,
+.ml-recipe__cook {
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 1rem 1.25rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-recipe__cook {
+  border-color: var(--brass-dim);
+  color: var(--brass-bright);
+}
+/* The one terracotta control in the section. */
+.ml-recipe__trash {
+  flex: 0 0 3.25rem; /* 52px */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--danger);
+}
+.ml-recipe__delete {
+  margin: 1.25rem var(--gutter);
+  border: var(--control-border) solid var(--danger);
+  background: var(--bg-danger-soft);
+  padding: 1.25rem;
+}
+.ml-recipe__deletehead {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  color: var(--danger);
+}
+.ml-recipe__deletewhy {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ml-recipe__deleteactions {
+  display: flex;
+  gap: 0.875rem;
+  margin-top: 1.125rem;
+}
+.ml-recipe__keep {
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.875rem 1.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
+}
+.ml-recipe__holddelete {
+  flex: 1 1 auto;
+}
+.ml-recipe__delete .ml-mealrule {
+  padding: 1rem 0 0;
+}
+
+/* ==========================================================================
+   7c · Cook view (4d)
+   ========================================================================== */
+
+.ml-cook__header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.625rem var(--gutter) 0;
+  flex: 0 0 auto;
+}
+.ml-cook__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-cook__modes {
+  flex: 0 0 auto;
+  display: flex;
+  border: var(--control-border) solid var(--border-inactive);
+}
+.ml-cook__mode {
+  padding: 0.6875rem 0.875rem;
+  min-height: 2.75rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+.ml-cook__mode--active {
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-cook__servings {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem var(--gutter);
+}
+.ml-cook__servingsmain {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.ml-cook__servingsvalue {
+  font-size: 1.875rem; /* 30px */
+  color: var(--text-primary);
+}
+.ml-cook__servingslabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  color: var(--brass);
+}
+.ml-cook__steppers {
+  flex: 0 0 auto;
+  display: flex;
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-cook__adjust {
+  width: 3.5rem; /* 56px */
+  height: 3.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brass-bright);
+}
+.ml-cook__adjust + .ml-cook__adjust {
+  border-left: var(--control-border) solid var(--brass-dim);
+}
+.ml-cook__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem var(--gutter) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+}
+.ml-cook__counter {
+  font-size: 0.75rem;
+  letter-spacing: 0.32em;
+  color: var(--brass);
+}
+/* 26px. The whole point of the view: readable standing back, hands busy. */
+.ml-cook__text {
+  font-size: 1.625rem;
+  font-weight: 300;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+.ml-cook__uses {
+  border: var(--control-border) solid var(--rule-minor);
+  padding: 1.125rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.ml-cook__useslabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  color: #9a917f;
+}
+.ml-cook__use {
+  font-size: 1.25rem; /* 20px */
+  font-weight: 300;
+  color: var(--text-secondary);
+}
+.ml-cook__next {
+  font-size: 1.25rem;
+  font-weight: 300;
+  color: var(--text-disabled);
+}
+.ml-cook__nav {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.875rem var(--gutter) 0;
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-cook__back {
+  flex: 0 0 6rem; /* 96px */
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 1.25rem;
+  color: var(--text-muted);
+}
+.ml-cook__forward {
+  flex: 1 1 auto;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  padding: 1.25rem 0;
+  font-size: 0.8125rem;
+  letter-spacing: 0.24em;
+  color: var(--brass-bright);
+}
+.ml-cook__back:disabled,
+.ml-cook__forward:disabled {
+  opacity: 0.4;
+}
+.ml-cook__footnote {
+  flex: 0 0 auto;
+  padding-top: 0.625rem;
+}
+
+/* ==========================================================================
+   8 · Edit amounts (2d / 4e)
+   ========================================================================== */
+
+.ml-edit__save {
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  padding: 0.8125rem 1.25rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  color: var(--brass-bright);
+}
+/* Inert during a conflict: nothing is saved and nothing is discarded until a choice is made. */
+.ml-edit__save--inert,
+.ml-edit__save:disabled {
+  border-color: var(--border-inactive);
+  background: none;
+  color: var(--text-disabled);
+}
+.ml-edit__notice {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0.875rem var(--gutter) 0;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.875rem 1rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.ml-edit__notice svg {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+.ml-edit__lines {
+  padding: 0 var(--gutter);
+}
+.ml-edit__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5625rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-edit__amount,
+.ml-edit__amountro {
+  flex: 0 0 4.625rem; /* 74px */
+  min-height: 2.75rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: none;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  text-align: center;
+}
+.ml-edit__amountro {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ml-edit__amount--focus {
+  border-color: var(--brass-bright);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+/* A dashed edge says "this line has no amount yet" without a colour doing the talking. */
+.ml-edit__amount--unset {
+  border-style: dashed;
+  border-color: var(--border-inactive);
+}
+.ml-edit__amount::placeholder {
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  color: var(--text-disabled);
+}
+.ml-edit__unit {
+  flex: 0 0 3.625rem; /* 58px */
+  min-height: 2.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+.ml-edit__tail {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+.ml-edit__addline {
+  flex: 0 0 auto;
+  margin: 0.625rem var(--gutter) 0.75rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.875rem 1rem;
+  font-size: 0.875rem;
+  color: var(--brass-bright);
+  text-align: left;
+}
+.ml-edit__conflict {
+  margin: 0.875rem var(--gutter) 0;
+  border: var(--control-border) solid var(--alert);
+}
+.ml-edit__conflictmsg {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  padding: 1rem 1.125rem;
+  color: var(--alert);
+}
+.ml-edit__conflictmsg svg {
+  grid-row: span 2;
+  align-self: center;
+}
+.ml-edit__conflicttitle {
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  color: var(--alert);
+}
+.ml-edit__conflicttext {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.ml-edit__conflictactions {
+  display: flex;
+  border-top: var(--control-border) solid var(--border-inactive);
+}
+.ml-edit__keepmine,
+.ml-edit__usetheirs {
+  flex: 1 1 0;
+  padding: 0.9375rem 0;
+  min-height: 2.75rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+}
+.ml-edit__keepmine {
+  color: var(--brass-bright);
+}
+.ml-edit__usetheirs {
+  color: var(--text-muted);
+  border-left: var(--control-border) solid var(--border-inactive);
+}
+.ml-edit__diff {
+  padding: 0 var(--gutter) 0.75rem;
+}
+.ml-edit__diffname {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+.ml-edit__diffcells {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+.ml-edit__yours,
+.ml-edit__theirs {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.75rem 0.875rem;
+}
+.ml-edit__yours {
+  border: var(--control-border) solid var(--brass-bright);
+  background: var(--bg-active);
+}
+.ml-edit__theirs {
+  border: var(--control-border) solid var(--border-inactive);
+}
+.ml-edit__difflabel {
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+}
+.ml-edit__yours .ml-edit__difflabel {
+  color: var(--brass-bright);
+}
+.ml-edit__theirs .ml-edit__difflabel {
+  color: var(--text-muted);
+}
+.ml-edit__diffvalue {
+  font-size: 0.9375rem;
+}
+.ml-edit__yours .ml-edit__diffvalue {
+  color: var(--text-primary);
+}
+.ml-edit__theirs .ml-edit__diffvalue {
+  color: var(--text-secondary);
+}
+.ml-edit__diffwhy {
+  padding: 0.5rem var(--gutter) 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Amounts keypad — the OSK shell, three rows, no letters. */
+.ml-amountpad__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.125rem 0;
+}
+.ml-amountpad__hint {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-amountpad__done {
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  padding: 0.625rem 1.125rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  color: var(--brass-bright);
+}
+.ml-amountpad__key {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 1.0625rem;
+  padding: 1rem 0;
+}
+
+/* ==========================================================================
+   9 · Add a recipe (1h)
+   ========================================================================== */
+
+.ml-add__urlrow {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0 var(--gutter);
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0 1.25rem;
+  min-height: 3.5rem;
+}
+.ml-add__url {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  caret-color: var(--brass-bright);
+}
+/* Body-sized and in secondary text, not a 10px tracked micro-line. This sentence is the only thing
+   telling someone what happens to the link they just pasted, and the section's rule lines are the
+   dimmest type in the palette — fine for stating a rule, useless for answering "did that work?". */
+.ml-add__linknote {
+  padding: 0.75rem var(--gutter) 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ml-add__field {
+  display: block;
+  width: calc(100% - 2 * var(--gutter));
+  margin: 0 var(--gutter) 0.75rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  padding: 1rem 1.125rem;
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  resize: none;
+}
+.ml-add__field::placeholder {
+  color: var(--text-disabled);
+}
+.ml-add__field--lines {
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   11 · Meals settings (4f)
+   ========================================================================== */
+
+.ml-mealset__row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 1rem var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+/* Dinner's toggle is not rendered at all rather than drawn disabled: a control you can see and
+   cannot use invites the question "why not", every time. */
+.ml-mealset__row--locked .ml-mealset__name {
+  color: var(--text-secondary);
+}
+.ml-mealset__rowmain {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-mealset__name {
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+.ml-mealset__reason {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.ml-mealset__lockednote {
+  flex: 0 0 auto;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-dim);
+}
+.ml-mealset__time {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-mealset__timestep {
+  width: 2.75rem;
+  min-height: 2.75rem;
+  color: var(--brass-bright);
+  font-size: 1.125rem;
+}
+.ml-mealset__timevalue {
+  min-width: 4.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  border-left: var(--control-border) solid var(--brass-dim);
+  border-right: var(--control-border) solid var(--brass-dim);
+}
+.ml-mealset__chipx {
+  color: var(--text-disabled);
+  font-size: 0.625rem;
+}
+.ml-mealset__newchip {
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  padding: 0 1rem;
+  min-height: 2.75rem;
+  width: 8rem;
+  color: var(--text-primary);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+}
+.ml-mealset__newchip::placeholder {
+  color: var(--brass-bright);
+}
+
+/* ==========================================================================
+   12 · Dashboard TONIGHT row (1i)
+   ========================================================================== */
+
+.ml-tonight {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+}
+/* The shared .ml-row__main stacks with no gap, which reads as cramped next to the NEXT event rows
+   this sits above. Matching their rhythm rather than inventing a new one. */
+.ml-tonight .ml-row__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.ml-tonight__glyph {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+.ml-tonight__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  color: var(--text-muted);
+}
+.ml-tonight__empty {
+  font-size: 1.0625rem;
+  color: var(--text-disabled);
+}
+.ml-tonight__time {
+  flex: 0 0 auto;
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+}
+.ml-tonight__plan {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+.ml-tonight__chev {
+  flex: 0 0 auto;
+  font-size: 1.1875rem;
+  color: var(--brass-dim);
+}
+
+/* ==========================================================================
+   Night mode — inherited wholesale from NIGHT_MODE.md.
+   Amber and terracotta keep their hue (they are the two things that still have to read as
+   themselves at 3am); verdigris is dropped, which in this section means the folder's TONIGHT
+   marker falls back to ordinary text rather than glowing at nobody.
+   ========================================================================== */
+:root[data-nightmode='on'] .ml-histcol--live .ml-histcol__value {
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   MEAL GROUPS (MEALS_GROUPS) — a night made of several recipes.
+
+   A single-recipe night must look exactly as it did before this existed (§7), so everything below
+   renders only when there is more than one dish. Roles are a label column, never a badge: the dish
+   name is what gets read from across the room.
+   ========================================================================== */
+
+/* THE ORDER — the derived schedule. Static ruled rows on the home screen; the cook view is where a
+   component counts down (§2). */
+.ml-order {
+  padding: 0 var(--gutter);
+}
+.ml-order__head {
+  display: flex;
+  align-items: baseline;
+  padding: 1.25rem 0 0.375rem;
+}
+.ml-order__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.34em;
+  color: var(--brass);
+}
+.ml-order__from {
+  margin-left: auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+.ml-order__row {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  padding: 0.8125rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-order__time {
+  flex: 0 0 3.875rem; /* 62px */
+  font-size: 1.25rem;
+  color: var(--text-primary);
+}
+.ml-order__main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
+}
+.ml-order__title {
+  font-size: 1rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-order__role {
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+.ml-order__mins {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+/* The last row is the destination, not a task — no rule under it, and the time drops to muted so
+   the sequence visibly ends rather than continuing. */
+.ml-order__row--table {
+  border-bottom: none;
+}
+.ml-order__time--table {
+  color: var(--text-muted);
+}
+.ml-order__table {
+  font-size: 0.8125rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+
+/* Week row count on the Meals home — words, not chrome. */
+.ml-mealhome__daycount {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+
+/* ON THIS NIGHT — the arrangement block on the assign modal (§4.3). */
+.ml-assign__nighthead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+.ml-assign__nightlabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  color: var(--brass);
+}
+.ml-assign__nightmeta {
+  margin-left: auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+.ml-assign__nightrow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+}
+/* 52px role column. A label, never a badge. */
+.ml-assign__nightrole {
+  flex: 0 0 3.25rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-assign__nightrow:first-of-type .ml-assign__nightrole {
+  color: var(--brass);
+}
+.ml-assign__nighttitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-assign__nightx {
+  flex: 0 0 auto;
+  width: 2.75rem; /* 44px minimum target, up from the spec's 30px glyph */
+  min-height: 2.75rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+.ml-assign__addrecipe {
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.9375rem 1.125rem;
+  font-size: 0.875rem;
+  color: var(--brass-bright);
+  text-align: left;
+}
+
+/* The promote strip — brass, because a pairing worth naming is the system working, not an alert. */
+.ml-promote {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin: 0.875rem var(--gutter) 0;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  padding: 1rem 1.125rem;
+}
+.ml-promote__count {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  color: var(--brass);
+}
+.ml-promote__ask {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.ml-promote__actions {
+  display: flex;
+  gap: 0.75rem;
+}
+.ml-promote__name {
+  border: var(--control-border) solid var(--brass);
+  padding: 0 1.125rem;
+  min-height: 2.75rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+.ml-promote__no {
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-promote__input {
+  border: var(--control-border) solid var(--brass-bright);
+  background: var(--bg-screen);
+  padding: 0.75rem 0.875rem;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+/* Two-way ADD on the folder footer. */
+.ml-folder__addwrap {
+  display: flex;
+  gap: 0.625rem;
+}
+.ml-folder__addmeal {
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0.75rem 1.125rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+
+/* WHAT'S IN IT — a saved meal's components (MEALS_GROUPS §4.2). */
+.ml-mealparts {
+  padding: 0 var(--gutter);
+}
+.ml-mealparts__row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9375rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+/* 58px role column. Brass for the main, muted otherwise — the one visual difference between the
+   parts, and it is a label rather than a badge. */
+.ml-mealparts__role {
+  flex: 0 0 3.625rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+.ml-mealparts__role--main {
+  color: var(--brass);
+}
+.ml-mealparts__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  text-align: left;
+}
+.ml-mealparts__title {
+  font-size: 1.0625rem;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-mealparts__meta {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+.ml-mealparts__rolebtn,
+.ml-mealparts__x {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+.ml-mealparts__x:disabled {
+  opacity: 0.35;
+}
+.ml-mealparts__add {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem var(--gutter) 0;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.9375rem 1.125rem;
+  font-size: 0.875rem;
+  color: var(--brass-bright);
+  text-align: left;
+}
+.ml-mealparts__roles {
+  margin-left: auto;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+
+/* Cook view tabs (MEALS_GROUPS §4.5). The panel's underline-tab pattern; the step count beside each
+   name doubles as progress, so one glance answers "which dish" and "how far in". */
+.ml-cooktabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 1.75rem;
+  padding: 1rem var(--gutter) 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ml-cooktabs::-webkit-scrollbar {
+  display: none;
+}
+.ml-cooktabs__tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0 0 0.625rem;
+  min-height: 2.75rem;
+  border-bottom: max(2px, 0.125rem) solid transparent;
+  color: var(--text-muted);
+}
+.ml-cooktabs__tab--active {
+  border-bottom-color: var(--brass-bright);
+  color: var(--brass-bright);
+}
+.ml-cooktabs__name {
+  font-size: 0.9375rem;
+  letter-spacing: 0.1em;
+}
+.ml-cooktabs__count {
+  font-size: 0.6875rem;
+}
+
+/* The next-component strip. Hairline until its moment, amber at it — and that is the whole live
+   behaviour on this screen. Per-step timers are M4. */
+.ml-cooknext {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.875rem 1.125rem;
+  text-align: left;
+}
+.ml-cooknext__time {
+  flex: 0 0 auto;
+  font-size: 1.375rem;
+  color: var(--text-secondary);
+}
+.ml-cooknext__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.ml-cooknext__flag {
+  flex: 0 0 auto;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+.ml-cooknext--now {
+  border-color: var(--alert);
+}
+.ml-cooknext--now .ml-cooknext__time,
+.ml-cooknext--now .ml-cooknext__text {
+  color: var(--text-primary);
+}
+.ml-cooknext--now .ml-cooknext__flag {
+  color: var(--alert);
+}
+
+/* ==========================================================================
+   FORKING (MEALS_FORK) — your own version of a recipe.
+   ========================================================================== */
+
+/* The two-way SAVE. Neither option is styled as the safe one: saving over the recipe and saving
+   your own version are equally legitimate, and nudging toward either would be the panel having an
+   opinion about someone else's kitchen. */
+.ml-forkchoice {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  border-top: var(--rule-brass-px) solid var(--brass);
+  background: var(--bg-nav);
+  padding: 1.125rem var(--gutter) 1.375rem;
+}
+.ml-forkchoice__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  color: var(--brass);
+}
+.ml-forkchoice__opt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.9375rem 1.125rem;
+  text-align: left;
+}
+.ml-forkchoice__opt--fork {
+  border-color: var(--brass-dim);
+}
+.ml-forkchoice__opttitle {
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+.ml-forkchoice__optsub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.ml-forkchoice__cancel {
+  min-height: 2.75rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+
+/* The naming sheet (8a). */
+.ml-fork__name {
+  display: block;
+  width: calc(100% - 2 * var(--gutter));
+  margin: 0 var(--gutter);
+  border: var(--control-border) solid var(--brass);
+  background: none;
+  padding: 1.0625rem 1.125rem;
+  color: var(--text-primary);
+  font-size: 1.125rem;
+  caret-color: var(--brass-bright);
+}
+.ml-fork__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5625rem;
+  padding: 0.75rem var(--gutter) 0;
+}
+.ml-fork__chip {
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0 0.9375rem;
+  min-height: 2.75rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+.ml-fork__chip--active {
+  border-color: var(--brass-dim);
+  color: var(--text-secondary);
+}
+.ml-fork__diff {
+  padding: 0 var(--gutter);
+}
+.ml-fork__diffrow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  padding: 0.6875rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-fork__diffname {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-fork__was {
+  font-size: 0.8125rem;
+  color: var(--text-disabled);
+}
+.ml-fork__arrow {
+  font-size: 0.8125rem;
+  color: var(--brass-dim);
+}
+/* The new value is the only brass in the row — it is the thing that changed. */
+.ml-fork__now {
+  font-size: 0.8125rem;
+  color: var(--brass-bright);
+}
+.ml-fork__comes {
+  margin: 1rem var(--gutter) 0;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 1rem 1.125rem;
+}
+.ml-fork__comeslabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  color: #9a917f;
+}
+.ml-fork__comestext {
+  margin-top: 0.625rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.ml-fork__remember {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin-top: 0.875rem;
+  min-height: 2.75rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.ml-fork__safe {
+  padding: 0.875rem var(--gutter) 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* The conflict screen's third option — quieter than KEEP MINE / USE THEIRS on purpose. */
+.ml-edit__forkinstead {
+  width: 100%;
+  border-top: var(--control-border) solid var(--border-inactive);
+  padding: 0.9375rem 0;
+  min-height: 2.75rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+
+/* Lineage strip (8b) — permanent, not dismissible. A fact, not news. */
+.ml-lineage {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0.875rem var(--gutter) 0;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.875rem 1rem;
+}
+.ml-lineage__main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.ml-lineage__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  color: var(--text-muted);
+}
+.ml-lineage__parent {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+.ml-lineage__open {
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0 0.875rem;
+  min-height: 2.75rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--brass-bright);
+}
+
+/* A variation in the folder (8c) — indented under its original, title a step quieter so the
+   original reads as the head of the pair. Only one level ever renders. */
+.ml-reciperow--variation {
+  padding-left: calc(var(--gutter) + 1.375rem);
+  border-left: var(--control-border) solid var(--border-inactive);
+}
+.ml-reciperow--variation .ml-reciperow__title {
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+/* The read-only diff (8c). Both values muted, unlike the naming sheet's — nothing is "new" when
+   comparing two recipes that both already exist, and colouring one as the change takes a side. */
+.ml-diff__heads {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 1rem var(--gutter) 0;
+}
+.ml-diff__head {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-diff__head--mine {
+  color: var(--text-secondary);
+  text-align: right;
+}
+.ml-diff__arrow {
+  flex: 0 0 auto;
+  color: var(--brass-dim);
+}
+.ml-diff__was {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+.ml-diff__now {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.ml-lineage__chev {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

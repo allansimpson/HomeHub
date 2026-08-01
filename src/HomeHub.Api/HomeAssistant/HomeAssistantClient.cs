@@ -38,11 +38,41 @@ public sealed class HomeAssistantClient
 
     public bool IsConfigured => _options.IsConfigured;
 
+    /// <summary>
+    /// Runs one HA call, turning the client's own timeout into something that says so.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="HttpClient"/> reports a timeout as <see cref="TaskCanceledException"/> — the same
+    /// type it throws when the caller genuinely cancels. Those mean opposite things: "Home Assistant
+    /// is not answering" versus "nobody is waiting for this any more". Told apart only by whether the
+    /// caller's token is signalled, and reported identically as "A task was canceled", the pair sent
+    /// us hunting through HA, then SQL Server, then Microsoft Graph for a problem that was none of
+    /// them.
+    ///
+    /// <para>A real cancellation still surfaces as <see cref="OperationCanceledException"/>, so the
+    /// <c>when (ct.IsCancellationRequested)</c> guards in the providers keep working unchanged.</para>
+    /// </remarks>
+    private async Task<T> CallAsync<T>(string what, Func<Task<T>> call, CancellationToken ct)
+    {
+        try
+        {
+            return await call();
+        }
+        catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"Home Assistant did not answer {what} within {_http.Timeout.TotalSeconds:0}s.", ex);
+        }
+    }
+
     /// <summary>All entity states.</summary>
-    public async Task<IReadOnlyList<HaState>> GetStatesAsync(CancellationToken ct)
+    public Task<IReadOnlyList<HaState>> GetStatesAsync(CancellationToken ct)
     {
         EnsureConfigured();
-        return await _http.GetFromJsonAsync<List<HaState>>("api/states", ct) ?? [];
+        return CallAsync<IReadOnlyList<HaState>>(
+            "api/states",
+            async () => await _http.GetFromJsonAsync<List<HaState>>("api/states", ct) ?? [],
+            ct);
     }
 
     /// <summary>States whose entity id starts with <paramref name="entityIdPrefix"/> (e.g. <c>climate.</c>).</summary>
@@ -62,6 +92,36 @@ public sealed class HomeAssistantClient
         return await res.Content.ReadFromJsonAsync<HaState>(ct);
     }
 
+    /// <summary>
+    /// Recorded state changes for one or more entities over a window, newest series per entity.
+    /// </summary>
+    /// <remarks>
+    /// Home Assistant's recorder is the only history HomeHub has for entities it doesn't persist
+    /// itself, and it is finite: the default purge keeps <b>10 days</b>. A caller asking for 30 or 90
+    /// gets whatever survives, so check the oldest sample you got back before presenting the window as
+    /// complete — a short series drawn as a full one is a lie about how the box has been doing.
+    ///
+    /// <para><c>minimal_response</c> keeps attributes off every sample but the first, which is what
+    /// makes a multi-day pull over several sensors affordable on a wall panel.</para>
+    /// </remarks>
+    public async Task<IReadOnlyList<IReadOnlyList<HaState>>> GetHistoryAsync(
+        IEnumerable<string> entityIds, DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        EnsureConfigured();
+        var filter = string.Join(",", entityIds);
+        if (filter.Length == 0) return [];
+
+        var url = $"api/history/period/{Uri.EscapeDataString(from.UtcDateTime.ToString("o"))}"
+            + $"?filter_entity_id={Uri.EscapeDataString(filter)}"
+            + $"&end_time={Uri.EscapeDataString(to.UtcDateTime.ToString("o"))}"
+            + "&minimal_response&no_attributes";
+
+        return await CallAsync<IReadOnlyList<IReadOnlyList<HaState>>>(
+            "the recorder history",
+            async () => await _http.GetFromJsonAsync<List<List<HaState>>>(url, ct) ?? [],
+            ct);
+    }
+
     /// <summary>Call an HA service, e.g. <c>CallServiceAsync("climate", "set_temperature", payload, ct)</c>.</summary>
     public async Task CallServiceAsync(string domain, string service, object payload, CancellationToken ct)
     {
@@ -75,14 +135,17 @@ public sealed class HomeAssistantClient
     /// <c>calendar.{child}_events</c>; whether those payloads are structured enough for a history
     /// drill-in is Gate H0.3 and is judged by the caller, not here.
     /// </summary>
-    public async Task<IReadOnlyList<HaCalendarEvent>> GetCalendarEventsAsync(
+    public Task<IReadOnlyList<HaCalendarEvent>> GetCalendarEventsAsync(
         string entityId, DateTimeOffset start, DateTimeOffset end, CancellationToken ct)
     {
         EnsureConfigured();
         var from = Uri.EscapeDataString(start.UtcDateTime.ToString("s") + "Z");
         var to = Uri.EscapeDataString(end.UtcDateTime.ToString("s") + "Z");
         var url = $"api/calendars/{entityId}?start={from}&end={to}";
-        return await _http.GetFromJsonAsync<List<HaCalendarEvent>>(url, ct) ?? [];
+        return CallAsync<IReadOnlyList<HaCalendarEvent>>(
+            url,
+            async () => await _http.GetFromJsonAsync<List<HaCalendarEvent>>(url, ct) ?? [],
+            ct);
     }
 
     /// <summary>
@@ -132,7 +195,11 @@ public sealed record HaState(
     [property: JsonPropertyName("entity_id")] string? EntityId,
     [property: JsonPropertyName("state")] string? State,
     [property: JsonPropertyName("attributes")] JsonElement Attributes,
-    [property: JsonPropertyName("last_changed")] DateTimeOffset? LastChanged)
+    [property: JsonPropertyName("last_changed")] DateTimeOffset? LastChanged,
+    // `last_changed` only moves when the *value* changes; `last_updated` also moves on an
+    // attribute-only refresh, so it is the better "we heard from this device" signal. Optional
+    // because history under `minimal_response` omits both.
+    [property: JsonPropertyName("last_updated")] DateTimeOffset? LastUpdated = null)
 {
     /// <summary>HA's convention for "this entity has no meaningful value right now".</summary>
     public bool IsUnavailable =>

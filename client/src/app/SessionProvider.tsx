@@ -34,6 +34,16 @@ interface SessionState {
    * Unlike lockNow this always applies, PIN or not; switching profiles happens afterwards.
    */
   signOut: () => Promise<void>
+  /**
+   * Set (or clear, with null) the household's name for the cat.
+   *
+   * Lives here rather than in {@link LitterProvider} because it is panel-local: it is the one Litter
+   * setting that writes nowhere near Home Assistant and needs no robot round-trip, so it takes effect
+   * the instant it is saved rather than when the robot reports it back.
+   */
+  setCatName: (name: string | null) => Promise<void>
+  /** Drawer fullness (%) at which the panel asks for a litter change. Clamped 10–100 server-side. */
+  setLitterFullPercent: (percent: number) => Promise<void>
 }
 
 const SessionContext = createContext<SessionState | null>(null)
@@ -143,6 +153,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const setCatName = useCallback(async (name: string | null) => {
+    try {
+      setSettings(await api.setCatName(name))
+      setOffline(false)
+    } catch (err) {
+      if (err instanceof ApiError) setOffline(true)
+      else throw err
+    }
+  }, [])
+
+  const setLitterFullPercent = useCallback(async (percent: number) => {
+    try {
+      setSettings(await api.setLitterFullPercent(percent))
+      setOffline(false)
+    } catch (err) {
+      if (err instanceof ApiError) setOffline(true)
+      else throw err
+    }
+  }, [])
+
   const activeProfile = useMemo(
     () => profiles.find((p) => p.id === activeProfileId) ?? null,
     [profiles, activeProfileId],
@@ -162,8 +192,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       completeUnlock,
       lockNow,
       signOut,
+      setCatName,
+      setLitterFullPercent,
     }),
-    [profiles, settings, activeProfileId, activeProfile, locked, loading, offline, refresh, switchProfile, completeUnlock, lockNow, signOut],
+    [profiles, settings, activeProfileId, activeProfile, locked, loading, offline, refresh, switchProfile, completeUnlock, lockNow, signOut, setCatName, setLitterFullPercent],
   )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

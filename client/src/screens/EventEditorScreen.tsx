@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ScreenShell } from '../components'
+import { MarkBox, MarkPicker, ScreenShell } from '../components'
 import { Icon } from '../icons/Icon'
 import { useSession } from '../app/SessionProvider'
 import { useCalendar } from '../app/CalendarProvider'
 import { useWriteQueue } from '../app/WriteQueueProvider'
 import { api, ApiError } from '../api/client'
+import type { SyncCalendarDto } from '../api/types'
 import { formatTime, snapMinutes, monthName } from '../app/dates'
+import { markDefinition } from '../app/calendarMarks'
+import type { MarkKey } from '../app/calendarMarks'
 
 const STEP = 15 // minutes
 
@@ -61,6 +64,45 @@ export function EventEditorScreen() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const bindHold = useHoldRepeat()
 
+  /** The event's own mark, overriding its kind and its calendar's; null to inherit. */
+  const [mark, setMark] = useState<string | null>(null)
+  const [pickingMark, setPickingMark] = useState(false)
+
+  /**
+   * Which calendar a new event is written to. Null means the account's primary — the same default
+   * the server applies, so an unlinked panel behaves exactly as before.
+   */
+  const [calendarId, setCalendarId] = useState<string | null>(null)
+  const [calendars, setCalendars] = useState<SyncCalendarDto[]>([])
+  const [calendarName, setCalendarName] = useState<string | null>(null)
+
+  // Offer only calendars this account may write to *and* has chosen to display: an event written to
+  // a hidden calendar would vanish the moment it saved, and a read-only one refuses it outright.
+  useEffect(() => {
+    if (activeProfileId == null) {
+      setCalendars([])
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const all = await api.getCalendars(activeProfileId)
+        if (cancelled) return
+        const writable = all.filter((c) => c.selected && c.canWrite)
+        setCalendars(writable)
+        // Show the default rather than leaving it implied: a new event starts on the account's
+        // primary calendar, which is exactly what an unset target resolves to server-side.
+        setCalendarId((cur) => cur ?? writable.find((c) => c.isPrimary)?.calendarId ?? null)
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err
+        if (!cancelled) setCalendars([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeProfileId])
+
   useEffect(() => {
     if (editId == null) return
     let cancelled = false
@@ -75,6 +117,9 @@ export function EventEditorScreen() {
         setLocation(e.location ?? '')
         setNotes(e.notes ?? '')
         setVersion(e.version)
+        setMark(e.mark)
+        setCalendarId(e.googleCalendarId)
+        setCalendarName(e.calendarName)
       } catch (err) {
         if (!(err instanceof ApiError)) throw err
       }
@@ -128,16 +173,25 @@ export function EventEditorScreen() {
       ownerIds,
       // New events are created on the active profile's Google account (per-profile calendars).
       profileId: activeProfileId ?? null,
+      mark,
     }
     // Route through the offline write-queue: succeeds now, queues if offline, surfaces conflicts.
     if (editId == null) {
-      await run({ domain: 'calendar', method: 'POST', path: '/calendar/events', body: input, label: `Add “${input.title}”` })
+      // The target calendar is a create-time decision; moving an existing event between calendars is
+      // a Google operation the panel does not perform, so edit leaves it where it is.
+      await run({
+        domain: 'calendar',
+        method: 'POST',
+        path: '/calendar/events',
+        body: { ...input, googleCalendarId: calendarId },
+        label: `Add “${input.title}”`,
+      })
     } else {
       await run({ domain: 'calendar', method: 'PUT', path: `/calendar/events/${editId}`, body: input, baseVersion: version, label: `Edit “${input.title}”` })
     }
     await refresh()
     navigate('/calendar')
-  }, [title, start, end, location, notes, ownerIds, activeProfileId, editId, version, saving, run, refresh, navigate])
+  }, [title, start, end, location, notes, ownerIds, activeProfileId, mark, calendarId, editId, version, saving, run, refresh, navigate])
 
   const remove = useCallback(async () => {
     if (editId == null) return
@@ -148,6 +202,25 @@ export function EventEditorScreen() {
 
   const startT = formatTime(start)
   const endT = formatTime(end)
+  const markDef = markDefinition(mark)
+
+  if (pickingMark) {
+    return (
+      <MarkPicker
+        subject={title.trim() || 'this engagement'}
+        value={mark}
+        sample={`${title.trim() || 'New engagement'} · ${startT.time} ${startT.ampm}`}
+        noneLabel="Inherit"
+        showLocked={false}
+        note="A mark chosen here belongs to this engagement alone, and replaces whatever its kind or its calendar would have given it. Inherit puts it back."
+        onCancel={() => setPickingMark(false)}
+        onSave={(next: MarkKey) => {
+          setMark(next === 'none' ? null : next)
+          setPickingMark(false)
+        }}
+      />
+    )
+  }
 
   const header = (
     <header className="ml-header ml-editor-header">
@@ -234,6 +307,46 @@ export function EventEditorScreen() {
             ))}
             <button type="button" className={'ml-chip' + (allSelected ? ' ml-chip--active' : '')} onClick={toggleAll}>
               All
+            </button>
+          </span>
+        </div>
+
+        {/* CALENDAR — which one the event is written to. Chosen on create; stated on edit, because
+            moving an event between Google calendars is not something the panel does. */}
+        {editId == null
+          ? calendars.length > 1 && (
+              <div className="ml-evt__row ml-evt__row--stacked">
+                <span className="ml-evt__label">Calendar</span>
+                <span className="ml-evt__chips">
+                  {calendars.map((c) => (
+                    <button
+                      key={c.calendarId}
+                      type="button"
+                      // Single-select: an event lands on exactly one calendar, so there is no
+                      // "none" to toggle back to.
+                      className={'ml-chip' + (calendarId === c.calendarId ? ' ml-chip--active' : '')}
+                      onClick={() => setCalendarId(c.calendarId)}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            )
+          : calendarName && (
+              <div className="ml-evt__row">
+                <span className="ml-evt__label">Calendar</span>
+                <span className="ml-evt__stated">{calendarName}</span>
+              </div>
+            )}
+
+        {/* MARK — this event's own icon, overriding its kind and its calendar's (spec 14) */}
+        <div className="ml-evt__row">
+          <span className="ml-evt__label">Mark</span>
+          <span className="ml-evt__mark">
+            <MarkBox mark={markDef} onClick={() => setPickingMark(true)} label={title.trim() || 'this engagement'} />
+            <button type="button" className="ml-evt__markname" onClick={() => setPickingMark(true)}>
+              {markDef?.icon ? markDef.label : 'Inherited from its kind or calendar'}
             </button>
           </span>
         </div>

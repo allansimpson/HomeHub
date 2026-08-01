@@ -79,6 +79,8 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 :root {
   --rule-brass-px: 4px; /* double-rule brass bar (device px at 4K) */
   --rule-gap-px: 6px; /* gap inside the double-rule motif */
+  /* Calendar marks at rest — quieter than brass, warmer than muted text (spec 14). */
+  --mark-quiet: #8a7f68;
 }
 
 /* ---------- Screen shell ---------- */
@@ -394,31 +396,81 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 }
 
 /* ---------- Bottom nav ---------- */
-/* Exact per BOTTOM_NAV.md: own plane (#101215) + 2px brass top rule, 7 items space-around. */
+/* Own plane (#101215) + 2px brass top rule, 9 items.
+ *
+ * **Spaced by content, not by equal cells** — a deliberate departure from BOTTOM_NAV.md, made by
+ * the product owner. The original rule was `flex:1 1 0` on every item, which put the icons on a
+ * perfectly regular pitch but left the *whitespace* uneven, because the labels range from CAT at
+ * ~17 mock px to CALENDAR at ~50. Measured on the rendered bar, the gaps between labels varied
+ * 31–78 device px — a 2.5× spread the eye reads as ragged even though every centre was on the grid.
+ *
+ * `space-evenly` distributes the slack into ten identical gaps: one before the first item, one
+ * after the last, and one between each pair. That is why the side padding is now 0 — leaving it in
+ * would make the two outer gaps wider than the seven inner ones, which is the exact fault this is
+ * fixing. The trade, accepted knowingly: icon centres no longer sit on a regular pitch.
+ */
 .ml-nav {
   flex: 0 0 auto;
   display: flex;
-  justify-content: space-around;
-  align-items: center;
-  padding: 1rem 1.25rem 1.375rem; /* 16px 20px 22px */
+  align-items: stretch;
+  justify-content: space-evenly;
+  padding: 1rem 0 1.375rem; /* 16px 0 22px — see above for why the sides are 0 */
   background: var(--bg-nav);
   border-top: var(--rule-brass-px) solid var(--brass);
 }
 .ml-nav__item {
+  /* Sized to its own content rather than to a share of the bar. */
+  flex: 0 0 auto;
+  /* Uniform padding is what makes the *label* gaps uniform, and it is the whole trick here. With
+     every item padded by the same P and `space-evenly` distributing an equal gap G between cells,
+     the whitespace between any two adjacent labels is P + G + P — constant, whatever the words are.
+     A `min-width` floor breaks exactly that: it widens the short cells past their content, so the
+     labels inside them drift apart again. That was the earlier attempt, and it is why the spread
+     only fell to 2.0× instead of 1.0×. */
+  padding: 0 0.625rem;
+  /* Ceiling on how much a long word may claim.
+     Content-sizing alone let CLIMATE and WEATHER — the two widest labels, and adjacent — inflate
+     their cells, which pushed their normal-width icons 114px apart against 78px elsewhere. Capping
+     the cell trades a little label-gap evenness for icon-pitch evenness and lands both within about
+     1.15×. The labels still fit inside the cap; only their padding is squeezed, so nothing
+     truncates. */
+  max-width: 3.25rem;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 0.375rem; /* 6px */
   color: var(--text-disabled); /* #5F584B */
+}
+/* The 44px touch minimum, without letting it touch the layout.
+   `CAT` is a short word, and a content-sized cell around it is smaller than a fingertip. Rather
+   than widen the cell — which would put the gaps back — the hit area is grown past the cell with an
+   overlay. Half the inter-cell gap on each side, so adjacent targets meet exactly and never
+   overlap: an overlap would hand a tap in the gap to whichever item happened to be painted last. */
+.ml-nav__item::after {
+  content: '';
+  position: absolute;
+  /* 0.34375rem = 11 device px at the 1080 render width, which is half the 23px `space-evenly` gap.
+     Measured, not guessed: at 0.4375rem the neighbours overlapped by 5px, and an overlap hands a
+     tap in the gap to whichever item painted last. This lands the narrowest target (CAT) at 95px
+     against the 88px minimum, with the two sides meeting rather than crossing. */
+  inset: -0.5rem -0.34375rem;
 }
 /* Active tab = bright-brass icon + label only (no underline tick / diamond). */
 .ml-nav__item--active {
   color: var(--brass-bright); /* #C8A877 */
 }
+/* Tracking is 0.12em, not the 0.17em the eight-tab bar used (MEALS_NAV.md). It matters less now
+   that items are content-sized — a label can no longer clip its cell, because the cell is the
+   label — but it still governs how much of the bar the longest word claims, and therefore how
+   large the shared gap ends up. Loosening it back to 0.17em would widen CALENDAR and squeeze
+   every gap in the bar. */
 .ml-nav__label {
-  font-size: 0.5625rem; /* 9px */
-  letter-spacing: 0.28em;
+  font-size: 0.5rem; /* 8px */
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 /* ---------- Stepper (− / +) ---------- */
@@ -1141,22 +1193,55 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 .ml-calcell--selected {
   border: var(--control-border) solid var(--brass-dim);
 }
-.ml-calcell__dot {
-  width: 0.625rem; /* 10px */
-  height: 0.125rem;
-  background: var(--brass);
+/* ---------- Calendar marks (spec 14) ----------
+ * One icon per line item, in the month grid and in the agenda. The symbols carry no stroke-width of
+ * their own (see IconSprite) so it is set here: 1.7 at 13px, where a thinner line closes the
+ * birthday candle up, and 1.4 everywhere else. */
+.ml-mark {
+  stroke-width: 1.4;
+  color: var(--brass);
 }
-.ml-calcell--today .ml-calcell__dot {
-  background: var(--bg-screen);
+.ml-mark--grid {
+  stroke-width: 1.7;
+}
+/* A mark read off the title is a good guess, never a fact — grey says so. */
+.ml-mark--inferred {
+  color: var(--text-muted);
+}
+/* Terracotta is otherwise the destructive accent; spec 14 gives it to the medical cross alone. */
+.ml-mark--medical {
+  color: var(--danger);
+}
+
+/* Month-grid mark row: at most one icon, then a rule for the day's remaining events. */
+.ml-calcell__marks {
+  height: 0.875rem; /* 14px, held whether or not the day carries a mark */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1875rem; /* 3px */
+}
+.ml-calcell__rule {
+  width: 0.375rem; /* 6px */
+  height: 0.125rem;
+  background: var(--brass-gradient-end);
+}
+/* Today's cell is solid brass, so its mark and rule invert to brass ink to read against it. */
+.ml-calcell--today .ml-mark,
+.ml-calcell--today .ml-calcell__marks {
+  color: #2a2118;
+}
+.ml-calcell--today .ml-calcell__rule {
+  background: #2a2118;
 }
 .ml-cal-empty {
   padding: 1.5rem var(--gutter);
   font-size: 0.8125rem;
   color: var(--text-disabled);
 }
-/* Agenda rows */
+/* Agenda rows — 16px columns, wide enough that the mark slot reads as its own column (spec 14). */
 .ml-agenda {
-  gap: 0.875rem;
+  gap: 1rem;
 }
 .ml-agenda__time {
   flex: 0 0 auto;
@@ -1170,6 +1255,42 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   letter-spacing: 0.1em;
   margin-left: 0.25rem;
   color: var(--text-muted);
+}
+/* Mark slot: the row's first child, a fixed 26px box so every title starts on the same line. */
+.ml-agenda__mark {
+  flex: 0 0 auto;
+  width: 1.625rem; /* 26px */
+  height: 1.625rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* An event on an unmarked calendar: present, but silent. */
+.ml-agenda__nomark {
+  width: 0.4375rem; /* 7px */
+  height: 0.4375rem;
+  border: var(--control-border) solid var(--text-disabled);
+  transform: rotate(45deg);
+}
+.ml-agenda__allday {
+  font-size: 1.375rem; /* 22px */
+  white-space: nowrap;
+}
+.ml-agenda__meta {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 0.125rem;
+}
+.ml-agenda__chip {
+  flex: 0 0 auto;
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.3125rem 0.5rem;
 }
 .ml-agenda__owners {
   flex: 0 0 auto;
@@ -1348,9 +1469,27 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 .ml-evt__chips {
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap; /* the calendar list is as long as the account makes it */
 }
 .ml-evt__chips .ml-chip {
   flex: 1 1 0;
+}
+/* MARK field: the mark box plus the mark's name, both opening the picker. */
+.ml-evt__mark {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.ml-evt__markname {
+  font-size: 0.9375rem; /* 15px */
+  color: var(--text-secondary);
+  text-align: right;
+}
+/* A fact the editor states rather than a field it edits (the calendar of a saved event). */
+.ml-evt__stated {
+  font-size: 0.9375rem;
+  color: var(--text-muted);
 }
 .ml-evt__where {
   flex: 1 1 auto;
@@ -3235,6 +3374,143 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   text-transform: uppercase;
   color: var(--text-muted);
 }
+/* A standing fact about the data, not a summary of this screen — sits under the footer count. */
+.ml-settings__footnote {
+  padding: 0 var(--gutter) 0.9375rem;
+  font-size: 0.625rem; /* 10px */
+  line-height: 1.6;
+  color: var(--text-disabled);
+}
+
+/* ---------- Calendar mark controls (spec 14) ---------- */
+/* The mark box: one control on the left of a calendar row, and the picker's preview. */
+.ml-markbox {
+  flex: 0 0 auto;
+  width: 2.375rem; /* 38px */
+  height: 2.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+}
+.ml-markbox--empty {
+  border-style: dashed;
+  border-color: var(--border-inactive);
+  color: var(--text-disabled);
+  font-size: 0.875rem;
+}
+.ml-markbox:active {
+  background: var(--bg-active);
+}
+.ml-markbox--preview {
+  width: 2.625rem; /* 42px */
+  height: 2.625rem;
+  border-color: var(--brass);
+}
+/* An unmarked calendar row states its own absence, so it sits back from the marked ones. */
+.ml-row:has(.ml-markbox--empty) {
+  opacity: 0.55;
+}
+
+.ml-markpreview {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0.5rem var(--gutter);
+  padding: 0.8125rem 1rem; /* 13px 16px */
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-profile-selected);
+}
+.ml-markpreview__label {
+  color: var(--text-muted);
+}
+.ml-markpreview__sample {
+  margin-top: 0.25rem;
+  font-size: 0.9375rem; /* 15px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+}
+
+.ml-markgrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+  padding: 0.25rem var(--gutter) 0.75rem;
+}
+.ml-markgrid--locked {
+  grid-template-columns: repeat(4, 1fr);
+}
+.ml-markcell {
+  height: 4rem; /* 64px */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--mark-quiet);
+}
+.ml-markcell--selected {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-markcell__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+}
+.ml-markcell__caption {
+  font-size: 0.5rem; /* 8px */
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+/* The four the provider decides: dashed and inert, present only so an override makes sense. */
+.ml-markcell--locked {
+  height: 4.375rem; /* 70px */
+  gap: 0.375rem;
+  border-style: dashed;
+  background: #191b1f;
+}
+.ml-markcell__sub {
+  font-size: 0.4375rem; /* 7px */
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+/* A mark in a picker cell takes the cell's colour rather than the brass it draws in the agenda. */
+.ml-mark--pick {
+  color: inherit;
+}
+
+/* The OAuth callback to register with a provider. Set in the mono face and allowed to wrap at any
+   character: it is a string to be copied exactly, not read, and a silently truncated URI would be
+   worse than an ugly one. */
+.ml-settings__callback {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem; /* 6px */
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  padding: 0.75rem var(--gutter) 0.9375rem; /* 12px 34px 15px */
+}
+.ml-settings__callback-label {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-settings__callback-uri {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.4;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  -webkit-user-select: all;
+  user-select: all; /* one tap selects the whole string on a touch panel */
+}
+
 /* Row groups under a section label / search box: separators sit BETWEEN rows, so the leading
    row carries no top border (nothing hangs directly under the label or the search field). */
 .ml-listrows > .ml-row:first-child {
@@ -3425,10 +3701,50 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   margin-top: 0.75rem;
   padding-bottom: 0.5rem;
   border-bottom: var(--hairline-px) solid var(--rule-major);
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+/* The tappable/draggable caret surface. The real input sits behind this panel while the keyboard
+   is up, so this echo is what the user aims at — it has to behave like the text, not like a label.
+   touch-action:none keeps a horizontal drag as a caret drag rather than a scroll. */
+.ml-kb__echo {
+  flex: 1 1 auto;
+  min-width: 0;
+  touch-action: none;
+  cursor: text;
+  /* Selection is suppressed here on purpose: the caret is drawn, not native, and letting the
+     browser paint its own selection over per-character spans would double up the highlight. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Per-character box for hit-testing. Inline so wrapping and spacing stay identical to plain text. */
+.ml-kb__char {
+  display: inline;
+  white-space: pre-wrap;
+}
+/* Caret nudge — the always-works fallback when a fingertip can't hit a 12px glyph gap. */
+.ml-kb__nudge {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.375rem;
+}
+.ml-kb__nudge button {
+  width: 2.75rem;  /* 44px — full touch target */
+  height: 2.75rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  border: var(--control-border) solid var(--border-inactive);
+  background: transparent;
+  cursor: pointer;
+}
+.ml-kb__nudge button:active {
+  color: var(--brass-bright);
+  border-color: var(--brass);
+  background: var(--bg-active);
 }
 .ml-kb__value {
-  display: inline-flex;
-  align-items: center;
+  display: block;
   font-size: 1.625rem; /* Marcellus 26px */
   color: var(--text-primary);
   line-height: 1.2;
@@ -3486,4 +3802,1301 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   color: var(--brass-bright);
   font-size: 0.75rem;
   letter-spacing: 0.08em;
+}
+
+/* ============================================================================
+   Baby + Litter (BABY_SECTION.md / LITTER_SECTION.md)
+   Ledger rows and hairlines, no cards and no shadows — the same system as every
+   other section. Measurements are mock px on the 540×960 canvas, divided by 16.
+   ============================================================================ */
+
+/* ---------- Sync line (shared by both sections) ---------- */
+/* Dot + status under the double rule. The five integration states are told apart by wording as well
+   as colour, because "HA is down" and "the integration isn't there" need different fixes. */
+.ml-syncline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem var(--gutter);
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-syncline__dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  background: currentColor;
+}
+.ml-syncline__text {
+  flex: 1 1 auto;
+}
+.ml-syncline--live { color: var(--live-text); }
+.ml-syncline--warn { color: var(--brass-bright); }
+.ml-syncline--bad { color: var(--danger); }
+.ml-syncline--muted { color: var(--text-disabled); }
+.ml-syncline__meta { color: var(--text-muted); }
+
+/* ---------- Hold to confirm ---------- */
+/* The fill sweeps across for the hold duration; releasing early resets it and nothing fires. */
+.ml-hold {
+  position: relative;
+  overflow: hidden;
+  min-height: 6rem; /* 96px — a wall-panel tap target, never smaller */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  background: #1a1c1f;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-secondary);
+  text-align: center;
+  touch-action: none; /* the hold must not turn into a scroll gesture */
+}
+.ml-hold__fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: var(--bg-active);
+  pointer-events: none;
+}
+.ml-hold--destructive .ml-hold__fill {
+  background: var(--bg-danger-fill);
+}
+.ml-hold__body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+.ml-hold__label {
+  font-size: 0.8125rem; /* 13px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.ml-hold__meta {
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-hold--holding {
+  border-color: var(--brass);
+  color: var(--brass-bright);
+}
+.ml-hold--destructive {
+  border-color: var(--danger);
+  background: var(--bg-danger-soft);
+  color: var(--danger);
+}
+.ml-hold:disabled {
+  color: var(--text-disabled);
+  border-color: var(--rule-major);
+  background: transparent;
+}
+.ml-hold:disabled .ml-hold__meta {
+  color: var(--text-disabled);
+}
+/* The slim variant: a 6px track under the label instead of a sweep across the block. Used where the
+   button is a full-width band whose own layout must not change while it is held. */
+.ml-hold__track {
+  align-self: stretch;
+  height: 0.375rem; /* 6px */
+  background: #22262a;
+  border: var(--control-border) solid #2f3236;
+}
+.ml-hold__trackfill {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--brass-bright);
+}
+
+/* ---------- Baby ---------- */
+.ml-babygrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem; /* 10px */
+  padding: 0.625rem var(--gutter) 1rem;
+}
+.ml-baby__detail {
+  padding: 0 var(--gutter) 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+/* A failed baby write is shown, not queued. There is no retry and no undo upstream, so the only
+   honest response is to say it did not land. */
+.ml-baby__error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 var(--gutter) 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-danger-soft);
+  border-left: var(--hairline-px) solid var(--danger);
+  color: var(--danger);
+}
+.ml-baby__errortext {
+  flex: 1 1 auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+}
+
+/* Running nursing timer. Save and discard are separate controls because upstream they are separate
+   things: cancel saves no interval, complete writes the session to history. */
+.ml-nursing {
+  margin: 0 var(--gutter) 1rem;
+  padding: 1rem;
+  border: var(--control-border) solid var(--live-dim);
+}
+.ml-nursing__status {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-nursing__clock {
+  font-size: 3.5rem; /* 56px */
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+.ml-nursing__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.ml-nursing__finish {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+}
+
+/* ---------- Litter ---------- */
+/* The whole tab root is one column so the footer can be pushed to the bottom by `margin-top:auto`
+   rather than floating up under a short log. When the content does outgrow the panel it scrolls and
+   the log truncates — the footer is the last thing that should move. */
+.ml-litter__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* The status band. One rendering per fault class: the tone and the right-hand time label change,
+   the structure does not. */
+.ml-litter__status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem var(--gutter) 0.875rem;
+}
+.ml-litter__eyebrow {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* pylitterbot's own status text, verbatim — the household reads the same words in the Whisker app. */
+.ml-litter__statustext {
+  font-size: 1.9375rem; /* 31px */
+  line-height: 1.15;
+  margin: 0.125rem 0 0.25rem;
+}
+.ml-litter__statusclass {
+  font-size: 0.5625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-litter__statustime {
+  text-align: right;
+  flex: 0 0 auto;
+}
+.ml-litter__statusago {
+  font-size: 1.375rem; /* 22px */
+  margin-top: 0.125rem;
+}
+.ml-litter__status--live .ml-litter__statustext { color: var(--live-text); }
+.ml-litter__status--warn .ml-litter__statustext,
+.ml-litter__status--warn .ml-litter__statusago { color: var(--brass-bright); }
+.ml-litter__status--bad .ml-litter__statustext,
+.ml-litter__status--bad .ml-litter__statusago { color: var(--danger); }
+.ml-litter__status--muted .ml-litter__statustext { color: var(--text-muted); }
+.ml-litter__status--live .ml-litter__statusago { color: var(--brass); }
+
+/* Plain-language notes: why a control is missing, what a pause does. Left rule carries the tone. */
+.ml-litter__note {
+  margin: 0 var(--gutter) 0.875rem;
+  padding: 0.625rem 0.875rem;
+  border-left: var(--hairline-px) solid var(--rule-major);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ml-litter__note--live { border-left-color: var(--live-dim); }
+.ml-litter__note--warn { border-left-color: var(--brass-dim); }
+.ml-litter__note--bad {
+  border-left-color: var(--danger);
+  background: var(--bg-danger-soft);
+}
+
+/* Ledger rows that state their own limits. The sub-caption is doing real work here — it is where
+   "the robot does not say which cat" lives. */
+.ml-litter__rows {
+  padding: 0 var(--gutter) 0.875rem;
+}
+.ml-litter__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.75rem 0;
+  border-top: var(--control-border) solid var(--rule-minor);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  text-align: left;
+}
+.ml-litter__row--tap .ml-litter__rowval {
+  color: var(--brass-bright);
+}
+.ml-litter__rowsub {
+  margin-top: 0.1875rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-litter__rowtime {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+.ml-litter__rowval {
+  flex: 0 0 auto;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.ml-litter__rowval--live { color: var(--live-text); }
+.ml-litter__rowval--bad { color: var(--danger); }
+.ml-litter__rowval--brass { color: var(--brass-bright); }
+.ml-litter__rowval--muted { color: var(--text-disabled); }
+/* The unit rides the figure at a smaller size — `6.5 LB`, one value, not two. */
+.ml-litter__rowunit {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The event log — what the box has been doing, in sentences.
+
+   HA reports where the robot *is*, never how it got there, so every row is a status transition read
+   back out of the recorder. The times are absolute and belong to whichever day the sub-head names,
+   which is how a seventeen-hour-old reading ends up over rows headed YESTERDAY. */
+.ml-litter__log {
+  padding: 0 var(--gutter) 0.5rem;
+}
+.ml-litter__logday {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.25rem 0 0.1875rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-litter__logrow {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+.ml-litter__logtime {
+  flex: 0 0 auto;
+  min-width: 5.75rem; /* 92px — the times share a left edge whatever their width */
+  font-size: 1.125rem; /* 18px */
+  color: var(--text-muted);
+}
+.ml-litter__logtext {
+  flex: 1 1 auto;
+  font-size: 0.8125rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+/* The tag carries the outcome, and its colour is the whole point of it being a separate slot. */
+.ml-litter__logtag {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-litter__logtag--live { color: var(--live-text); }
+.ml-litter__logtag--accent { color: var(--live-accent); }
+.ml-litter__logtag--warn { color: var(--brass-bright); }
+.ml-litter__logtag--bad { color: var(--danger); }
+.ml-litter__logtag--muted { color: var(--text-disabled); }
+/* An empty window says so in a sentence — never a zero-count row and never a skeleton. */
+.ml-litter__logempty {
+  padding: 0.5rem 0;
+  font-size: 0.8125rem;
+  font-weight: var(--body-weight);
+  color: var(--text-muted);
+}
+
+.ml-litter__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  /* Pushed to the bottom of the column: the footer is the one band whose position must not depend on
+     how much the log happened to return. */
+  margin: auto var(--gutter) 0;
+  padding: 0.75rem 0 1rem;
+  border-top: var(--control-border) solid var(--rule-minor);
+}
+.ml-litter__footnote {
+  font-size: 0.5625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+/* Settings carries two notes rather than a note and a link, so they stack left-aligned. */
+.ml-litter__footer--stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+}
+
+/* The cat's name — panel-local, so it edits in place with no round-trip to wait for. */
+.ml-litter__catedit {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  background: none;
+  border: none;
+  text-align: right;
+}
+.ml-litter__catname {
+  font-size: 1.5rem; /* 24px */
+  color: var(--text-primary);
+}
+.ml-litter__catinput {
+  flex: 0 0 auto;
+  width: 9rem;
+  padding: 0.375rem 0.5rem;
+  background: var(--bg-screen);
+  border: var(--control-border) solid var(--brass-dim);
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+/* Drawer-full threshold stepper. Sits on the same row rhythm as the cat's name — both are panel-kept
+   settings the robot has no say in — so it borrows the brass hairline frame rather than inventing a
+   third control shape for one number. */
+.ml-litter__pct {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-litter__pctstep {
+  width: 2.75rem; /* 44px — the panel's minimum touch target */
+  min-height: 2.75rem;
+  color: var(--brass-bright);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+.ml-litter__pctstep:disabled {
+  color: var(--text-disabled);
+}
+.ml-litter__pctstep:active:not(:disabled) {
+  background: var(--bg-active);
+}
+.ml-litter__pctval {
+  min-width: 4.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-left: var(--control-border) solid var(--brass-dim);
+  border-right: var(--control-border) solid var(--brass-dim);
+  font-size: 1.25rem;
+  color: var(--text-primary);
+}
+
+/* The single clean-cycle control — the only command this hardware accepts.
+
+   Three treatments and never a fourth: available (below), blocked (a state row, not a dimmed
+   button), and — offline — absent entirely. */
+.ml-cleancycle {
+  padding: 0 var(--gutter) 1rem;
+}
+/* Available. A full-width bordered block, not a tile: RESET DRAWER / ADD LITTER / SLEEP MODE have no
+   entity on this hardware and are deleted rather than greyed, so there is no grid to sit in. */
+.ml-cleancycle__block {
+  width: 100%;
+  min-height: 0;
+  padding: 0.9375rem 1.125rem 0.875rem; /* 15/18/14 */
+}
+.ml-cleancycle__block .ml-hold__body {
+  width: 100%;
+  align-items: stretch;
+  gap: 0.6875rem; /* 11px */
+}
+.ml-cleancycle__block .ml-hold__label {
+  letter-spacing: normal;
+  text-transform: none;
+}
+.ml-cleancycle__row {
+  display: flex;
+  align-items: center;
+  gap: 0.8125rem; /* 13px */
+  color: var(--brass-bright);
+}
+.ml-cleancycle__title {
+  font-size: 0.8125rem; /* 13px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.ml-cleancycle__hold {
+  margin-left: auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-cleancycle__block:disabled .ml-cleancycle__row,
+.ml-cleancycle__block:disabled .ml-cleancycle__hold {
+  color: var(--text-disabled);
+}
+/* Blocked. Same geometry, ghost grey, and the label replaced by the *reason it cannot run* — never
+   still reading "run a clean cycle". It is a div with no handler, so a wall panel at cat height has
+   nothing here for a stray touch to find. */
+.ml-cleancycle__blocked {
+  display: flex;
+  align-items: center;
+  gap: 0.8125rem;
+  padding: 0.9375rem 1.125rem 0.875rem;
+  border: var(--control-border) solid #2f3236;
+  background: #17191c;
+  color: var(--text-disabled);
+}
+.ml-cleancycle__reason {
+  font-size: 0.8125rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.ml-cleancycle__state {
+  margin-left: auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+/* Only the available treatment is captioned: the sentence describes a command that can be issued
+   right now, and under a blocked block it would describe one that cannot. */
+.ml-cleancycle__caption {
+  margin-top: 0.5rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.7;
+  text-wrap: pretty;
+  color: var(--text-disabled);
+}
+
+/* Mid-cycle progress. A band, not a card — no box, no border around it, so it reads as part of the
+   status rather than as a panel of its own. */
+.ml-cycling {
+  padding: 0.875rem var(--gutter) 0.75rem;
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+.ml-cycling__track {
+  height: 0.5625rem; /* 9px, same as the gauges */
+  border: var(--control-border) solid #2f3236;
+  background: #22262a;
+  overflow: hidden;
+}
+/* Barber-pole, and deliberately no percentage anywhere: the fill is estimated from elapsed time,
+   not reported by Home Assistant. It never reaches 100% — the next snapshot replaces this view.
+
+   Two motions, doing different jobs. The width grows once a second from the elapsed-time estimate,
+   eased over a full second so it reads as continuous rather than stepping. The stripes travel
+   independently, which is what says "the globe is turning" during the stretches where the estimate
+   itself barely moves — a bar that only grew would look stalled between ticks. */
+.ml-cycling__bar {
+  display: block;
+  height: 100%;
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--brass) 0 0.4375rem,
+    #8f7245 0.4375rem 0.875rem
+  );
+  /* One tile = the gradient period projected onto the x axis (0.875rem × √2), so the loop is seamless. */
+  background-size: 1.2374rem 1.2374rem;
+  transition: width 1s linear;
+  animation: ml-barber 900ms linear infinite;
+}
+@keyframes ml-barber {
+  to { background-position: 1.2374rem 0; }
+}
+/* Motion here is decorative — the step list carries the same information in words. */
+@media (prefers-reduced-motion: reduce) {
+  .ml-cycling__bar {
+    animation: none;
+    transition: none;
+  }
+}
+.ml-cycling__head {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.5625rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The sequence — what the robot is doing, in sentences rather than protocol keys. */
+.ml-sequence {
+  padding: 0 var(--gutter) 1rem;
+}
+.ml-sequence__row {
+  display: flex;
+  align-items: center;
+  gap: 0.9375rem; /* 15px */
+  padding: 0.5625rem 0;
+  border-top: var(--control-border) solid var(--rule-minor);
+}
+.ml-sequence__num {
+  flex: 0 0 auto;
+  width: 1.375rem; /* 22px square cell */
+  height: 1.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid #2f3236;
+  font-size: 0.625rem;
+  color: var(--text-disabled);
+}
+.ml-sequence__label {
+  flex: 1 1 auto;
+  font-size: 0.875rem; /* 14px, sentence case */
+  color: var(--text-muted);
+}
+.ml-sequence__tag {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-sequence__row--done .ml-sequence__num { border-color: #4d422c; color: var(--live-text); }
+.ml-sequence__row--done .ml-sequence__label { color: var(--text-secondary); }
+.ml-sequence__row--done .ml-sequence__tag { color: var(--live-text); }
+.ml-sequence__row--now .ml-sequence__num { border-color: #4d422c; color: #e8c98d; }
+.ml-sequence__row--now .ml-sequence__label { color: var(--text-primary); }
+.ml-sequence__row--now .ml-sequence__tag { color: #e8c98d; }
+
+/* The physical instruction — the moment the panel earns its place on the wall. */
+.ml-needshuman {
+  margin: 0 var(--gutter) 0.875rem;
+  padding: 0.875rem 1rem;
+  background: var(--bg-danger-soft);
+  border-left: var(--hairline-px) solid var(--danger);
+  font-size: 1rem; /* 16px — read from across the room */
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* Range tabs on History. */
+.ml-range {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem var(--gutter);
+}
+
+/* Share of the window per fault class — one stacked bar, no axis. */
+.ml-share {
+  padding: 0.5rem var(--gutter) 1rem;
+}
+.ml-share__bar {
+  display: flex;
+  height: 0.875rem; /* 14px */
+  border: var(--control-border) solid var(--rule-major);
+  overflow: hidden;
+}
+.ml-share__seg {
+  display: block;
+  height: 100%;
+}
+.ml-share__seg--stable { background: var(--live-accent); }
+.ml-share__seg--catpresent { background: var(--live-dim); }
+.ml-share__seg--transient { background: var(--brass-dim); }
+.ml-share__seg--recoverable { background: var(--brass); }
+.ml-share__seg--needshuman { background: var(--danger); }
+.ml-share__seg--offline { background: var(--text-disabled); }
+.ml-share__seg--unknown { background: var(--rule-major); }
+.ml-share__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1rem;
+  margin-top: 0.625rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-share__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.ml-share__dot {
+  width: 0.375rem;
+  height: 0.375rem;
+}
+
+/* Drawer level, day by day. A day the recorder has nothing for is a gap, never a zero bar. */
+.ml-daybars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  height: 5rem;
+  padding: 0.5rem var(--gutter) 0;
+}
+.ml-daybars__col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  height: 100%;
+}
+.ml-daybars__track {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: var(--control-border) solid var(--rule-major);
+}
+.ml-daybars__bar {
+  width: 100%;
+  background: #3a352c;
+}
+.ml-daybars__bar--today {
+  background: var(--brass);
+}
+/* A day the recorder holds nothing for: a hatched stub at the baseline, the same treatment an
+   unknown gauge gets. Never a bar at zero — that would invent an empty drawer. */
+.ml-daybars__bar--unknown {
+  height: 0.25rem;
+  background-image: repeating-linear-gradient(
+    135deg,
+    #22262a 0,
+    #22262a 0.1875rem,
+    #2b2f33 0.1875rem,
+    #2b2f33 0.375rem
+  );
+}
+.ml-daybars__label {
+  font-size: 0.5rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+/* Pet weight: shape on the left, the figure that matters on the right. */
+.ml-weight {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.75rem var(--gutter) 0.25rem;
+}
+.ml-spark {
+  flex: 1 1 auto;
+  height: 2.5rem;
+  color: var(--live-accent);
+}
+.ml-spark--empty {
+  display: flex;
+  align-items: center;
+  font-size: 0.5625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-weight__now {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+.ml-weight__now .serif {
+  font-size: 2.25rem;
+  color: var(--text-primary);
+}
+.ml-weight__unit {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Settings — one segmented control per select entity. */
+.ml-setting {
+  padding: 0.875rem var(--gutter);
+  border-top: var(--control-border) solid var(--rule-minor);
+}
+.ml-setting__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.ml-setting__label {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+.ml-setting__current {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-setting__hint {
+  margin: 0.1875rem 0 0.625rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+/* Cells are laid out from the entity's own option list, so the count varies by robot. */
+.ml-segmented {
+  display: flex;
+  gap: 0.375rem;
+}
+.ml-segmented__cell {
+  flex: 1 1 0;
+  min-height: 3.25rem; /* 52px */
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.ml-segmented__cell--active {
+  background: var(--bg-active);
+  border-color: var(--brass);
+  color: #e8c98d;
+}
+.ml-segmented__cell:disabled {
+  color: var(--text-disabled);
+  border-color: var(--rule-major);
+}
+.ml-litter__controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+  padding: 0.625rem var(--gutter) 1rem;
+}
+.ml-litter__lock {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Levels. The waste drawer counts up toward full and litter counts down toward empty; the label
+   says which, so the bar never has to. Unknown is its own state — an unread level is never 0%. */
+.ml-gauge {
+  padding: 0.5rem var(--gutter) 0.75rem;
+}
+.ml-gauge__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.375rem;
+}
+.ml-gauge__label {
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+/* The judgement in words, beside the number: "room to spare", "unknown since the fault".
+
+   Colour lives here and not on the figure. A number that changes colour reads as an alarm about the
+   *reading*; the word beside it is what actually carries the judgement, so the ink stays ink. */
+.ml-gauge__note {
+  flex: 1 1 auto;
+  text-align: right;
+  font-size: 0.5625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-gauge__note--live { color: var(--live-text); }
+.ml-gauge__note--warn { color: var(--brass-bright); }
+.ml-gauge__note--bad { color: var(--danger); }
+/* Held and unknown are both statements about the reading rather than about the drawer, so neither
+   gets a judgement colour. */
+.ml-gauge__note--held,
+.ml-gauge__note--unknown { color: var(--text-muted); }
+.ml-gauge__value {
+  flex: 0 0 auto;
+  /* A fixed slot so the two gauges' digits share a right edge, whatever they read. */
+  min-width: 4.625rem; /* 74px */
+  text-align: right;
+  font-size: 1.625rem; /* 26px */
+  color: var(--text-primary);
+}
+.ml-gauge__value--unknown { color: var(--text-disabled); }
+/* A held reading is real but pre-dates the current motion: dimmed fill, timestamp in the note slot. */
+.ml-gauge__fill--held { background: #4d5f57; }
+.ml-gauge__track {
+  height: 0.5625rem; /* 9px — square caps, no gradient */
+  border: var(--control-border) solid var(--rule-major);
+}
+/* Unknown is hatched, never a bar at zero. Reading a null litter level as 0% would trip the
+   empty-globe alert on every cloud hiccup, so the two must never look alike. */
+.ml-gauge__track--unknown {
+  background-image: repeating-linear-gradient(
+    135deg,
+    #22262a 0,
+    #22262a 0.25rem,
+    #2b2f33 0.25rem,
+    #2b2f33 0.5rem
+  );
+}
+.ml-gauge__fill {
+  display: block;
+  height: 100%;
+}
+.ml-gauge__fill--live { background: var(--live-accent); }
+.ml-gauge__fill--warn { background: var(--brass); }
+.ml-gauge__fill--bad { background: var(--danger); }
+
+/* Auto-recovery band — replaces LEVELS while a fault is active, because a household watching the
+   box try to fix itself needs to see it happening and needs a way to stop it. */
+.ml-recovery {
+  margin: 0.5rem var(--gutter) 1rem;
+  padding: 1rem;
+  background: #1a1c1f;
+  border-left: var(--hairline-px) solid var(--brass);
+}
+.ml-recovery--human {
+  background: var(--bg-danger-soft);
+  border-left-color: var(--danger);
+}
+.ml-recovery {
+  background: #1b1810;
+  border: var(--control-border) solid var(--brass);
+  border-left-width: var(--hairline-px);
+}
+.ml-recovery__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+/* The live countdown to the next attempt — the single most reassuring number on the screen. */
+.ml-recovery__countdown {
+  font-size: 2.375rem; /* 38px */
+  line-height: 1.1;
+  color: var(--brass-bright);
+}
+.ml-recovery__attempt {
+  text-align: right;
+}
+.ml-recovery__attemptval {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  justify-content: flex-end;
+}
+.ml-recovery__attemptval .serif {
+  font-size: 1.75rem;
+  color: var(--text-primary);
+}
+.ml-recovery__of {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-recovery__track {
+  height: 0.375rem;
+  margin: 0.75rem 0 0.5rem;
+  background: var(--rule-major);
+}
+.ml-recovery__bar {
+  display: block;
+  height: 100%;
+  background: var(--brass);
+}
+.ml-recovery__stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Why the loop is deliberately waiting, in a plain sentence — not a status code. */
+.ml-recovery__hold {
+  margin-top: 0.75rem;
+  padding-top: 0.625rem;
+  border-top: var(--control-border) solid var(--brass-dim);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* ============================================================================
+   Notifications (NOTIFICATIONS.md) — one queue, three renderings.
+   ============================================================================ */
+
+/* The invisible strip that opens the drawer. Thin, full width, above everything, and it only
+   claims the pointer once a downward drag is unambiguous — otherwise it would eat header taps. */
+.ml-pulltab {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.5rem;
+  z-index: 60;
+  touch-action: none;
+}
+
+/* ---------- Live cards ---------- */
+/* Above the bottom nav, never over the header: the clock, date and weather stay legible while
+   something is arriving. */
+.ml-cards {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 7.125rem; /* 114px — clear of the nav */
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.ml-cards > * {
+  pointer-events: auto;
+}
+/* Opaque, full-bleed, with its own hairline: a transparent caption floating over the dashboard's
+   climate footer collides with it. */
+.ml-cards__caption {
+  width: 100%;
+  padding: 0.5rem var(--gutter);
+  background: var(--bg-screen);
+  border-top: var(--control-border) solid var(--rule-minor);
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ml-card {
+  position: relative;
+  width: calc(100% - var(--gutter) * 2);
+  padding: 0.75rem 1rem 0.875rem 1.125rem;
+  /* Every card face is fully opaque. Stepping an element's opacity composites its own background
+     and the dashboard reads straight through the card — depth here is border and ink only. */
+  background: #1a1c1f;
+  border: var(--control-border) solid var(--rule-major);
+  touch-action: none;
+  text-align: left;
+}
+.ml-card__rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--rule-major);
+}
+.ml-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+.ml-card__source {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-card__time {
+  font-size: 0.625rem;
+  color: var(--text-disabled);
+}
+.ml-card__headline {
+  margin-top: 0.1875rem;
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+/* Drains over the card's lifetime. Only on the front card, and only where the card will actually
+   time out — under a *wants you* card, which waits, a draining bar would be a lie. */
+.ml-card__timeout {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: currentColor;
+  animation: ml-card-timeout 12s linear forwards;
+}
+@keyframes ml-card-timeout {
+  from { width: 100%; }
+  to { width: 0; }
+}
+
+/* Accent by severity: terracotta wants you, the rest are worth knowing. */
+.ml-card--terracotta { border-color: var(--danger); color: var(--danger); }
+.ml-card--terracotta .ml-card__rail { background: var(--danger); }
+.ml-card--verdigris { border-color: var(--live-dim); color: var(--live-text); }
+.ml-card--verdigris .ml-card__rail { background: var(--live-accent); }
+.ml-card--brass { border-color: var(--brass-dim); color: var(--brass); }
+.ml-card--brass .ml-card__rail { background: var(--brass); }
+.ml-card--brass-bright { border-color: var(--brass); color: var(--brass-bright); }
+.ml-card--brass-bright .ml-card__rail { background: var(--brass-bright); }
+
+/* Recession: narrower, and stepped in border and ink — never in opacity. */
+.ml-card--d1 {
+  width: calc((100% - var(--gutter) * 2) * 0.93);
+  border-color: #33373b;
+  color: var(--text-muted);
+}
+.ml-card--d1 .ml-card__rail { background: #4a4438; }
+.ml-card--d1 .ml-card__headline { color: var(--text-muted); }
+.ml-card--d2 {
+  width: calc((100% - var(--gutter) * 2) * 0.86);
+  border-color: var(--rule-major);
+  color: var(--text-disabled);
+}
+.ml-card--d2 .ml-card__rail { background: #34322c; }
+.ml-card--d2 .ml-card__headline { color: var(--text-disabled); }
+
+/* ---------- Drawer ---------- */
+.ml-drawerwrap {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+.ml-drawer__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 10, 11, 0.74);
+}
+/* A sheet, not a screen — and no fixed height. It wraps its content, because a tail of empty
+   graphite between the last row and the handle reads as a broken screen. */
+.ml-drawer {
+  position: relative;
+  background: var(--bg-screen);
+  border-bottom: var(--rule-brass-px) solid var(--brass);
+  padding: 1.25rem 0 0;
+  max-height: 88vh;
+  overflow-y: auto;
+  touch-action: none;
+}
+.ml-drawer__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 var(--gutter);
+}
+.ml-drawer__title {
+  font-size: 1.6875rem; /* 27px */
+  color: var(--text-primary);
+}
+.ml-drawer__rule {
+  margin: 0.75rem var(--gutter) 0;
+  border-top: var(--rule-brass-px) solid var(--brass);
+}
+.ml-drawer__empty {
+  padding: 1.5rem var(--gutter);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+/* Grouped by severity, not by time: the question is "is anything waiting for me". */
+.ml-drawer__group {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 1rem var(--gutter) 0.5rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-drawer__grouplabel { color: var(--brass); }
+.ml-drawer__groupcount { color: var(--text-muted); }
+.ml-drawer__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0 1.125rem;
+}
+.ml-drawer__handle {
+  width: 4.875rem; /* 78px */
+  height: 4px;
+  background: var(--text-disabled);
+}
+.ml-drawer__hint {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+/* ---------- The shared notification row ---------- */
+.ml-notirow {
+  position: relative;
+  display: flex;
+  width: 100%;
+  padding: 0.875rem var(--gutter);
+  border-top: var(--control-border) solid var(--rule-minor);
+  text-align: left;
+}
+.ml-notirow__rail {
+  position: absolute;
+  left: var(--gutter);
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 3px;
+}
+.ml-notirow__body {
+  flex: 1 1 auto;
+  padding-left: 1.0625rem;
+}
+.ml-notirow__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.ml-notirow__source {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-notirow__time {
+  font-size: 0.625rem;
+  color: var(--text-disabled);
+}
+.ml-notirow__headline {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+.ml-notirow__meta {
+  display: block;
+  margin-top: 0.1875rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-notirow--terracotta .ml-notirow__rail { background: var(--danger); }
+.ml-notirow--terracotta .ml-notirow__source { color: var(--danger); }
+.ml-notirow--verdigris .ml-notirow__rail { background: var(--live-accent); }
+.ml-notirow--verdigris .ml-notirow__source { color: var(--live-text); }
+.ml-notirow--brass .ml-notirow__rail { background: var(--brass); }
+.ml-notirow--brass .ml-notirow__source { color: var(--brass); }
+.ml-notirow--brass-bright .ml-notirow__rail { background: var(--brass-bright); }
+.ml-notirow--brass-bright .ml-notirow__source { color: var(--brass-bright); }
+
+/* ---------- Inbox: tabs, source chips, clear bar ---------- */
+.ml-tabs {
+  display: flex;
+  padding: 0 var(--gutter);
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+.ml-tabs__tab {
+  flex: 1 1 0;
+  padding: 0.75rem 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+}
+.ml-tabs__tab--active {
+  color: var(--brass-bright);
+  border-bottom-color: var(--brass);
+}
+
+/* This is the settings surface itself — there is no screen behind it, which is why the design has
+   no "WHAT NOTIFIES" link: it would point at content a few hundred pixels above itself. */
+.ml-sourcechips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.25rem var(--gutter) 1rem;
+}
+.ml-sourcechip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border: var(--control-border) solid var(--rule-major);
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-sourcechip__dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  background: var(--text-disabled);
+}
+.ml-sourcechip--on {
+  border-color: var(--live-dim);
+  color: var(--text-secondary);
+}
+.ml-sourcechip--on .ml-sourcechip__dot {
+  background: var(--live-text);
+}
+
+.ml-clearbar {
+  padding: 0 var(--gutter) 1rem;
+}
+.ml-clearbar__btn {
+  width: 100%;
+  min-height: 3.75rem; /* 60px */
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+/* ---------- Bell badge ---------- */
+.ml-bell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--brass-bright);
+}
+/* Terracotta block, not a circle, and it carries the true unread count rather than the number of
+   visible cards. */
+.ml-bell__badge {
+  min-width: 1.3125rem; /* 21px */
+  min-height: 1.3125rem;
+  padding: 0 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger);
+  color: var(--bg-screen);
+  font-size: 0.6875rem;
 }

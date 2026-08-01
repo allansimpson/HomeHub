@@ -23,6 +23,9 @@ public sealed class NotConnectedLitterRobotProvider : ILitterRobotProvider
 
     public Task<IReadOnlyList<LitterRobotSnapshot>> GetFreshSnapshotsAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<LitterRobotSnapshot>>([]);
+
+    public Task<LitterRobotHistory?> GetHistoryAsync(string slug, int days, CancellationToken ct) =>
+        Task.FromResult<LitterRobotHistory?>(null);
 }
 
 /// <summary>Command seam stand-in; every rung refuses rather than pretending to have acted.</summary>
@@ -39,4 +42,14 @@ public sealed class NotConnectedLitterRobotCommands : ILitterRobotCommands
     public Task ShortResetAsync(string slug, CancellationToken ct) => throw new NotSupportedException(Message);
 
     public Task PowerCycleAsync(string slug, CancellationToken ct) => throw new NotSupportedException(Message);
+
+    public Task ResetWasteDrawerAsync(string slug, CancellationToken ct) => throw new InvalidOperationException(Message);
+
+    public Task ResetLitterLevelAsync(string slug, CancellationToken ct) => throw new InvalidOperationException(Message);
+
+    public Task SetSwitchAsync(string slug, LitterRobotSwitch which, bool on, CancellationToken ct) =>
+        throw new InvalidOperationException(Message);
+
+    public Task SetSelectAsync(string slug, LitterRobotSelect which, string option, CancellationToken ct) =>
+        throw new InvalidOperationException(Message);
 }

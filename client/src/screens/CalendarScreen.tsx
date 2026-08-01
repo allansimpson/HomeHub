@@ -6,6 +6,8 @@ import { useSession } from '../app/SessionProvider'
 import { api, ApiError } from '../api/client'
 import type { CalendarEventDto, ProfileDto } from '../api/types'
 import { addMonths, dayKey, formatTime, isSameDay, monthGrid, monthName, startOfMonth, weekdayName } from '../app/dates'
+import { isAllDay, markDefinition, markMeta, resolveDayMark, resolveMark } from '../app/calendarMarks'
+import type { CalendarMarks, MarkKey, ResolvedMark } from '../app/calendarMarks'
 
 const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
@@ -22,6 +24,7 @@ export function CalendarScreen() {
   const [activeMonth, setActiveMonth] = useState(() => startOfMonth(new Date()))
   const [selected, setSelected] = useState(() => new Date())
   const [events, setEvents] = useState<CalendarEventDto[]>([])
+  const [calendarMarks, setCalendarMarks] = useState<CalendarMarks>(() => new Map())
 
   const load = useCallback(async () => {
     const from = startOfMonth(activeMonth)
@@ -49,7 +52,48 @@ export function CalendarScreen() {
     }
   }, [load])
 
-  const eventDays = useMemo(() => new Set(events.map((e) => dayKey(new Date(e.startUtc)))), [events])
+  // The household's calendar → mark assignments (spec 14, axis 2). Absent unless Google is
+  // configured and linked; every failure just means no calendar marks, never a broken month.
+  useEffect(() => {
+    if (activeProfileId == null) {
+      setCalendarMarks(new Map())
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const cals = await api.getCalendars(activeProfileId)
+        if (cancelled) return
+        const marks = new Map<string, MarkKey>()
+        for (const c of cals) {
+          const def = markDefinition(c.icon)
+          if (def && def.icon) marks.set(c.calendarId, def.key)
+        }
+        setCalendarMarks(marks)
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err
+        if (!cancelled) setCalendarMarks(new Map())
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [activeProfileId])
+
+  /** One mark per day plus the count of events beyond it — the grid never draws a second icon. */
+  const dayMarks = useMemo(() => {
+    const byDay = new Map<string, CalendarEventDto[]>()
+    for (const e of events) {
+      const key = dayKey(new Date(e.startUtc))
+      const list = byDay.get(key)
+      if (list) list.push(e)
+      else byDay.set(key, [e])
+    }
+    const out = new Map<string, ReturnType<typeof resolveDayMark>>()
+    for (const [key, list] of byDay) out.set(key, resolveDayMark(list, calendarMarks))
+    return out
+  }, [events, calendarMarks])
+
   const grid = useMemo(() => monthGrid(activeMonth), [activeMonth])
   const today = new Date()
 
@@ -102,7 +146,8 @@ export function CalendarScreen() {
             const inMonth = day.getMonth() === activeMonth.getMonth()
             const isToday = isSameDay(day, today)
             const isSel = isSameDay(day, selected)
-            const hasEvents = eventDays.has(dayKey(day))
+            // Adjacent-month cells draw no marks at all — the month's own shape must stay readable.
+            const marks = inMonth ? dayMarks.get(dayKey(day)) : undefined
             return (
               <button
                 key={i}
@@ -116,7 +161,7 @@ export function CalendarScreen() {
                 onClick={() => pickDay(day)}
               >
                 <span className="ml-calcell__num serif">{day.getDate()}</span>
-                {hasEvents && <span className="ml-calcell__dot" aria-hidden="true" />}
+                <DayMarks marks={marks} />
               </button>
             )
           })}
@@ -133,7 +178,13 @@ export function CalendarScreen() {
           <div className="ml-cal-empty">Nothing scheduled</div>
         ) : (
           agenda.map((e) => (
-            <AgendaRow key={e.id} event={e} profiles={profiles} onClick={() => navigate(`/calendar/edit/${e.id}`)} />
+            <AgendaRow
+              key={e.id}
+              event={e}
+              mark={resolveMark(e, calendarMarks)}
+              profiles={profiles}
+              onClick={() => navigate(`/calendar/edit/${e.id}`)}
+            />
           ))
         )}
       </ScrollArea>
@@ -141,19 +192,83 @@ export function CalendarScreen() {
   )
 }
 
-function AgendaRow({ event, profiles, onClick }: { event: CalendarEventDto; profiles: ProfileDto[]; onClick: () => void }) {
+/**
+ * The mark row under a month-grid numeral: at most one 13px icon, plus a 6×2 rule for every event
+ * beyond it. A day whose events resolve to no mark still carries the rule — otherwise an unmarked
+ * calendar would render a busy Tuesday as an empty one.
+ */
+function DayMarks({ marks }: { marks?: { mark: ResolvedMark | null; drawn: number } }) {
+  // The row keeps its 14px whether or not the day has anything in it, so every numeral in the month
+  // sits on the same line.
+  const drawn = marks?.drawn ?? 0
+  return (
+    <span className="ml-calcell__marks" aria-hidden="true">
+      {marks?.mark?.icon && <Icon id={marks.mark.icon} size="0.8125rem" className={markClass(marks.mark, 'ml-mark--grid')} />}
+      {drawn > 0 && (drawn > 1 || !marks?.mark) && <span className="ml-calcell__rule" />}
+    </span>
+  )
+}
+
+/** Tone classes: a title-inferred mark renders grey, medical terracotta, everything else brass. */
+function markClass(mark: ResolvedMark, extra?: string): string {
+  return (
+    'ml-mark' +
+    (extra ? ` ${extra}` : '') +
+    (mark.source === 'inferred' ? ' ml-mark--inferred' : '') +
+    (mark.key === 'medical' ? ' ml-mark--medical' : '')
+  )
+}
+
+/** The 26px mark slot that leads every agenda row; an unmarked event keeps its place with a diamond. */
+function AgendaMark({ mark }: { mark: ResolvedMark }) {
+  return (
+    <span className="ml-agenda__mark" aria-hidden="true">
+      {mark.icon ? (
+        <Icon id={mark.icon} size="1.375rem" className={markClass(mark)} />
+      ) : (
+        <span className="ml-agenda__nomark" />
+      )}
+    </span>
+  )
+}
+
+function AgendaRow({
+  event,
+  mark,
+  profiles,
+  onClick,
+}: {
+  event: CalendarEventDto
+  mark: ResolvedMark
+  profiles: ProfileDto[]
+  onClick: () => void
+}) {
   const start = formatTime(new Date(event.startUtc))
   const owners = profiles.filter((p) => event.ownerIds.includes(p.id))
+  const allDay = isAllDay(event)
+  const meta = markMeta(event, mark)
   return (
     <button className="ml-row ml-row--tappable ml-agenda" onClick={onClick} type="button">
+      <AgendaMark mark={mark} />
       <span className="ml-agenda__time serif">
-        {start.time}
-        <span className="ml-agenda__ampm">{start.ampm}</span>
+        {allDay ? (
+          <span className="ml-agenda__allday">All day</span>
+        ) : (
+          <>
+            {start.time}
+            <span className="ml-agenda__ampm">{start.ampm}</span>
+          </>
+        )}
       </span>
       <div className="ml-row__main">
         <div className="ml-row__title ml-clamp2">{event.title}</div>
         {event.location && <div className="ml-row__sub">{event.location}</div>}
+        {meta && <div className="ml-agenda__meta">{meta}</div>}
       </div>
+      {/* A guess is still labelled as one. The converse badge — crediting Google when it stated the
+          kind itself — was dropped: a birthday that is right needs no citation, and the row is
+          narrow enough that the label cost more than it explained. */}
+      {mark.source === 'inferred' && <span className="ml-agenda__chip">Inferred</span>}
       <div className="ml-agenda__owners">
         {owners.map((o) => (
           <span key={o.id} className="ml-ownerchip">{o.initial}</span>

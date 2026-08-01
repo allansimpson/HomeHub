@@ -8,8 +8,11 @@ import { useCalendar } from '../app/CalendarProvider'
 import { useTasks } from '../app/TasksProvider'
 import { useClimate } from '../app/ClimateProvider'
 import { useConnection } from '../app/ConnectionProvider'
+import { useMeals } from '../app/MealsProvider'
 import { Stepper } from '../components'
+import { Icon } from '../icons/Icon'
 import { formatTime } from '../app/dates'
+import { entryFor, startBy, todayKey } from '../app/mealsDomain'
 import type { ZoneReadingDto, CalendarEventDto, TaskItemDto, ClimateZoneDto } from '../api/types'
 
 /** Rooms shown before the dashboard collapses the rest into an "ALL N ROOMS" link (no-scroll). */
@@ -19,10 +22,17 @@ const NEXT_PREVIEW = 2
 /** Open tasks shown before the TASKS section collapses the rest. */
 const TASKS_PREVIEW = 3
 
-/** Route an alert source ("sensor:3", "weather") to its screen. */
+/**
+ * Route an alert source ("sensor:3", "weather", "cat:litter_robot_4") to its screen.
+ *
+ * `cat:` is handled explicitly. It used to fall through to the trailing `/sensor` default, so
+ * tapping a Litter-Robot alert on the dashboard opened the sensor history — a screen with nothing
+ * on it about the robot that raised the banner.
+ */
 function alertTarget(source: string): string {
   const [kind, id] = source.split(':')
   if (kind === 'weather') return '/weather'
+  if (kind === 'cat') return '/litter'
   return kind === 'sensor' && id ? `/sensor?zone=${id}` : '/sensor'
 }
 
@@ -56,7 +66,19 @@ export function DashboardScreen() {
   const tasksPreview = dueTasks.slice(0, TASKS_PREVIEW)
   const tasksHidden = dueTasks.length - tasksPreview.length
 
-  const topAlert = alerts[0]
+  /**
+   * The most serious active alert — severe first, otherwise whatever else is raised.
+   *
+   * This was narrowed to severe-only on the premise that everything else "arrives as a notification"
+   * instead. That premise is not true yet: only Baby and the Litter recovery loop call
+   * `NotificationService.RecordAsync`, and nothing converts sensor, climate or weather alerts into
+   * notifications at all. Four of the five seeded thresholds raise at *warning* severity, so the
+   * narrowing left the freezer warming up with no surface on the home screen whatsoever.
+   *
+   * Revert this to severe-only once an alert→notification bridge actually exists — at which point
+   * the original reasoning (banner plus card says the same thing twice) becomes correct.
+   */
+  const topAlert = alerts.find((a) => a.severity === 'Severe') ?? alerts[0]
   const preview = zones.slice(0, HOUSE_PREVIEW)
   const hidden = zones.length - preview.length
   const houseWell = alerts.every((a) => a.type !== 'sensor')
@@ -71,6 +93,8 @@ export function DashboardScreen() {
       banner={
         topAlert && (
           <AlertBanner
+            // The title and the hazard stripe follow the alert, rather than asserting "Severe" over
+            // a warning — the stripe is what marks the difference between the two at a glance.
             title={topAlert.severity === 'Severe' ? 'Severe Alert' : 'Alert'}
             detail={topAlert.message}
             severe={topAlert.severity === 'Severe'}
@@ -96,6 +120,9 @@ export function DashboardScreen() {
           label="Next"
           status={upcoming.length === 0 ? 'No engagements' : `${upcoming.length} ${upcoming.length === 1 ? 'engagement' : 'engagements'}`}
         />
+        {/* Tonight sits at the top of NEXT (MEALS_SCREEN §12): on a wall panel at 17:00, dinner is
+            the nearest thing on the schedule, and it is the one row people walk over to read. */}
+        <TonightRow />
         {nextPreview.length === 0 ? (
           <LedgerRow
             title={<span style={{ color: 'var(--text-muted)' }}>Nothing scheduled</span>}
@@ -200,6 +227,57 @@ function NextRow({ event, hero, onClick }: { event: CalendarEventDto; hero: bool
         <div className="ml-row__title">{event.title}</div>
         {sub && <div className="ml-row__sub">{sub}</div>}
       </div>
+    </button>
+  )
+}
+
+/**
+ * The dashboard's TONIGHT row (MEALS_SCREEN §12).
+ *
+ * Right-hand value is the start-by time where there is one and the duration otherwise, because
+ * "start at 17:55" is a thing you can act on and "45 min" is only a thing you can plan around.
+ * A free-text night renders its text with no chevron — there is nothing behind it to open.
+ */
+function TonightRow() {
+  const navigate = useNavigate()
+  const { week, recipes, settings } = useMeals()
+
+  const today = todayKey()
+  const entry = entryFor(week?.days.find((d) => d.date === today), 'Dinner')
+  const recipe = entry?.recipeId != null ? recipes.find((r) => r.id === entry.recipeId) : undefined
+  const timing = startBy(settings.dinnerTime, recipe?.totalMinutes ?? null, new Date())
+
+  if (!entry) {
+    return (
+      <button className="ml-row ml-row--flush ml-row--tappable ml-tonight" type="button" onClick={() => navigate('/meals')}>
+        <span className="ml-tonight__glyph" aria-hidden="true"><Icon id="ico-meals" size="1.375rem" /></span>
+        <div className="ml-row__main">
+          <div className="ml-tonight__label">Tonight</div>
+          <div className="ml-tonight__empty">Nothing planned</div>
+        </div>
+        <span className="ml-tonight__plan">PLAN IT</span>
+      </button>
+    )
+  }
+
+  const drills = entry.recipeId != null
+  return (
+    <button
+      className="ml-row ml-row--flush ml-row--tappable ml-tonight"
+      type="button"
+      onClick={() => (drills ? navigate(`/meals/recipes/${entry.recipeId}`) : navigate('/meals'))}
+    >
+      <span className="ml-tonight__glyph" aria-hidden="true"><Icon id="ico-meals" size="1.375rem" /></span>
+      <div className="ml-row__main">
+        <div className="ml-tonight__label">Tonight</div>
+        <div className="ml-row__title">{entry.freeText ?? entry.recipeTitle}</div>
+      </div>
+      {timing && (
+        <span className="ml-tonight__time serif">
+          {timing.lateBy > 0 ? 'NOW' : timing.start}
+        </span>
+      )}
+      {drills && <span className="ml-tonight__chev" aria-hidden="true">›</span>}
     </button>
   )
 }

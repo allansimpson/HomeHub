@@ -46,7 +46,18 @@ public class CalendarController : ControllerBase
     {
         if (_calendar is not ICalendarListSyncProvider lister)
             return StatusCode(501, "Calendar selection needs Google configured.");
-        return Ok(await lister.GetCalendarsAsync(profileId, ct));
+
+        try
+        {
+            return Ok(await lister.GetCalendarsAsync(profileId, ct));
+        }
+        catch (GoogleAuthException ex)
+        {
+            // 409, not 500 and not an empty list. The account is linked and Google is refusing the
+            // token, which is neither a fault in this app nor "no calendars on this account" — it is
+            // a person needing to sign in again, and the screen says exactly that.
+            return Conflict(new { needsReauth = true, detail = ex.Message });
+        }
     }
 
     /// <summary>Replace which calendars a profile displays (empty = show none).</summary>
@@ -56,6 +67,20 @@ public class CalendarController : ControllerBase
         if (_calendar is not ICalendarListSyncProvider lister)
             return StatusCode(501, "Calendar selection needs Google configured.");
         await lister.SetSelectedCalendarsAsync(input.ProfileId, input.SelectedCalendarIds ?? [], ct);
+        return NoContent();
+    }
+
+    /// <summary>Set (or clear) the icon shown for one calendar's events.</summary>
+    [HttpPut("calendars/icon")]
+    public async Task<IActionResult> SetCalendarIcon(SetCalendarIconInput input, CancellationToken ct)
+    {
+        if (_calendar is not ICalendarListSyncProvider lister)
+            return StatusCode(501, "Calendar icons need Google configured.");
+        if (string.IsNullOrWhiteSpace(input.CalendarId)) return BadRequest("A calendar is required.");
+        var stored = await lister.SetCalendarIconAsync(input.ProfileId, input.CalendarId, input.Icon, ct);
+        // Answering 204 when nothing was written is what made this look like it saved: the panel had
+        // already drawn the mark, and only a later reload revealed it had gone nowhere.
+        if (!stored) return Conflict("That calendar is hidden. Show it before giving it a mark.");
         return NoContent();
     }
 

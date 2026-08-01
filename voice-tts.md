@@ -193,7 +193,7 @@ The codebase speaks through two independent Piper invocations, split by initiato
 
 | Initiator | Path | Reaches `ITextToSpeech`? |
 |---|---|---|
-| Wake word ("Hey Barnaby") | `voice-bridge` → `/api/voice/transcribe` → `/api/assistant/chat` → **local `PiperTTS` → `aplay` on the Pi** | **No** — bypasses the API's TTS entirely |
+| Wake word ("Hey Barnaby" / "Oh Barnaby") | `voice-bridge` → `/api/voice/transcribe` → `/api/assistant/chat` → **local `PiperTTS` → `aplay` on the Pi** | **No** — bypasses the API's TTS entirely |
 | Panel touch / on-screen | `speech.ts` → `POST /api/voice/speak` → `PiperTextToSpeech` → `new Audio().play()`, browser `speechSynthesis` as fallback | Yes |
 
 The bridge (`voice-bridge/homehub_voice/bridge.py`, `tts.py`) runs its own

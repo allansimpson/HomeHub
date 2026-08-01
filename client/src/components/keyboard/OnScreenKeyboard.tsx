@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 
 /**
  * Global on-screen keyboard for the wall panel (KEYBOARD.md). The kiosk has no hardware keyboard,
@@ -86,6 +87,9 @@ export function OnScreenKeyboard() {
   const original = useRef('')
   const fieldRef = useRef<Field | null>(null)
   fieldRef.current = field
+  // The echo's own box, used to hit-test a tap/drag back to a character index.
+  const echoRef = useRef<HTMLDivElement | null>(null)
+  const echoDragging = useRef(false)
 
   const multiline = field instanceof HTMLTextAreaElement
   const masked = field instanceof HTMLInputElement && field.type === 'password'
@@ -144,12 +148,85 @@ export function OnScreenKeyboard() {
     el.addEventListener('input', sync)
     el.addEventListener('keyup', sync)
     el.addEventListener('click', sync)
+    // Dragging the caret through existing text moves the selection without necessarily ending in a
+    // `click` — a pointer that travels is a drag, not a tap. Without these the real caret lands
+    // where you dropped it but the echo keeps showing the old position, so the next key appears to
+    // insert in the wrong place. `selectionchange` is the event that actually covers caret motion;
+    // `select` and `pointerup` are belt-and-braces for the drag-release itself.
+    el.addEventListener('select', sync)
+    el.addEventListener('pointerup', sync)
+    document.addEventListener('selectionchange', sync)
     return () => {
       el.removeEventListener('input', sync)
       el.removeEventListener('keyup', sync)
       el.removeEventListener('click', sync)
+      el.removeEventListener('select', sync)
+      el.removeEventListener('pointerup', sync)
+      document.removeEventListener('selectionchange', sync)
     }
   }, [field, sync])
+
+  /**
+   * Put the caret at `index` in the real field and mirror it into the echo.
+   *
+   * The field itself is usually scrolled behind this panel while the keyboard is up, so the echo
+   * is the only text the user can actually see and aim at. That makes the echo — not the input —
+   * the surface that has to accept caret placement.
+   */
+  const moveCaret = useCallback((index: number) => {
+    const el = fieldRef.current
+    if (!el) return
+    const i = Math.max(0, Math.min(index, el.value.length))
+    try { el.setSelectionRange(i, i) } catch { /* number inputs don't support selection */ }
+    setCaret(i)
+  }, [])
+
+  /**
+   * Nearest character boundary to a screen point. Each rendered character carries its index, so
+   * this compares the pointer against both edges of each glyph and takes the closest — which makes
+   * "tap in the gap between two letters" land where you meant rather than always rounding one way.
+   * Wrapped textarea text is filtered to the line under the pointer first, so a tap on line 2
+   * can't snap to a nearer-looking glyph on line 1.
+   */
+  const caretIndexFromPoint = useCallback((x: number, y: number) => {
+    const root = echoRef.current
+    if (!root) return null
+    const chars = Array.from(root.querySelectorAll<HTMLElement>('[data-ci]'))
+    if (chars.length === 0) return 0
+
+    const online = chars.filter((c) => {
+      const r = c.getBoundingClientRect()
+      return y >= r.top && y <= r.bottom
+    })
+    const pool = online.length > 0 ? online : chars
+
+    let best = 0
+    let bestDistance = Infinity
+    for (const c of pool) {
+      const r = c.getBoundingClientRect()
+      const i = Number(c.dataset.ci)
+      if (Math.abs(x - r.left) < bestDistance) { bestDistance = Math.abs(x - r.left); best = i }
+      if (Math.abs(x - r.right) < bestDistance) { bestDistance = Math.abs(x - r.right); best = i + 1 }
+    }
+    return best
+  }, [])
+
+  const onEchoDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const i = caretIndexFromPoint(e.clientX, e.clientY)
+    if (i === null) return
+    echoDragging.current = true
+    // Capture so a drag that leaves the echo box keeps steering the caret instead of dying.
+    e.currentTarget.setPointerCapture(e.pointerId)
+    moveCaret(i)
+  }, [caretIndexFromPoint, moveCaret])
+
+  const onEchoMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!echoDragging.current) return
+    const i = caretIndexFromPoint(e.clientX, e.clientY)
+    if (i !== null) moveCaret(i)
+  }, [caretIndexFromPoint, moveCaret])
+
+  const endEchoDrag = useCallback(() => { echoDragging.current = false }, [])
 
   const insert = useCallback((text: string) => {
     const el = fieldRef.current
@@ -228,11 +305,35 @@ export function OnScreenKeyboard() {
           <button type="button" className="ml-kb__save" onClick={commit}>Save</button>
         </div>
         <div className="ml-kb__field">
-          <span className="ml-kb__value serif">
-            {display.slice(0, caret)}
-            <span className="ml-kb__caret" aria-hidden="true" />
-            {display.slice(caret)}
-          </span>
+          {/* Characters are rendered individually so a tap or drag can be resolved back to an
+              index. touch-action is off so the drag steers the caret instead of scrolling. */}
+          <div
+            className="ml-kb__echo"
+            ref={echoRef}
+            onPointerDown={onEchoDown}
+            onPointerMove={onEchoMove}
+            onPointerUp={endEchoDrag}
+            onPointerCancel={endEchoDrag}
+          >
+            <span className="ml-kb__value serif">
+              {display.length === 0 && <span className="ml-kb__caret" aria-hidden="true" />}
+              {[...display].map((ch, i) => (
+                <span key={i}>
+                  {i === caret && <span className="ml-kb__caret" aria-hidden="true" />}
+                  <span className="ml-kb__char" data-ci={i}>{ch}</span>
+                </span>
+              ))}
+              {display.length > 0 && caret >= display.length && (
+                <span className="ml-kb__caret" aria-hidden="true" />
+              )}
+            </span>
+          </div>
+          {/* Precise placement is hard with a fingertip on a wall panel, so the caret can always
+              be walked a character at a time. This is the path that cannot fail a hit-test. */}
+          <div className="ml-kb__nudge">
+            <button type="button" aria-label="Move caret left" onClick={() => moveCaret(caret - 1)}>◀</button>
+            <button type="button" aria-label="Move caret right" onClick={() => moveCaret(caret + 1)}>▶</button>
+          </div>
         </div>
       </div>
 

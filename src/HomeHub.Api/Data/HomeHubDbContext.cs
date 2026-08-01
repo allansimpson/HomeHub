@@ -4,6 +4,9 @@ using HomeHub.Api.Alerts;
 using HomeHub.Api.Calendar;
 using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
+using HomeHub.Api.Meals;
+using HomeHub.Api.Notifications;
+using HomeHub.Api.Pantry;
 using HomeHub.Api.Profiles;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Settings;
@@ -67,6 +70,62 @@ public class HomeHubDbContext : DbContext
 
     /// <summary>Litter-Robot auto-recovery attempts — the 24h cap's memory and the flaky-vs-broken audit trail.</summary>
     public DbSet<LitterRobotRecovery> LitterRobotRecoveries => Set<LitterRobotRecovery>();
+
+    /// <summary>The one notification queue behind the live cards, the drawer and the inbox.</summary>
+    public DbSet<Notification> Notifications => Set<Notification>();
+
+    /// <summary>Which sources are allowed to notify.</summary>
+    public DbSet<NotificationSourceSetting> NotificationSources => Set<NotificationSourceSetting>();
+
+    /// <summary>The household's own recipe folder — owned outright, not a cache (Stage M1).</summary>
+    public DbSet<Recipe> Recipes => Set<Recipe>();
+
+    /// <summary>Ingredient lines; raw text authoritative, parsed fields best-effort (Stage M1).</summary>
+    public DbSet<RecipeIngredient> RecipeIngredients => Set<RecipeIngredient>();
+
+    /// <summary>Instruction steps, in position order (Stage M1).</summary>
+    public DbSet<RecipeStep> RecipeSteps => Set<RecipeStep>();
+
+    /// <summary>Free-text tags driving the recipe folder's filters (Stage M1).</summary>
+    public DbSet<RecipeTag> RecipeTags => Set<RecipeTag>();
+
+    /// <summary>The week plan — one entry per recipe on a date + slot (Stage M1, widened in M3).</summary>
+    public DbSet<MealPlanEntry> MealPlanEntries => Set<MealPlanEntry>();
+
+    /// <summary>Named templates that expand into an arrangement of recipes (MEALS_GROUPS §3).</summary>
+    public DbSet<Meal> Meals => Set<Meal>();
+
+    /// <summary>A recipe's role and place within a saved meal.</summary>
+    public DbSet<MealComponent> MealComponents => Set<MealComponent>();
+
+    /// <summary>What the house has — one row per thing the household names, not per package (Stage M5).</summary>
+    public DbSet<PantryItem> PantryItems => Set<PantryItem>();
+
+    /// <summary>The pantry ledger. Four screens read nothing else — see <see cref="PantryEvent"/>.</summary>
+    public DbSet<PantryEvent> PantryEvents => Set<PantryEvent>();
+
+    /// <summary>Barcodes the panel knows how to name. Ships empty and is grown by `NAME IT`.</summary>
+    public DbSet<ProductCatalogueEntry> ProductCatalogue => Set<ProductCatalogueEntry>();
+
+    /// <summary>The recipe-ingredient → pantry-item join that makes the stock check possible.</summary>
+    public DbSet<IngredientAlias> IngredientAliases => Set<IngredientAlias>();
+
+    /// <summary>The household's own grocery list. Microsoft To Do is a projection of this.</summary>
+    public DbSet<GroceryLine> GroceryLines => Set<GroceryLine>();
+
+    /// <summary>Which nights want a grocery line — several per row after a merge.</summary>
+    public DbSet<GroceryLineSourceRef> GroceryLineSources => Set<GroceryLineSourceRef>();
+
+    /// <summary>Single household row (id 1) naming the mirrored To Do list and its token owner.</summary>
+    public DbSet<GroceryMirrorSettings> GroceryMirror => Set<GroceryMirrorSettings>();
+
+    /// <summary>Orders that arrived, pending review. Nothing is written until `PUT n AWAY`.</summary>
+    public DbSet<OrderImport> OrderImports => Set<OrderImport>();
+
+    public DbSet<OrderImportLine> OrderImportLines => Set<OrderImportLine>();
+
+    /// <summary>Plan entries whose stock check was dismissed with "Leave it, I'll sort it".</summary>
+    public DbSet<StockCheckDismissal> StockCheckDismissals => Set<StockCheckDismissal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -177,6 +236,7 @@ public class HomeHubDbContext : DbContext
             entity.Property(e => e.OwnerTags).HasMaxLength(120);
             entity.Property(e => e.GoogleCalendarId).HasMaxLength(200);
             entity.Property(e => e.CalendarName).HasMaxLength(200);
+            entity.Property(e => e.Mark).HasMaxLength(40);
             entity.HasIndex(e => e.StartUtc);
             entity.HasIndex(e => e.GoogleId);
             entity.HasIndex(e => new { e.ProfileId, e.StartUtc });
@@ -254,6 +314,264 @@ public class HomeHubDbContext : DbContext
             // The rolling-24h cap query is (slug, started) — index it, since the recovery loop runs it
             // on every tick that finds a fault.
             entity.HasIndex(r => new { r.Slug, r.StartedAtUtc });
+        });
+
+        // ---- Notifications ----
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.Property(n => n.Source).HasMaxLength(40).IsRequired();
+            entity.Property(n => n.Label).HasMaxLength(80).IsRequired();
+            entity.Property(n => n.Severity).HasMaxLength(20).IsRequired();
+            entity.Property(n => n.Accent).HasMaxLength(20).IsRequired();
+            entity.Property(n => n.Headline).HasMaxLength(300).IsRequired();
+            entity.Property(n => n.Meta).HasMaxLength(200);
+            entity.Property(n => n.Route).HasMaxLength(200);
+            entity.Property(n => n.DedupeKey).HasMaxLength(200).IsRequired();
+            // One row per occurrence, enforced rather than hoped for: the alert feed is re-polled
+            // every 30s and the app restarts, and neither may tell the household the same thing twice.
+            entity.HasIndex(n => n.DedupeKey).IsUnique();
+            // The list is always "newest first, last seven days".
+            entity.HasIndex(n => n.AtUtc);
+        });
+
+        modelBuilder.Entity<NotificationSourceSetting>(entity =>
+        {
+            entity.Property(s => s.Source).HasMaxLength(40).IsRequired();
+            entity.HasIndex(s => s.Source).IsUnique();
+        });
+
+        // ---- Stage M1: Meals — recipes + week plan ----
+        modelBuilder.Entity<Recipe>(entity =>
+        {
+            // Lengths come from MealFieldLimits so the controllers can reject overlong input against
+            // the same numbers — see that file for why a literal here would be a latent 500.
+            entity.Property(r => r.Title).HasMaxLength(MealFieldLimits.Title).IsRequired();
+            entity.Property(r => r.Description).HasMaxLength(MealFieldLimits.Description);
+            entity.Property(r => r.SourceUrl).HasMaxLength(MealFieldLimits.Url);
+            entity.Property(r => r.SourceName).HasMaxLength(MealFieldLimits.SourceName);
+            entity.Property(r => r.YieldText).HasMaxLength(MealFieldLimits.YieldText);
+            entity.Property(r => r.ImagePath).HasMaxLength(MealFieldLimits.ImagePath);
+            entity.Property(r => r.ImageSourceUrl).HasMaxLength(MealFieldLimits.Url);
+            entity.Property(r => r.IncompleteReason).HasMaxLength(MealFieldLimits.IncompleteReason);
+            entity.Property(r => r.PrepNote).HasMaxLength(MealFieldLimits.PrepNote);
+            // ModifiedByProfileId is an id, not a relationship. Left unconstrained on purpose: a
+            // deleted profile must not take the recipe with it, nor block its own deletion, and the
+            // read path already treats an unresolvable id as "no attribution" (RecipesController).
+            entity.HasIndex(r => r.Title);
+            // The folder's default query is "not archived, by title".
+            entity.HasIndex(r => new { r.IsArchived, r.Title });
+            // SourceUrl is deliberately NOT indexed. It is nvarchar(1000) = 2000 bytes, over SQL
+            // Server's 1700-byte nonclustered key limit: the index would be created with a warning
+            // and then fail inserts for any URL past ~850 characters. When Stage M2 wants
+            // import-dedupe it should add an indexed hash column rather than shortening the URL,
+            // since long tracking tails are exactly what recipe links carry.
+        });
+
+        modelBuilder.Entity<RecipeIngredient>(entity =>
+        {
+            entity.Property(i => i.RawText).HasMaxLength(MealFieldLimits.IngredientRawText).IsRequired();
+            entity.Property(i => i.Unit).HasMaxLength(MealFieldLimits.Unit);
+            entity.Property(i => i.Name).HasMaxLength(MealFieldLimits.IngredientName);
+            entity.Property(i => i.Note).HasMaxLength(MealFieldLimits.Note);
+            entity.Property(i => i.SectionHeading).HasMaxLength(MealFieldLimits.SectionHeading);
+            // Quantities are fractional ("0.5 cup") but never precise enough to want floating point.
+            entity.Property(i => i.Quantity).HasPrecision(9, 3);
+            entity.HasOne(i => i.Recipe)
+                .WithMany(r => r.Ingredients)
+                .HasForeignKey(i => i.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(i => new { i.RecipeId, i.Position });
+        });
+
+        modelBuilder.Entity<RecipeStep>(entity =>
+        {
+            entity.Property(s => s.Text).HasMaxLength(MealFieldLimits.StepText).IsRequired();
+            entity.Property(s => s.SectionHeading).HasMaxLength(MealFieldLimits.SectionHeading);
+            entity.HasOne(s => s.Recipe)
+                .WithMany(r => r.Steps)
+                .HasForeignKey(s => s.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(s => new { s.RecipeId, s.Position });
+        });
+
+        modelBuilder.Entity<RecipeTag>(entity =>
+        {
+            entity.Property(t => t.Tag).HasMaxLength(MealFieldLimits.Tag).IsRequired();
+            entity.HasOne(t => t.Recipe)
+                .WithMany(r => r.Tags)
+                .HasForeignKey(t => t.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // A recipe carries a given tag once; the tag list is also queried on its own for the filter row.
+            entity.HasIndex(t => new { t.RecipeId, t.Tag }).IsUnique();
+            entity.HasIndex(t => t.Tag);
+        });
+
+        modelBuilder.Entity<MealPlanEntry>(entity =>
+        {
+            entity.Property(e => e.FreeText).HasMaxLength(MealFieldLimits.FreeText);
+            // NOT unique any more. A night can hold a main, a side and a dessert (MEALS_GROUPS §6.1),
+            // so (Date, Slot) identifies an *arrangement* rather than a row. The index stays because
+            // every read is still "the entries on this slot" — it is the uniqueness that had to go,
+            // not the lookup. Ordering within the slot is Position.
+            entity.HasIndex(e => new { e.Date, e.Slot, e.Position });
+            // Deleting a planned recipe does NOT wipe the plan: RecipesController first rewrites those
+            // entries to free text so "what we ate on Tuesday" survives. Cascade is the backstop for a
+            // delete that bypasses the controller — the alternative, a restrict, would fail the delete
+            // outright and leave no way to remove a recipe that was ever planned.
+            entity.HasOne(e => e.Recipe)
+                .WithMany()
+                .HasForeignKey(e => e.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Meal>(entity =>
+        {
+            entity.Property(m => m.Name).HasMaxLength(MealFieldLimits.Title).IsRequired();
+            entity.Property(m => m.PrepNote).HasMaxLength(MealFieldLimits.PrepNote);
+            entity.Property(m => m.Cuisine).HasMaxLength(MealFieldLimits.Tag);
+            entity.HasIndex(m => new { m.IsArchived, m.Name });
+        });
+
+        modelBuilder.Entity<MealComponent>(entity =>
+        {
+            entity.HasOne(c => c.Meal)
+                .WithMany(m => m.Components)
+                .HasForeignKey(c => c.MealId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // Deleting a recipe removes it from any meal that used it, but never deletes the meal —
+            // MEALS_GROUPS §3 is explicit that deleting a meal doesn't delete its recipes, and the
+            // reverse holds too. A meal that loses a component is still a meal.
+            entity.HasOne(c => c.Recipe)
+                .WithMany()
+                .HasForeignKey(c => c.RecipeId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(c => new { c.MealId, c.Position });
+            // A recipe appears at most once in a given meal — "garlic toast twice" is a servings
+            // change, not a second component.
+            entity.HasIndex(c => new { c.MealId, c.RecipeId }).IsUnique();
+        });
+
+        // ---- Stage M5: Pantry, grocery and imports ----
+        modelBuilder.Entity<PantryItem>(entity =>
+        {
+            entity.Property(i => i.Name).HasMaxLength(PantryFieldLimits.ItemName).IsRequired();
+            entity.Property(i => i.Unit).HasMaxLength(PantryFieldLimits.Unit);
+            entity.Property(i => i.CatalogueRef).HasMaxLength(PantryFieldLimits.Barcode);
+            // Counts are fractional ("0.5 lb") but never want floating point, same as recipe amounts.
+            entity.Property(i => i.Quantity).HasPrecision(9, 3);
+            // The default read is "not archived, grouped by location, alphabetical inside".
+            entity.HasIndex(i => new { i.IsArchived, i.Location, i.Name });
+            entity.HasIndex(i => i.CatalogueRef);
+        });
+
+        modelBuilder.Entity<PantryEvent>(entity =>
+        {
+            entity.Property(e => e.Delta).HasPrecision(9, 3);
+            entity.Property(e => e.ResultingQuantity).HasPrecision(9, 3);
+            // Archiving an item must not orphan its ledger, and the item is archived rather than
+            // deleted precisely so this cascade never fires in normal use.
+            entity.HasOne(e => e.Item)
+                .WithMany(i => i.Events)
+                .HasForeignKey(e => e.PantryItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // "The events for this item, newest first" is every read of this table.
+            entity.HasIndex(e => new { e.PantryItemId, e.AtUtc });
+            // Deduction idempotency per plan entry, and the whole-import / whole-run undo.
+            entity.HasIndex(e => new { e.SourceKind, e.SourceId });
+            // Two phones scanning the same delivery both add; the same phone retrying does not
+            // (DECISIONS PG7). Enforced rather than checked, because the check would race itself.
+            entity.HasIndex(e => new { e.ScanRunId, e.ScanSequence })
+                .IsUnique()
+                .HasFilter("[ScanRunId] IS NOT NULL");
+        });
+
+        modelBuilder.Entity<ProductCatalogueEntry>(entity =>
+        {
+            entity.Property(c => c.Barcode).HasMaxLength(PantryFieldLimits.Barcode).IsRequired();
+            entity.Property(c => c.Name).HasMaxLength(PantryFieldLimits.ItemName).IsRequired();
+            entity.Property(c => c.DefaultUnit).HasMaxLength(PantryFieldLimits.Unit);
+            entity.Property(c => c.PackSize).HasPrecision(9, 3);
+            // A barcode may carry one global entry and one household entry; the household's wins.
+            entity.HasIndex(c => new { c.Barcode, c.Scope }).IsUnique();
+        });
+
+        modelBuilder.Entity<IngredientAlias>(entity =>
+        {
+            entity.Property(a => a.Alias).HasMaxLength(PantryFieldLimits.Alias).IsRequired();
+            entity.HasOne(a => a.Item)
+                .WithMany()
+                .HasForeignKey(a => a.PantryItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // One alias points at one item — the second claim on a name is a correction of the
+            // first, not a fork, and two answers would make the check non-deterministic.
+            entity.HasIndex(a => a.Alias).IsUnique();
+        });
+
+        modelBuilder.Entity<GroceryLine>(entity =>
+        {
+            entity.Property(g => g.Text).HasMaxLength(PantryFieldLimits.GroceryText).IsRequired();
+            entity.Property(g => g.Unit).HasMaxLength(PantryFieldLimits.Unit);
+            entity.Property(g => g.Quantity).HasPrecision(9, 3);
+            entity.Property(g => g.TodoTaskId).HasMaxLength(PantryFieldLimits.TodoTaskId);
+            // Archiving a pantry item must not take the shopping list with it; the line still reads.
+            entity.HasOne(g => g.Item)
+                .WithMany()
+                .HasForeignKey(g => g.PantryItemId)
+                .OnDelete(DeleteBehavior.SetNull);
+            entity.HasIndex(g => g.CheckedAtUtc);
+            // The mirror's dedupe key in both directions (PANTRY_BEHAVIOURS §8).
+            entity.HasIndex(g => g.TodoTaskId);
+        });
+
+        modelBuilder.Entity<GroceryLineSourceRef>(entity =>
+        {
+            entity.Property(s => s.RecipeTitle).HasMaxLength(MealFieldLimits.Title);
+            entity.HasOne(s => s.Line)
+                .WithMany(g => g.Sources)
+                .HasForeignKey(s => s.GroceryLineId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // RecipeId is an id, not a relationship: a deleted recipe leaves the shopping list
+            // readable via RecipeTitle rather than taking the line with it.
+            entity.HasIndex(s => s.GroceryLineId);
+        });
+
+        modelBuilder.Entity<GroceryMirrorSettings>(entity =>
+        {
+            entity.Property(m => m.Id).ValueGeneratedNever();
+            entity.Property(m => m.TodoListId).HasMaxLength(PantryFieldLimits.TodoTaskId);
+            entity.Property(m => m.TodoListName).HasMaxLength(PantryFieldLimits.TodoListName);
+            entity.Property(m => m.LastError).HasMaxLength(300);
+            // Mirroring off is a supported state, so the row seeds with no list chosen.
+            entity.HasData(new GroceryMirrorSettings { Id = 1 });
+        });
+
+        modelBuilder.Entity<OrderImport>(entity =>
+        {
+            entity.Property(i => i.VendorLabel).HasMaxLength(PantryFieldLimits.VendorLabel);
+            entity.Property(i => i.RawPayload).HasMaxLength(PantryFieldLimits.RawPayload);
+            entity.HasIndex(i => new { i.Status, i.CreatedUtc });
+            // The delivery-cadence sentence on 9b reads the last three applied imports by date.
+            entity.HasIndex(i => i.DeliveredAtUtc);
+        });
+
+        modelBuilder.Entity<OrderImportLine>(entity =>
+        {
+            entity.Property(l => l.RawText).HasMaxLength(PantryFieldLimits.RawText).IsRequired();
+            entity.Property(l => l.ProposedName).HasMaxLength(PantryFieldLimits.ItemName);
+            entity.Property(l => l.ProposedUnit).HasMaxLength(PantryFieldLimits.Unit);
+            entity.Property(l => l.ProposedQuantity).HasPrecision(9, 3);
+            entity.Property(l => l.GuessFromPounds).HasPrecision(9, 3);
+            entity.HasOne(l => l.Import)
+                .WithMany(i => i.Lines)
+                .HasForeignKey(l => l.ImportId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(l => new { l.ImportId, l.Position });
+        });
+
+        modelBuilder.Entity<StockCheckDismissal>(entity =>
+        {
+            // One dismissal per plan entry: dismissing twice is dismissing once.
+            entity.HasIndex(d => d.PlanEntryId).IsUnique();
         });
 
         ApplyUtcDateTimes(modelBuilder);

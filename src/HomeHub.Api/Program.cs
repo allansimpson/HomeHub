@@ -1,4 +1,6 @@
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
+using HomeHub.Api.Accounts;
 using HomeHub.Api.Ai;
 using HomeHub.Api.Alerts;
 using HomeHub.Api.Baby;
@@ -7,13 +9,51 @@ using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
 using HomeHub.Api.HomeAssistant;
+using HomeHub.Api.Meals;
+using HomeHub.Api.Notifications;
+using HomeHub.Api.Pantry;
 using HomeHub.Api.Sensors;
 using HomeHub.Api.Tasks;
 using HomeHub.Api.Weather;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// --- Development HTTPS (opt-in, presence-detected) ---
+//
+// The phone-side scan screen needs `getUserMedia`, which every browser refuses outside a secure
+// context — HTTPS, or localhost. A phone reaching the dev machine by LAN address over plain HTTP is
+// neither, so the camera is not blocked but *absent*, and the screen falls back to "NO CAMERA HERE".
+//
+// Detected by the certificate simply existing (`scripts/make-dev-certs.sh` writes it) rather than
+// by a flag, so a checkout with no certs behaves exactly as before and nobody has to know this code
+// is here. Both schemes are bound: the API is reachable over plain HTTP for anything already
+// pointed at 5220, and over HTTPS on every interface for the phone. Development only — the systemd
+// unit sets its own ASPNETCORE_URLS and never generates a certificate.
+if (builder.Environment.IsDevelopment())
+{
+    var certPath = Path.Combine(builder.Environment.ContentRootPath, "..", "..", "certs", "homehub-dev.crt");
+    var keyPath = Path.Combine(builder.Environment.ContentRootPath, "..", "..", "certs", "homehub-dev.key");
+
+    if (File.Exists(certPath) && File.Exists(keyPath))
+    {
+        // Round-tripped through PKCS#12 on purpose. A certificate built by `CreateFromPemFile` holds
+        // its private key in an ephemeral CNG store on Windows, and Schannel cannot use that for
+        // server authentication — the handshake fails with a bare "no credentials" error that says
+        // nothing about where the key came from. Exporting and re-loading materialises a key
+        // Schannel will accept.
+        using var fromPem = X509Certificate2.CreateFromPemFile(certPath, keyPath);
+        var certificate = X509CertificateLoader.LoadPkcs12(fromPem.Export(X509ContentType.Pkcs12), null);
+
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            options.ListenAnyIP(5220);
+            options.ListenAnyIP(7288, listen => listen.UseHttps(certificate));
+        });
+    }
+}
 
 // --- Services ---
 builder.Services.AddControllers().AddJsonOptions(o =>
@@ -31,7 +71,30 @@ var connectionString = builder.Configuration.GetConnectionString("HomeHub");
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Services.AddDbContext<HomeHubDbContext>(options =>
-        options.UseSqlServer(connectionString));
+        options.UseSqlServer(connectionString, sql =>
+        {
+            // Connection resiliency. The panel's first seconds are its worst: every provider polls
+            // at once, so a server that is asleep, resuming, or briefly unreachable turns one slow
+            // connection into a wave of "Execution Timeout Expired" across unrelated controllers —
+            // and, because the request threads are all parked on SQL, into Home Assistant timeouts
+            // that look like an HA fault but are not.
+            //
+            // Retries make that a pause instead of a cascade. Safe here because nothing in this app
+            // opens a user-initiated transaction; EF throws rather than silently retrying half of one.
+            // Kept deliberately short. This is a polling panel: every provider re-reads within
+            // 15–30s anyway, so a request that retries for minutes is worse than one that fails and
+            // is asked again — the browser abandons it, which cancels the work mid-flight and buries
+            // the real cause under a cascade of OperationCanceledException. Absorb a blip; let a
+            // genuinely asleep server be picked up by the next poll.
+            sql.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorNumbersToAdd: null);
+
+            // Above the 30s default for a resuming server, below the point where a queued request
+            // outlives the client that asked for it.
+            sql.CommandTimeout(45);
+        }));
 }
 
 // --- Stage 2: sensors + alert engine ---
@@ -49,7 +112,25 @@ else
 {
     builder.Services.AddSingleton<ISensorProvider, SimulatedSensorProvider>();
 }
+// Pending OAuth flows for in-panel account linking. Singleton because a consent begun on one
+// request completes on another, and in-memory because losing them on restart is correct.
+builder.Services.AddSingleton<AccountLinkState>();
+// A plain client for the OAuth token exchange — the provider-specific clients are registered only
+// when that provider is configured, and linking has to work on the way to being configured.
+builder.Services.AddHttpClient();
+
 builder.Services.AddScoped<AlertEngine>();
+
+// The one notification queue behind the live cards, the drawer and the inbox. Registered only with
+// a database, because unlike alerts — which are recomputed from live state every tick — a
+// notification is a record, and a record that vanishes on restart is not one.
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddScoped<NotificationService>();
+    // Retention was a read filter only until this existed — the table itself grew forever, and the
+    // per-record dedupe lookup scanned all of it. See NotificationPruneService.
+    builder.Services.AddHostedService<NotificationPruneService>();
+}
 
 // --- Stage 3: weather (NWS) ---
 // Key-free; the default location works out of the box. Alerts are folded into the same alert
@@ -57,6 +138,60 @@ builder.Services.AddScoped<AlertEngine>();
 builder.Services.Configure<WeatherOptions>(builder.Configuration.GetSection(WeatherOptions.Section));
 builder.Services.AddHttpClient<IWeatherProvider, NwsWeatherProvider>();
 builder.Services.AddScoped<WeatherRefresher>();
+
+// --- Stage M2: recipe import ---
+// The fetcher gets its own typed client so its timeout and User-Agent are its own, and so the
+// SSRF guard in RecipeFetcher is the only path by which this app fetches a user-supplied URL.
+// Redirects are followed by hand inside it — see D4 — so the handler must not follow them itself,
+// or hops 2..n would reach the network without ever being checked.
+builder.Services.Configure<MealsOptions>(builder.Configuration.GetSection(MealsOptions.Section));
+builder.Services.AddHttpClient<RecipeFetcher>()
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<RecipeImportService>();
+// The Meals notifications (MEALS_BEHAVIOURS §4). The notifier is scoped because it writes through
+// the request's DbContext; the lead-time watcher is the one thing here that has to run while nobody
+// is looking at the panel, so it is hosted.
+builder.Services.AddScoped<MealNotifier>();
+builder.Services.AddHostedService<MealLeadTimeService>();
+
+// --- Stage M5: pantry ---
+// The ledger is the only thing that mutates a pantry item, so everything that writes takes it
+// rather than touching the entity — see PantryLedger for why the two can never be allowed to drift.
+builder.Services.AddScoped<PantryLedger>();
+builder.Services.AddScoped<StockCheckService>();
+builder.Services.AddScoped<DeductionService>();
+
+// Barcode → product name. Open Food Facts when switched on, otherwise nothing at all — and
+// "nothing at all" is the handoff's own design (DECISIONS PG4), where every new barcode is an
+// unmatched row the household names once. The lookup only ever pre-fills that row; it never creates
+// an item and never writes a catalogue entry, so turning it off changes convenience, not behaviour.
+builder.Services.Configure<OpenFoodFactsOptions>(builder.Configuration.GetSection(OpenFoodFactsOptions.Section));
+var openFoodFacts = builder.Configuration.GetSection(OpenFoodFactsOptions.Section).Get<OpenFoodFactsOptions>();
+if (openFoodFacts?.IsConfigured == true)
+{
+    builder.Services.AddHttpClient<IProductLookup, OpenFoodFactsProductLookup>();
+}
+else
+{
+    builder.Services.AddScoped<IProductLookup, NotConnectedProductLookup>();
+}
+// The mirror is a singleton with its own scope factory because it also runs from a hosted worker,
+// outside any request. It shares the Microsoft OAuth config with the Tasks provider — one linked
+// account, two things using it — and does nothing at all until a list is chosen, which is a
+// supported way to run the section rather than a broken one (PANTRY_BEHAVIOURS §8).
+builder.Services.AddHttpClient(nameof(GroceryMirrorService));
+builder.Services.AddSingleton<GroceryMirrorService>(sp => new GroceryMirrorService(
+    sp.GetRequiredService<IServiceScopeFactory>(),
+    sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GroceryMirrorService)),
+    sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>(),
+    sp.GetRequiredService<TimeProvider>(),
+    sp.GetRequiredService<ILogger<GroceryMirrorService>>()));
+// The worker needs a database to have anything to mirror; without one it would wake every 20s to
+// resolve a DbContext that isn't registered.
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddHostedService<GroceryMirrorWorker>();
+}
 
 // --- Stage 4: calendar ---
 // Google Calendar when OAuth is configured; otherwise a local SQL calendar so the panel is
@@ -220,6 +355,28 @@ if (app.Environment.IsDevelopment())
 
 // No HTTPS redirect: the kiosk is served over plain HTTP on the trusted LAN
 // (nginx/TLS can be layered in front later, per the architecture).
+
+// A client that walks away — a page reload, a poll overtaking its predecessor, the kiosk
+// navigating — aborts its request, and every `await` carrying the request token unwinds with
+// OperationCanceledException. That is correct behaviour, but nothing in our code was catching it, so
+// it escaped to the framework: logged as a fault, and reported by the debugger as "unhandled in user
+// code" at whichever line happened to be awaiting. That is what sent us looking at Home Assistant,
+// then at SQL Server, when the truth was simply that nobody was listening any more.
+//
+// Handling it here, once, keeps the diagnosis honest: a disconnect is a disconnect, not an error in
+// whichever provider drew the short straw. 499 is nginx's "client closed request" — nothing reads
+// the status (the caller is gone), but it keeps the log truthful.
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next();
+    }
+    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+    {
+        if (!context.Response.HasStarted) context.Response.StatusCode = 499;
+    }
+});
 
 // Apply migrations on startup so the app owns its schema. Controlled by
 // RunMigrationsOnStartup (default true). Failure is logged but non-fatal — the SPA shell

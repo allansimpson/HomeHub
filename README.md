@@ -14,6 +14,7 @@ provider-seam model are in **[`PROJECT.md`](PROJECT.md)**.
 
 - [Prerequisites](#prerequisites)
 - [Quick start (no configuration)](#quick-start-no-configuration)
+- [Test from a tablet on the LAN](#test-from-a-tablet-on-the-lan)
 - [Database setup](#database-setup)
 - [How configuration works](#how-configuration-works)
 - [Third-party service configuration](#third-party-service-configuration)
@@ -39,7 +40,7 @@ provider-seam model are in **[`PROJECT.md`](PROJECT.md)**.
 |---|---|
 | **.NET SDK 10.x** | `dotnet --version` ≥ 10.0. Includes `dotnet ef` (`dotnet tool install --global dotnet-ef` if missing). |
 | **Node 20+** | Built with Node 25 / npm 11. |
-| **SQL Server** | Any reachable instance. On Windows, **LocalDB** works for dev (`(localdb)\MSSQLLocalDB`). The app creates + migrates its own `HomeHub` database. |
+| **SQL Server** | Any reachable instance. The app creates + migrates its own `HomeHub` database. |
 | **libicu** (Linux/Pi only) | Required by `Microsoft.Data.SqlClient` — the app runs with globalization **on** (`InvariantGlobalization=false`). `sudo apt install libicu-dev`. |
 
 The app boots **without** a database (the shell serves and shows a reconnecting state) and
@@ -68,6 +69,73 @@ add a database (next); to connect real services, see [service configuration](#th
 > **Preview at panel geometry:** size a Chromium window to 2160×3840 (or use the device toolbar).
 > The layout is viewport-relative — it scales to any window while keeping hairlines crisp.
 
+## Test from a tablet on the LAN
+
+Real touch behaviour — tap targets, scroll momentum, the on-screen keyboard, `:hover` states that
+stick on touch — only shows up on a real device. Both servers already listen on every interface, so
+a tablet on the same network reaches them by IP with no tunnel or extra tooling.
+
+**Find the dev machine's LAN address**, then browse to it from the tablet:
+
+```powershell
+# Windows
+(Get-NetIPConfiguration | Where-Object { $_.NetAdapter.Status -eq 'Up' }).IPv4Address.IPAddress
+```
+```bash
+# Linux / macOS
+hostname -I        # or: ipconfig getifaddr en0
+```
+
+| Address | What it serves | Use it for |
+|---|---|---|
+| `http://<ip>:5173` | Vite dev server, hot reload | **Day-to-day UI iteration** — edits appear on the tablet as you save |
+| `http://<ip>:5220` | Kestrel serving `wwwroot` + the API | Verifying the **production** single-origin build (run `npm run build` first) |
+| `http://<ip>:5220/api/health` | JSON health check | Confirming the tablet can reach the API at all |
+
+Port 5173 proxies `/api` to Kestrel *from the dev machine*, so the tablet only ever talks to one
+origin — there is no CORS configuration to add on either port.
+
+**The bindings that make this work** (already committed, listed here so they aren't "fixed" back):
+
+- [`client/vite.config.ts`](client/vite.config.ts) — `server.host: true` listens on all interfaces
+  instead of loopback only; `strictPort: true` prevents a silent hop to 5174 that would leave a
+  tablet bookmark pointing at nothing.
+- [`src/HomeHub.Api/Properties/launchSettings.json`](src/HomeHub.Api/Properties/launchSettings.json)
+  — the `http` profile binds `http://0.0.0.0:5220`. The `https` profile stays on `localhost`: its
+  dev certificate is self-signed, so a tablet would reject it.
+
+**Open the ports in the host firewall.** Scope the rules to your own subnet rather than the whole
+profile — the dev server has no authentication:
+
+```powershell
+# Windows, elevated — substitute your subnet
+New-NetFirewallRule -DisplayName "HomeHub API (Kestrel 5220) - LAN" -Group "HomeHub" `
+  -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5220 -RemoteAddress 192.168.5.0/24 -Profile Any
+New-NetFirewallRule -DisplayName "HomeHub SPA dev (Vite 5173) - LAN" -Group "HomeHub" `
+  -Direction Inbound -Action Allow -Protocol TCP -LocalPort 5173 -RemoteAddress 192.168.5.0/24 -Profile Any
+```
+
+Remove them again with `Remove-NetFirewallRule -Group "HomeHub"`.
+
+**Gotchas, in the order they usually bite:**
+
+- **A VPN client on the dev machine** (NordVPN/WireGuard/etc.) routes the LAN away by default. Turn
+  on its "allow LAN / local network access" setting, or drop the tunnel while testing.
+- **Client isolation / guest Wi-Fi** — many APs block device-to-device traffic outright. Put the
+  tablet on the main SSID, not the guest one.
+- **Both devices must be on the same subnet.** A 2.4 GHz IoT VLAN and the main 5 GHz network often
+  are not.
+- **OAuth linking will not work from the tablet.** Google and Microsoft reject plain `http` for
+  anything but loopback, so **CONFIG → Calendars → Connect** must be done in a browser on the dev
+  machine at `localhost`. See [Linking accounts from the panel](#linking-accounts-from-the-panel).
+- **Mic and server STT need a secure context.** Browsers gate `getUserMedia` to HTTPS or
+  `localhost`, so push-to-talk is unavailable over a LAN IP. Everything else — including text chat
+  with the assistant — works normally. Put TLS in front of the panel to test voice off-device.
+
+Diagnose from the tablet by loading `http://<ip>:5220/api/health` first: JSON back means the network
+path and firewall are fine and the problem is in the app; a timeout means it is one of the four
+network gotchas above.
+
 ## Database setup
 
 Persistence (profiles, sensor history, calendar, tasks, climate, weather cache) needs SQL Server.
@@ -75,13 +143,15 @@ Provide a connection string named **`HomeHub`**; migrations run automatically on
 
 ```bash
 cd src/HomeHub.Api
-# Windows LocalDB example:
 dotnet user-secrets set "ConnectionStrings:HomeHub" \
-  "Server=(localdb)\\MSSQLLocalDB;Database=HomeHub;Trusted_Connection=True;TrustServerCertificate=True"
-# Full SQL Server example:
-dotnet user-secrets set "ConnectionStrings:HomeHub" \
-  "Server=myhost;Database=HomeHub;User Id=homehub;Password=…;TrustServerCertificate=True"
+  "Server=myhost;Database=HomeHub;User Id=homehub;Password=…;TrustServerCertificate=True;Connect Timeout=60"
 ```
+
+> **Set `Connect Timeout` generously** — 60s rather than the 15s default. Startup is when the panel
+> is hardest on the database: every provider polls at once, so a server that is asleep, resuming or
+> briefly unreachable turns one slow connection into a wave of timeouts across unrelated controllers.
+> EF is configured to retry transient failures (see `Program.cs`), but it cannot retry a connection
+> that was never given long enough to open.
 
 - **Migrations on startup** are on by default; failure is logged non-fatally (the shell still
   serves). To disable and run them by hand: set `RunMigrationsOnStartup=false` and
@@ -149,6 +219,70 @@ dotnet user-secrets set "Weather:UserAgent" "HomeHub/1.0 (you@example.com)"
   app + email. Requests can be throttled/blocked without it.
 - Default location is Minneapolis (44.98, -93.27). Optional: `Weather:PollMinutes` (default 10).
 
+### Linking accounts from the panel
+
+Both Google and Microsoft are linked the same way, and the panel can do the whole exchange itself —
+no OAuth Playground, no `INSERT`. The panel travels to the provider's consent page, comes back, and
+stores the refresh token server-side
+([`AccountLinkController`](src/HomeHub.Api/Controllers/AccountLinkController.cs)). The token never
+reaches the browser, and re-linking keeps the member's calendar/list choices.
+
+Two places to start it:
+
+- **Any member — CONFIG → Household → `Accounts ▸`** on that person. Shows Google and Microsoft with
+  **Connect** / **Reconnect** / **Unlink**, and reports the result on that member's own page. This is
+  the one to use for someone who is not signed in: consent happens on the provider's sign-in page, so
+  each member authenticates as themselves and you never hold their credentials.
+- **The signed-in member — CONFIG → Calendars** (or **→ To-Do lists**), which also shows **Connect**
+  for a profile with no link, and **Reconnect** when the provider has stopped accepting an existing
+  one. These two screens still choose *which* calendars and lists display for the **active profile
+  only**; linking is what the Household route generalises.
+
+For Google, whether another member can consent at all is a project-level setting — see
+[Every member must be allowed to sign in](#every-member-must-be-allowed-to-sign-in).
+
+The one thing to register is the **redirect URI** — the address the provider returns to, which must
+match what the panel sends *verbatim*: scheme, host, port and path, no trailing slash. By default the
+panel derives it from the address it is being used at, so it is whatever is in the address bar plus
+`/api/link/{provider}/callback`.
+
+**Link from a browser running on the panel itself**, at `localhost`. Both providers refuse plain
+`http` for anything except loopback — `http://192.168.x.x:5220/…` and `http://homehub.local:5220/…`
+are rejected when you try to register them, and only `http://localhost` / `http://127.0.0.1` (any
+port) are exempt. Linking from a phone on the LAN needs TLS in front of the panel first.
+
+Register these on **Google Auth Platform → Clients → Authorized redirect URIs** and on the Azure
+app's **Authentication → Redirect URIs (Web)**. In development the SPA is served by Vite on 5173 and
+the API by Kestrel on 5220; the Vite proxy preserves the host, so whichever port you browse is the
+one that gets sent — register both and it works either way:
+
+```
+http://localhost:5220/api/link/google/callback
+http://localhost:5173/api/link/google/callback
+http://localhost:5220/api/link/microsoft/callback
+http://localhost:5173/api/link/microsoft/callback
+```
+
+Google applies edits to an OAuth client within a few minutes, so a `redirect_uri_mismatch` right
+after adding one is worth a short wait and a retry before hunting for a typo.
+
+To send a fixed address regardless of where the panel is browsed — useful once it sits behind TLS:
+
+```bash
+dotnet user-secrets set "Google:RedirectUri"        "https://homehub.example.com/api/link/google/callback"
+dotnet user-secrets set "MicrosoftTodo:RedirectUri" "https://homehub.example.com/api/link/microsoft/callback"
+```
+
+`POST /api/link/{provider}/start` returns the redirect URI it used alongside the consent URL, so when
+a provider rejects it you can read back the exact string to register rather than guessing:
+
+```bash
+curl -s -X POST "http://localhost:5220/api/link/google/start?profileId=1"
+```
+
+The manual routes below still work and remain the fallback when the panel has no browser to hand
+(headless setup, or a provider that will not accept a LAN redirect URI).
+
 ### Calendar — Google Calendar
 
 **Per-profile** calendars: each household member links their **own** Google account, and the panel
@@ -166,12 +300,15 @@ that newer UI.
 
 1. **Google Cloud Console** → create/select a project (e.g. `HomeHub`) → **APIs & Services → enable
    the Google Calendar API**.
-2. **Google Auth Platform → Branding** → set an app name + support email.
-3. **Google Auth Platform → Audience** → **User type: External** → under **Test users** add the exact
-   household Google account you'll authorize with. (Without this you'll hit `Error 403: access_denied`
-   — "app has not completed the Google verification process" — at authorize time.)
-4. **Google Auth Platform → Data Access** → add the scope `https://www.googleapis.com/auth/calendar`
-   (read/write).
+2. **[Google Auth Platform → Branding](https://console.cloud.google.com/auth/branding)** → set an app
+   name + support email.
+3. **[Google Auth Platform → Audience](https://console.cloud.google.com/auth/audience)** →
+   **User type: External**, then **set Publishing status to *In production***. See
+   [Every member must be allowed to sign in](#every-member-must-be-allowed-to-sign-in) below — this
+   is the step that decides whether other household members can link at all, and whether their links
+   survive more than a week.
+4. **[Google Auth Platform → Data Access](https://console.cloud.google.com/auth/scopes)** → add the
+   scope `https://www.googleapis.com/auth/calendar` (read/write).
 5. **Google Auth Platform → Clients → Create OAuth client** →
    - **Application type: Web application** — *not* Desktop. The refresh token is obtained via the
      OAuth Playground, which needs a registered redirect URI, and only Web clients allow one.
@@ -183,8 +320,9 @@ that newer UI.
      required for a *refresh* token to come back) → check **Use your own OAuth credentials** → paste
      the client id/secret → **Close**.
    - **Step 1** → in **Input your own scopes** paste `https://www.googleapis.com/auth/calendar` →
-     **Authorize APIs** → sign in with the household (test-user) account → on the unverified-app
-     warning click **Advanced → Go to <app> (unsafe)** → allow.
+     **Authorize APIs** → sign in with that member's Google account (which must be allowed to consent
+     — see [Every member must be allowed to sign in](#every-member-must-be-allowed-to-sign-in)) → on
+     the unverified-app warning click **Advanced → Go to <app> (unsafe)** → allow.
    - Do this once **per member**, each signing in with *their own* Google account.
    - **Step 2** → **Exchange authorization code for tokens** → copy that member's **`refresh_token`** (`1//…`).
 
@@ -226,11 +364,41 @@ sharing → Integrate calendar → Calendar ID** (a `…@group.calendar.google.c
 Refresh tokens are stored server-side; the app refreshes access tokens silently, per profile.
 Owner-tagging (the WHO chips) is kept local and is not pushed to Google.
 
-> **Test-mode token lifetime:** while the app's **Publishing status** is *Testing* (unverified),
-> Google expires refresh tokens after **7 days**. For a permanent kiosk, set **Audience → Publishing
-> status → In production** (no Google verification is required for your own account with the
-> non-restricted `calendar` scope). Otherwise just re-run the Playground exchange when the calendar
-> stops updating.
+#### Every member must be allowed to sign in
+
+One Google Cloud app serves the whole household, so **who is allowed to consent is a project-level
+setting**, not a per-member one. Get this wrong and the second person you try to link is refused
+with:
+
+> **Access blocked: HomeHub has not completed the Google verification process.** The app is
+> currently being tested, and can only be accessed by developer-approved testers.
+
+That is the project's **Publishing status** being *Testing*, which restricts consent to an explicit
+allowlist. There are two ways out, and only one of them is right for a permanent panel.
+
+| | **Testing** | **In production** (unverified) |
+|---|---|---|
+| Who can link | Only accounts listed under **Test users** (max 100) | Anyone, up to a 100-user cap |
+| What they see | Normal consent | An "unverified app" screen once — **Advanced → Go to HomeHub (unsafe)** |
+| **Refresh-token lifetime** | **7 days** | Does not expire on that rule |
+| Google verification needed | No | **No** — `calendar` is a *sensitive* scope, not a *restricted* one |
+
+**Set [Audience](https://console.cloud.google.com/auth/audience) → Publishing status → In
+production.** The 7-day expiry is the reason: the panel stores one refresh token per member and
+expects it to last, so on *Testing* every member you link silently stops syncing about a week later
+and has to be re-linked by hand — forever.
+
+**After publishing, re-link everyone you linked while in Testing, including yourself.** Tokens
+already issued keep the 7-day expiry they were minted with; changing the publishing status does not
+retroactively extend them. Skipping this makes it look as though publishing didn't work.
+
+*Adding a **Test user** on the Audience page is still the right move if you only need to let someone
+in for a few minutes* — it takes effect immediately — but treat it as a stopgap, not the setup.
+
+Once published, linking is per-member from the panel: **Config → Household → `Accounts ▸`** on that
+person → **Connect**. Consent happens on Google's own sign-in page, so each member authenticates as
+themselves and the refresh token is stored against *their* profile — you can start the flow for
+someone else without ever holding their credentials.
 
 ### Tasks — Microsoft To Do
 
@@ -480,8 +648,9 @@ dotnet user-secrets set "Voice:Stt:AllowCloudFallback" "true"      # false = LAN
   origin. See [`deploy/pi-kiosk.md`](deploy/pi-kiosk.md).
 - In the browser panel the mic is **push-to-talk only** (no wake word); the verdigris "microphone is
   live" banner shows on every screen whenever it's open and cannot be disabled. Hands-free
-  **"Hey Barnaby"** wake-word listening is the separate on-Pi voice bridge —
-  see [`voice-bridge/`](voice-bridge/README.md).
+  **"Hey Barnaby"** / **"Oh Barnaby"** wake-word listening is the separate on-Pi voice bridge — one
+  trained openWakeWord model per phrase, either of which opens the mic. See
+  [`voice-bridge/`](voice-bridge/README.md).
 
 ---
 

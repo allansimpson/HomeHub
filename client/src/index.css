@@ -65,6 +65,16 @@ textarea,
 select {
   font-family: inherit;
   font-weight: var(--body-weight);
+  /* Selection is re-enabled inside text fields, against the appliance-wide `user-select: none`
+     on <body>. That rule stops a stray drag from selecting UI chrome, but it inherits into
+     inputs, where Chromium reads it as "this text is not selectable" and therefore refuses the
+     drag gesture that repositions the caret. Dragging into existing text is the only way to fix
+     a typo mid-string with the on-screen keyboard, so text fields must opt back in. */
+  -webkit-user-select: text;
+  user-select: text;
+  /* Let the caret-drag be a caret-drag: `manipulation` (inherited intent from buttons) would let
+     the browser claim the gesture for panning instead. */
+  touch-action: auto;
 }
 
 button {
@@ -91,10 +101,31 @@ svg {
 }
 
 /*
- * Night dimming — dashboard dims to ~40% after 10 PM (a setting, wired later).
+ * Night dimming — the panel dims to ~40% after 10 PM (a setting).
  * Applied by toggling data-nightdim on <html>.
  */
 :root[data-nightdim='on'] #root {
   filter: brightness(0.4);
   transition: filter 600ms ease;
+}
+
+/*
+ * The same dim, applied again to the screen's transition snapshots.
+ *
+ * `.app-viewport` carries `view-transition-name: screen` (ledger.css), which **hoists it out of
+ * `#root`** for the duration of a route change: its content is painted by
+ * `::view-transition-old/new(screen)`, which live in the transition tree under the document element,
+ * not inside the filtered subtree. Ancestor filters are not baked into a named descendant's
+ * snapshot, so without this the screen jumps to full brightness for the ~240ms of the animation and
+ * drops back — a flash on every navigation, at exactly the hour the dimming exists to avoid one.
+ *
+ * The chrome does not need it: the nav and banners are captured in the `root` snapshot, which does
+ * include `#root` and its filter, and they stay dim throughout.
+ *
+ * No transition on the filter here — the pseudo-elements exist only while the animation runs, and
+ * easing this one would make the dim itself fade in over the top of it.
+ */
+:root[data-nightdim='on']::view-transition-old(screen),
+:root[data-nightdim='on']::view-transition-new(screen) {
+  filter: brightness(0.4);
 }

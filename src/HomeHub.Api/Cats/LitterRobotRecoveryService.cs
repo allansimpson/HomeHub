@@ -2,6 +2,7 @@ namespace HomeHub.Api.Cats;
 
 using HomeHub.Api.Alerts;
 using HomeHub.Api.Data;
+using HomeHub.Api.Notifications;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -99,16 +100,55 @@ public sealed class LitterRobotRecoveryService : BackgroundService
         var now = _time.GetUtcNow();
         var alerts = new List<ExternalAlert>();
 
+        // The household's threshold, read per pass so a change in Config takes effect on the next
+        // tick instead of at the next restart. Falls back to the default when there is no database.
+        var fullPercent = db is null
+            ? DefaultLitterFullPercent
+            : (await db.Settings.Select(s => (int?)s.LitterFullPercent).FirstOrDefaultAsync(ct))
+              ?? DefaultLitterFullPercent;
+
         foreach (var snapshot in snapshots)
         {
             var alert = await EvaluateRobotAsync(snapshot, runner, db, now, ct);
             if (alert is not null) alerts.Add(alert);
+
+            // Evaluated separately from the fault switch above, and added alongside rather than
+            // instead of it. A robot can be perfectly Ready and still have a drawer that needs
+            // emptying — folding this into the fault classification would mean a healthy box never
+            // reports a full drawer, which is precisely the case this exists for.
+            var drawer = DrawerAlert(snapshot, fullPercent);
+            if (drawer is not null) alerts.Add(drawer);
         }
 
         // Reconcile the whole set in one call so alerts for robots that recovered are cleared as a
         // side effect of no longer being in the list.
         if (db is not null && engine is not null)
-            await engine.ReconcileAsync(db, AlertType, alerts, now.UtcDateTime, ct);
+        {
+            var raised = await engine.ReconcileAsync(db, AlertType, alerts, now.UtcDateTime, ct);
+
+            // Only the transitions notify. The auto-recovery subsystem retries silently, so a
+            // notification means something changed that the panel could not fix by itself — not that
+            // a fault is still sitting there, which the Litter screen already says plainly.
+            var notifications = scope.ServiceProvider.GetService<NotificationService>();
+            if (notifications is not null)
+            {
+                foreach (var alert in raised)
+                {
+                    await notifications.RecordAsync(
+                        NotificationSources.Litter,
+                        "Litter Robot",
+                        alert.Severity >= AlertSeverity.Warning
+                            ? NotificationSeverities.WantsYou
+                            : NotificationSeverities.WorthKnowing,
+                        alert.Severity >= AlertSeverity.Warning ? "terracotta" : "verdigris",
+                        alert.Message,
+                        $"cat:{alert.DedupeKey}:{now.UtcDateTime:O}",
+                        now.UtcDateTime,
+                        route: "/litter",
+                        ct: ct);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -184,12 +224,15 @@ public sealed class LitterRobotRecoveryService : BackgroundService
             return null;
         }
 
-        // 2. Observe-only mode still tells someone the box is stuck.
-        if (!Recovery.Enabled)
+        // 2. Observe-only mode still tells someone the box is stuck — whether that's the configured
+        //    master switch or someone on the panel saying "leave it". Pausing stops the intervening,
+        //    never the reporting: a paused box is still a box the cat can't use.
+        var paused = _tracker.IsPaused(slug);
+        if (!Recovery.Enabled || paused)
         {
-            _tracker.SetHold(slug, "Auto-recovery disabled");
+            _tracker.SetHold(slug, paused ? "Paused from the panel" : "Auto-recovery disabled");
             return Alert(snapshot, "faulted", AlertSeverity.Severe,
-                $"{snapshot.Name}: {fault.Text} — auto-recovery is off, so it needs clearing by hand.");
+                $"{snapshot.Name}: {fault.Text} — auto-recovery is {(paused ? "paused" : "off")}, so it needs clearing by hand.");
         }
 
         // 3. An empty globe has the same symptom and a different fix. Cycling it achieves nothing, and
@@ -272,4 +315,33 @@ public sealed class LitterRobotRecoveryService : BackgroundService
     private static ExternalAlert Alert(
         LitterRobotSnapshot snapshot, string kind, AlertSeverity severity, string message) =>
         new($"litterrobot:{snapshot.Slug}:{kind}", severity, message, $"cat:{snapshot.Slug}", null);
+
+    /// <summary>Used when the panel has no database to read the household's threshold from.</summary>
+    private const int DefaultLitterFullPercent = 80;
+
+    /// <summary>
+    /// "The drawer is getting full" — raised ahead of the robot's own drawer-full fault, which only
+    /// fires once the box has already stopped cycling.
+    /// </summary>
+    /// <remarks>
+    /// Warning, not Severe. The box still works: this is a chore with a day or two of slack on it,
+    /// and reserving Severe for the robot actually refusing to cycle is what keeps the difference
+    /// between the two legible on the dashboard banner.
+    /// <para>
+    /// Null when the robot cannot measure its drawer — the LR3 reports no percentage at all, and a
+    /// missing reading is not a low one. Also null once the robot is reporting drawer-full itself,
+    /// because that fault raises its own Severe alert and two banners about one drawer is one too
+    /// many.
+    /// </para>
+    /// </remarks>
+    internal static ExternalAlert? DrawerAlert(LitterRobotSnapshot snapshot, int fullPercent)
+    {
+        if (snapshot.WasteDrawerPercent is not { } percent) return null;
+        if (percent < fullPercent) return null;
+        // The robot's own drawer-full codes already speak for this drawer, and louder.
+        if (snapshot.Fault.Code is "dfs" or "sdf") return null;
+
+        return Alert(snapshot, "drawer_full", AlertSeverity.Warning,
+            $"{snapshot.Name}: waste drawer {Math.Round(percent)}% full — time to change the litter.");
+    }
 }

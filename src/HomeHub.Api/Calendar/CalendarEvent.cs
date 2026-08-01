@@ -22,6 +22,20 @@ public class CalendarEvent
     /// <summary>Display name of the owning calendar at sync time (for grouping / offline labelling).</summary>
     public string? CalendarName { get; set; }
 
+    /// <summary>
+    /// Google's own <c>eventType</c> as returned ("birthday", "outOfOffice", "fromGmail", …), or null
+    /// for local events and for calendars synced before this was captured. Stored raw rather than
+    /// pre-classified so a change to <see cref="EventKinds"/> re-reads history correctly instead of
+    /// needing a resync.
+    /// </summary>
+    public string? GoogleEventType { get; set; }
+
+    /// <summary>
+    /// Google's <c>birthdayProperties.type</c> ("birthday", "anniversary", "custom", "other") — the
+    /// only signal that distinguishes an anniversary from a birthday.
+    /// </summary>
+    public string? GoogleBirthdayType { get; set; }
+
     /// <summary>Providing source: "local" (simulated) or "google".</summary>
     public required string Source { get; set; }
 
@@ -35,6 +49,13 @@ public class CalendarEvent
 
     /// <summary>CSV of profile ids tagged on this event (local WHO mapping); empty when untagged.</summary>
     public string OwnerTags { get; set; } = "";
+
+    /// <summary>
+    /// A mark chosen by the household for this one event, overriding both its kind and its calendar's
+    /// mark; null to inherit. Local like <see cref="OwnerTags"/> — Google has no field for it — and
+    /// deliberately untouched by the sync upsert, so an event keeps its mark when it next syncs.
+    /// </summary>
+    public string? Mark { get; set; }
 
     public DateTime UpdatedUtc { get; set; }
 

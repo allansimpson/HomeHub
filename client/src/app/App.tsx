@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Routes, Route, useLocation, type Location } from 'react-router-dom'
 import { IconSprite } from '../icons/IconSprite'
-import { MicLiveBanner } from '../components'
+import { MicLiveBanner, LiveCards, NotificationDrawer, NotificationPullTab } from '../components'
 import { OnScreenKeyboard } from '../components/keyboard/OnScreenKeyboard'
 import { NAV_SECTIONS } from './navConfig'
 import { useSession } from './SessionProvider'
@@ -13,6 +13,11 @@ import { useIdleReset } from './useIdleReset'
 import { useAmbient } from './useAmbient'
 import { DashboardScreen } from '../screens/DashboardScreen'
 import { CalendarScreen } from '../screens/CalendarScreen'
+import { BabyScreen } from '../screens/BabyScreen'
+import { LitterScreen } from '../screens/LitterScreen'
+import { LitterSettingsScreen } from '../screens/LitterSettingsScreen'
+import { LitterHistoryScreen } from '../screens/LitterHistoryScreen'
+import { NotificationsScreen } from '../screens/NotificationsScreen'
 import { ClimateScreen } from '../screens/ClimateScreen'
 import { WeatherScreen } from '../screens/WeatherScreen'
 import { AssistantScreen } from '../screens/AssistantScreen'
@@ -21,6 +26,24 @@ import { SensorHistoryScreen } from '../screens/SensorHistoryScreen'
 import { SettingsScreen } from '../screens/SettingsScreen'
 import { EventEditorScreen } from '../screens/EventEditorScreen'
 import { LockScreen } from '../screens/LockScreen'
+import { MealsHomeScreen } from '../screens/meals/MealsHomeScreen'
+import { MealsWeekScreen } from '../screens/meals/MealsWeekScreen'
+import { AssignNightScreen } from '../screens/meals/AssignNightScreen'
+import { NightConfirmScreen } from '../screens/meals/NightConfirmScreen'
+import { RecipeFolderScreen } from '../screens/meals/RecipeFolderScreen'
+import { RecipeDetailScreen } from '../screens/meals/RecipeDetailScreen'
+import { RecipeEditScreen } from '../screens/meals/RecipeEditScreen'
+import { AddRecipeScreen } from '../screens/meals/AddRecipeScreen'
+import { MealsSettingsScreen } from '../screens/meals/MealsSettingsScreen'
+import { MealDetailScreen } from '../screens/meals/MealDetailScreen'
+import { NewMealScreen } from '../screens/meals/NewMealScreen'
+import { RecipeDiffScreen } from '../screens/meals/RecipeDiffScreen'
+import { PantryScreen } from '../screens/pantry/PantryScreen'
+import { GroceryScreen } from '../screens/pantry/GroceryScreen'
+import { ScanScreen } from '../screens/pantry/ScanScreen'
+import { ImportScreen } from '../screens/pantry/ImportScreen'
+import { StockCheckScreen } from '../screens/pantry/StockCheckScreen'
+import { DeductionScreen } from '../screens/pantry/DeductionScreen'
 
 const SECTION_PATHS = new Set(NAV_SECTIONS.map((s) => s.path))
 
@@ -120,11 +143,45 @@ export function App() {
                 <Route path="/calendar" element={<CalendarScreen />} />
                 <Route path="/calendar/new" element={<EventEditorScreen />} />
                 <Route path="/calendar/edit/:id" element={<EventEditorScreen />} />
+                {/* Meals. `/meals/recipes/new` is declared before `/meals/recipes/:id` so "new"
+                    is read as the add screen rather than as a recipe id that will never resolve. */}
+                <Route path="/meals" element={<MealsHomeScreen />} />
+                <Route path="/meals/week" element={<MealsWeekScreen />} />
+                <Route path="/meals/assign/:date/:slot" element={<AssignNightScreen />} />
+                <Route path="/meals/confirm/:date" element={<NightConfirmScreen />} />
+                <Route path="/meals/recipes" element={<RecipeFolderScreen />} />
+                <Route path="/meals/recipes/new" element={<AddRecipeScreen />} />
+                <Route path="/meals/recipes/:id" element={<RecipeDetailScreen />} />
+                <Route path="/meals/recipes/:id/edit" element={<RecipeEditScreen />} />
+                <Route path="/meals/recipes/:id/diff" element={<RecipeDiffScreen />} />
+                {/* Same ordering rule as recipes: "new" is declared first so it is read as the
+                    create screen rather than as an id that will never resolve. */}
+                <Route path="/meals/meals/new" element={<NewMealScreen />} />
+                <Route path="/meals/meals/:id" element={<MealDetailScreen />} />
+                <Route path="/meals/settings" element={<MealsSettingsScreen />} />
+                {/* Pantry. `/pantry/import/new` before `/pantry/import/:id` for the same reason as
+                    the recipe routes: "new" must be read as the paste screen, not as an id. */}
+                <Route path="/pantry" element={<PantryScreen />} />
+                <Route path="/pantry/grocery" element={<GroceryScreen />} />
+                <Route path="/pantry/scan" element={<ScanScreen />} />
+                <Route path="/pantry/import/new" element={<ImportScreen />} />
+                <Route path="/pantry/import/:id" element={<ImportScreen />} />
+                {/* The two modal surfaces. Both sit over a Meals flow and both are advisory: the
+                    plan entry is written before the check appears, and the deduction is applied
+                    before the receipt is. Neither can refuse or reverse what Meals already did. */}
+                <Route path="/pantry/check/:date/:slot" element={<StockCheckScreen />} />
+                <Route path="/pantry/taken/:planEntryId" element={<DeductionScreen />} />
+                <Route path="/baby" element={<BabyScreen />} />
+                <Route path="/litter" element={<LitterScreen />} />
+                <Route path="/litter/settings" element={<LitterSettingsScreen />} />
+                <Route path="/litter/history" element={<LitterHistoryScreen />} />
                 <Route path="/climate" element={<ClimateScreen />} />
                 <Route path="/weather" element={<WeatherScreen />} />
                 <Route path="/assistant" element={<AssistantScreen />} />
                 <Route path="/todo" element={<TodoScreen />} />
                 <Route path="/sensor" element={<SensorHistoryScreen />} />
+                {/* Reached from Config, which the account avatar opens — the inbox is not a tab. */}
+                <Route path="/notifications" element={<NotificationsScreen />} />
                 <Route path="/settings" element={<SettingsScreen />} />
                 <Route path="/settings/:section" element={<SettingsScreen />} />
                 {/* Idle/unknown routes return to the dashboard (home + idle screen). */}
@@ -134,6 +191,16 @@ export function App() {
           )}
         </div>
       </div>
+      {/* Notifications are app-level, above the router: cards and the drawer belong to the panel,
+          not to whichever screen happens to be showing. Absent on the Lock screen — a locked panel
+          should not leak what the household is being told. */}
+      {!showLock && (
+        <>
+          <NotificationPullTab />
+          <LiveCards />
+          <NotificationDrawer />
+        </>
+      )}
       {/* Docked touch keyboard — appears whenever any text field is focused (KEYBOARD.md). */}
       <OnScreenKeyboard />
     </>

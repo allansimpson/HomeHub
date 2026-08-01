@@ -17,6 +17,12 @@ public sealed class CatOptions
     /// from the name set in the Whisker app — e.g. <c>litter_robot_4</c>). Leave empty to
     /// auto-discover from HA's entity list; pin them here if discovery picks up something it shouldn't.
     /// </summary>
+    /// <remarks>
+    /// **Prefer discovery.** A pinned slug is a copy of an identifier this app doesn't own: rename the
+    /// robot in a way that regenerates entity ids and the pin still resolves, producing a robot with
+    /// every field null rather than an error — a ghost on the panel with hatched gauges and no cause.
+    /// Discovery keys off the one entity every model publishes, so it survives renames untouched.
+    /// </remarks>
     public List<string> Robots { get; set; } = new();
 
     /// <summary>Display-name overrides keyed by slug, when the HA friendly name isn't what you'd call it.</summary>

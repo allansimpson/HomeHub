@@ -32,7 +32,44 @@ public class SettingsController : ControllerBase
         return SettingsDto.From(s);
     }
 
+    /// <summary>
+    /// The cat's name — the one litter setting the panel owns rather than Home Assistant.
+    /// </summary>
+    /// <remarks>
+    /// Blank or whitespace clears it, and every sentence that uses the name falls back to the literal
+    /// word "cat". Length is capped because the name lands inside letterspaced caps on a fixed-width
+    /// band (<c>MIKA'S BOX · LR4</c>), where an unbounded string would push the model off the screen.
+    /// </remarks>
+    [HttpPut("cat-name")]
+    public async Task<SettingsDto> SetCatName(SetCatNameRequest req)
+    {
+        var s = await GetOrCreate();
+        var name = req.Name?.Trim();
+        s.CatName = string.IsNullOrEmpty(name) ? null : name[..Math.Min(name.Length, 24)];
+        await _db.SaveChangesAsync();
+        return SettingsDto.From(s);
+    }
+
     /// <summary>Light endpoint for the frequent profile-switch action.</summary>
+    /// <summary>
+    /// Set the drawer fullness at which the panel asks for a litter change.
+    /// </summary>
+    /// <remarks>
+    /// Clamped to 10–100 rather than validated with a 400. The value arrives from a stepper that
+    /// cannot produce anything outside that range, so a rejection would only ever be reachable by a
+    /// hand-crafted request — and the useful behaviour there is still "the nearest sane threshold",
+    /// not an error the panel would have to render. The floor exists because a threshold below about
+    /// ten percent fires on a drawer that was just emptied, which trains people to ignore it.
+    /// </remarks>
+    [HttpPut("litter-full-percent")]
+    public async Task<SettingsDto> SetLitterFullPercent(SetLitterFullPercentRequest req)
+    {
+        var s = await GetOrCreate();
+        s.LitterFullPercent = Math.Clamp(req.Percent, 10, 100);
+        await _db.SaveChangesAsync();
+        return SettingsDto.From(s);
+    }
+
     [HttpPut("active-profile")]
     public async Task<SettingsDto> SetActiveProfile(SetActiveProfileRequest req)
     {

@@ -1,4 +1,6 @@
 import { OfflineChip } from './OfflineChip'
+import { Icon } from '../icons/Icon'
+import { useNotifications } from '../app/NotificationsProvider'
 
 interface DashboardHeaderProps {
   /** Clock text, e.g. "19:42" (rendered in Marcellus). */
@@ -17,10 +19,25 @@ interface DashboardHeaderProps {
 
 /** Dashboard header: big clock left; date + conditions (or offline chip) right. Identity is global (spec 13). */
 export function DashboardHeader({ clock, date, conditions, offline }: DashboardHeaderProps) {
+  const { unreadCount, openDrawer } = useNotifications()
+
   return (
     <header className="ml-header ml-dash-header">
       <div className="ml-dash-header__clock serif">{clock}</div>
       <div className="ml-dash-header__right">
+        {/* The badge carries the *true* unread count, not the number of visible cards — the stack
+            holds three and the queue may hold more. Hidden at zero rather than showing a 0. */}
+        {unreadCount > 0 && (
+          <button
+            type="button"
+            className="ml-bell"
+            onClick={openDrawer}
+            aria-label={`${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}`}
+          >
+            <Icon id="ico-bell" size="1.375rem" />
+            <span className="ml-bell__badge">{unreadCount}</span>
+          </button>
+        )}
         {/* Profile chip removed — identity + switch/sign-out live under the Account nav tab. */}
         {offline ? (
           <OfflineChip />

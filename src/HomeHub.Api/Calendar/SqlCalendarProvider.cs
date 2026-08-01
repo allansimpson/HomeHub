@@ -41,6 +41,7 @@ public sealed class SqlCalendarProvider : ICalendarProvider
             Location = input.Location,
             Notes = input.Notes,
             OwnerTags = input.OwnersCsv,
+            Mark = input.NormalizedMark,
             UpdatedUtc = DateTime.UtcNow,
         };
         _db.CalendarEvents.Add(e);
@@ -60,6 +61,7 @@ public sealed class SqlCalendarProvider : ICalendarProvider
         e.Location = input.Location;
         e.Notes = input.Notes;
         e.OwnerTags = input.OwnersCsv;
+        e.Mark = input.NormalizedMark;
         e.UpdatedUtc = DateTime.UtcNow;
         e.Version++;
         await _db.SaveChangesAsync(ct);

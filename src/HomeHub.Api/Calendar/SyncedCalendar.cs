@@ -14,4 +14,11 @@ public class SyncedCalendar
 
     /// <summary>Display name at the time it was selected (for offline labelling).</summary>
     public required string CalendarName { get; set; }
+
+    /// <summary>
+    /// Icon id shown for this calendar's events, or null for none. Household-assigned and free-form —
+    /// the API stores whatever the panel's icon set offers rather than an enum, so adding an icon to
+    /// the sprite needs no migration here.
+    /// </summary>
+    public string? Icon { get; set; }
 }

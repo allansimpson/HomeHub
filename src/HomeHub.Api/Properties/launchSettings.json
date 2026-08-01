@@ -5,7 +5,8 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": false,
-      "applicationUrl": "http://localhost:5220",
+      "//": "0.0.0.0 (not localhost) so the panel is reachable from tablets/phones on the LAN at http://<host-ip>:5220. Plain HTTP on a trusted LAN is the deployment model (see Program.cs).",
+      "applicationUrl": "http://0.0.0.0:5220",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
@@ -14,6 +15,7 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": false,
+      "//": "Local-only profile: the dev HTTPS certificate is not trusted by other devices, so LAN clients use the http profile above.",
       "applicationUrl": "https://localhost:7288;http://localhost:5220",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"

@@ -34,6 +34,79 @@ export function IconSprite() {
         <path d="M4 6h4v4H4zM4 14h4v4H4zM11 8h9M11 16h9" fill="none" stroke="currentColor" strokeWidth="1.5" />
       </symbol>
 
+      {/* BABY — feeding bottle (BABY_SECTION.md) */}
+      <symbol id="ico-baby" viewBox="0 0 24 24">
+        <path
+          d="M10 2.5h4M9.6 5h4.8l.6 2H9zM8 7h8v12.5a2 2 0 01-2 2h-4a2 2 0 01-2-2zM8 11.5h3M8 15h3"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+        />
+      </symbol>
+      {/* CAT — one continuous head outline: ear, brow, ear, jaw, plus two eye ticks.
+          Whiskers, muzzle lines and separate ear triangles were tried and all smear at the nav's
+          22px; a head outline with two eyes is the smallest thing that still reads as a cat.
+          Do not add whiskers back (NAV_CAT_TAB.md). */}
+      <symbol id="ico-litter" viewBox="0 0 24 24">
+        <path
+          d="M5 11V4l4.6 3.4a9 9 0 014.8 0L19 4v7a7 7 0 01-14 0zM9.6 11.6v.7M14.4 11.6v.7"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </symbol>
+      {/* MEALS — "Diner Tin & Lip": a steaming pie, replacing the earlier butler cloche.
+          Six segments in path order: the tin's full-width lip (the strongest "pie tin" signal, and
+          deliberately wider than the tin body), a low elliptical crust dome (a taller one reads as
+          a cloche again), the flared tin, then three steam curls with the centre one raised ~0.6 so
+          they read as a group rather than a row.
+
+          Coordinates are final and tuned to the sprite's 24×24 / stroke-1.5 deco geometry — do not
+          re-centre, simplify, or run through an SVG optimiser that moves them. Default butt caps and
+          mitre joins on purpose: the mitred corners are part of the deco language, which is why this
+          carries no strokeLinecap (the cloche it replaces wrongly had round).
+
+          22px in the nav, 26px in the COOK control, 17–22px in notices. Below ~18px the handoff says
+          to drop the outer two curls and keep the centre one rather than scaling the whole glyph. */}
+      <symbol id="ico-meals" viewBox="0 0 24 24">
+        <path
+          d="M4.5 13.5h15M6.5 13.5a5.5 3.6 0 0111 0M6 13.5l1.6 5h8.8l1.6-5M9 7.2c-.8-.85-.8-1.95 0-2.8M12 6.6c-.8-.85-.8-1.95 0-2.8M15 7.2c-.8-.85-.8-1.95 0-2.8"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+        />
+      </symbol>
+
+      {/* PANTRY — a cupboard: outer case, two shelves, one divider (PANTRY_NAV.md). No fill, no
+          curves, square corners — the same deco geometry as ico-meals and ico-list. */}
+      <symbol id="ico-pantry" viewBox="0 0 24 24">
+        <path d="M4 4h16v16H4zM4 10.5h16M4 15.5h16M12 4v6.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </symbol>
+
+      {/* REFRESH — circular arrow; the clean-cycle control (LITTER_SECTION.md) */}
+      <symbol id="ico-refresh" viewBox="0 0 24 24">
+        <path
+          d="M20 12a8 8 0 11-2.34-5.66M20 4v4h-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+        />
+      </symbol>
+
+      {/* BELL — the notification badge in the dashboard header (NAV_CAT_TAB.md) */}
+      <symbol id="ico-bell" viewBox="0 0 24 24">
+        <path
+          d="M6 9a6 6 0 1112 0v5l2 3H4l2-3zM10 20a2 2 0 004 0"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </symbol>
+
       {/* Account glyphs (person + sign in/out doorframes) */}
       <symbol id="ico-person" viewBox="0 0 24 24">
         <circle cx="12" cy="8.5" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -126,6 +199,94 @@ export function IconSprite() {
       </symbol>
       <symbol id="ico-stop" viewBox="0 0 24 24">
         <path d="M6 6h12v12H6z" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </symbol>
+
+      {/* ---- Calendar marks (spec 14, exact paths) ----
+          These carry no stroke-width: it is inherited from the <svg> the Icon renders, so the same
+          symbol draws at 1.7 in the 13px month-grid cell and 1.4 in the agenda and the picker
+          without a second copy of every path. Do not add stroke-width here — a presentation
+          attribute on the path would win over the inherited value and pin all sizes to one weight. */}
+      <symbol id="ico-mark-cake" viewBox="0 0 24 24">
+        <path d="M4 21h16M5.5 21v-6.5h13V21M5.5 17.5h13M12 14.5v-3M12 11.5l1.4-1.6L12 8l-1.4 1.9z" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-medical" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" />
+        <path d="M12 7.5v9M7.5 12h9" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-gift" viewBox="0 0 24 24">
+        <path
+          d="M3 9h18v4H3zM4.5 13v8h15v-8M12 9v12M12 9C10 9 7 8.6 7 6.5A2.5 2.5 0 0112 6a2.5 2.5 0 015 .5C17 8.6 14 9 12 9z"
+          fill="none"
+          stroke="currentColor"
+        />
+      </symbol>
+      <symbol id="ico-mark-star" viewBox="0 0 24 24">
+        <path d="M12 3.5l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.9l6-.8z" fill="none" stroke="currentColor" strokeLinejoin="round" />
+      </symbol>
+      <symbol id="ico-mark-post" viewBox="0 0 24 24">
+        <path d="M3 6h18v12H3zM3 6l9 7 9-7" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-school" viewBox="0 0 24 24">
+        <path d="M2 9l10-4.5L22 9l-10 4.5zM6 11v5c0 1.6 2.7 3 6 3s6-1.4 6-3v-5" fill="none" stroke="currentColor" strokeLinejoin="round" />
+      </symbol>
+      <symbol id="ico-mark-work" viewBox="0 0 24 24">
+        <path d="M3 8h18v11H3zM9 8V5h6v3M3 13h18" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-hours" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" />
+        <path d="M12 7v5.3l3.4 2" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-house" viewBox="0 0 24 24">
+        <path d="M4 20h16M7 20v-7h10v7M10 13V9h4v4M12 9V5" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-swim" viewBox="0 0 24 24">
+        <circle cx="8" cy="7" r="2" fill="none" stroke="currentColor" />
+        <path
+          d="M3 14.5c2-1.6 3.6-1.6 5.6 0s3.6 1.6 5.6 0 3.6-1.6 5.6 0M3 19c2-1.6 3.6-1.6 5.6 0s3.6 1.6 5.6 0 3.6-1.6 5.6 0"
+          fill="none"
+          stroke="currentColor"
+        />
+      </symbol>
+      <symbol id="ico-mark-sport" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" />
+        <path d="M3.5 12h17M12 3.5c3 2.4 3 14.1 0 17M12 3.5c-3 2.4-3 14.1 0 17" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-music" viewBox="0 0 24 24">
+        <path d="M9 18V5l10-2v13" fill="none" stroke="currentColor" />
+        <circle cx="6.5" cy="18" r="2.5" fill="none" stroke="currentColor" />
+        <circle cx="16.5" cy="16" r="2.5" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-dining" viewBox="0 0 24 24">
+        <path d="M7 3v8a2 2 0 002 2v8M7 3v5M9.6 3v5M17 3c-1.5 1.2-2.2 3-2.2 5s.9 3 2.2 3v10" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-book" viewBox="0 0 24 24">
+        <path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5zM6.5 18H19v3H6.5" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-errand" viewBox="0 0 24 24">
+        <path d="M5 8h14l-1.2 12H6.2zM9 8V5.5a3 3 0 016 0V8" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-travel" viewBox="0 0 24 24">
+        <path d="M3 16v-3l2.5-5h13l2.5 5v3zM3 16h18M6.5 16v2M17.5 16v2M6 12h12" fill="none" stroke="currentColor" />
+      </symbol>
+      <symbol id="ico-mark-pet" viewBox="0 0 24 24">
+        <path
+          d="M5 11V4l4.6 3.4a9 9 0 014.8 0L19 4v7a7 7 0 01-14 0zM9.6 11.6v.7M14.4 11.6v.7"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </symbol>
+      <symbol id="ico-mark-outdoors" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" />
+        <path
+          d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"
+          fill="none"
+          stroke="currentColor"
+        />
+      </symbol>
+      <symbol id="ico-mark-deadline" viewBox="0 0 24 24">
+        <path d="M6 21V4M6 4h12l-2.5 4L18 12H6" fill="none" stroke="currentColor" strokeLinejoin="round" />
       </symbol>
     </svg>
   )

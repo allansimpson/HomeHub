@@ -5,6 +5,7 @@ using HomeHub.Api.Calendar;
 using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
+using HomeHub.Api.Meals;
 using HomeHub.Api.Tasks;
 using HomeHub.Api.Ai;
 using Microsoft.AspNetCore.Hosting;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Abstractions;
 
 /// <summary>
 /// Boots the real app with an isolated in-memory database (unique per factory instance) so the
@@ -70,5 +72,32 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
         using var scope = Services.CreateScope();
         scope.ServiceProvider.GetRequiredService<HomeHubDbContext>().Database.EnsureCreated();
         return client;
+    }
+
+    /// <summary>
+    /// Run one pass of the Meals lead-time watcher at a fixed local time.
+    /// </summary>
+    /// <remarks>
+    /// Built here rather than resolved from the container so the clock can be pinned: the whole
+    /// behaviour under test is "only inside the evening window", and waiting until 21:00 to find out
+    /// is not a test. Same shape as the litter recovery loop's deterministic tick.
+    /// </remarks>
+    public Task RunLeadTimePassAsync(DateTimeOffset now) =>
+        new MealLeadTimeService(
+            Services.GetRequiredService<IServiceScopeFactory>(),
+            new PinnedClock(now),
+            NullLogger<MealLeadTimeService>.Instance)
+        .EvaluateOnceAsync(CancellationToken.None);
+
+    /// <summary>
+    /// A fixed clock. `GetLocalNow` is not virtual on <see cref="TimeProvider"/> — it is derived from
+    /// `GetUtcNow` and `LocalTimeZone` — so the zone is pinned to UTC and the supplied instant is
+    /// then both the local and the universal time. That is what lets a test say "21:05" and mean it
+    /// on any machine.
+    /// </summary>
+    private sealed class PinnedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
     }
 }

@@ -5,7 +5,7 @@
  * silently overwrite (conservative policy). Climate set-points carry no version (last-write-wins).
  */
 
-export type WriteDomain = 'task' | 'calendar' | 'climate'
+export type WriteDomain = 'task' | 'calendar' | 'climate' | 'meal' | 'recipe' | 'pantry' | 'grocery'
 
 export interface QueuedOp {
   id: string

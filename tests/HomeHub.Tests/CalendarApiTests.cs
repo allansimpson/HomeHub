@@ -77,6 +77,27 @@ public class CalendarApiTests
     }
 
     [Fact]
+    public async Task Event_mark_round_trips_and_clears()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+        var start = new DateTime(2026, 7, 23, 17, 0, 0, DateTimeKind.Utc);
+
+        var created = await (await client.PostAsJsonAsync(
+            "/api/calendar/events",
+            Sample(start, "Theo — Swim Lesson") with { Mark = "swim" }))
+            .Content.ReadFromJsonAsync<CalendarEventDto>();
+        Assert.Equal("swim", created!.Mark);
+
+        // Blank is "inherit", not an empty mark — it must come back as null rather than "".
+        var cleared = await (await client.PutAsJsonAsync(
+            $"/api/calendar/events/{created.Id}",
+            Sample(start, "Theo — Swim Lesson") with { Mark = "  " }))
+            .Content.ReadFromJsonAsync<CalendarEventDto>();
+        Assert.Null(cleared!.Mark);
+    }
+
+    [Fact]
     public async Task Rejects_invalid_events()
     {
         using var app = new HubAppFactory();

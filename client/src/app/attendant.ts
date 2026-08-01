@@ -6,5 +6,12 @@
  */
 export const ATTENDANT_NAME = 'Barnaby'
 
-/** Local wake phrase spoken to open the mic (openWakeWord model on the Pi bridge). */
-export const ATTENDANT_WAKE_PHRASE = `Hey ${ATTENDANT_NAME}`
+/**
+ * Local wake phrases spoken to open the mic. Each one is a separately trained openWakeWord model on
+ * the Pi bridge — the bridge matches sound, not text, so this list is a label for the UI and adding
+ * to it here does not by itself teach the panel a new phrase (`voice-bridge/README.md`).
+ */
+export const ATTENDANT_WAKE_PHRASES = [`Hey ${ATTENDANT_NAME}`, `Oh ${ATTENDANT_NAME}`] as const
+
+/** The primary phrase, for places with room for only one. */
+export const ATTENDANT_WAKE_PHRASE = ATTENDANT_WAKE_PHRASES[0]

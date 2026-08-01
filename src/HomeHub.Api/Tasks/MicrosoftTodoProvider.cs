@@ -28,6 +28,13 @@ public sealed class MicrosoftTodoProvider : ITaskProvider, IListSyncProvider
     private static readonly ConcurrentDictionary<int, (string Token, DateTime AcquiredUtc)> Tokens = new();
     private static readonly ConcurrentDictionary<int, string> ListIds = new();
 
+    /// <summary>Forget a profile's cached access token after re-authorising — see the Google twin.</summary>
+    public static void ForgetToken(int profileId)
+    {
+        Tokens.TryRemove(profileId, out _);
+        ListIds.TryRemove(profileId, out _);
+    }
+
     public MicrosoftTodoProvider(
         HttpClient http, HomeHubDbContext db, IOptions<MicrosoftTodoOptions> options, ILogger<MicrosoftTodoProvider> logger)
     {
@@ -48,6 +55,9 @@ public sealed class MicrosoftTodoProvider : ITaskProvider, IListSyncProvider
         foreach (var link in links)
         {
             try { await SyncProfileAsync(link, ct); }
+            // A caller that went away is not a Graph failure. Logging it as one points the next
+            // person debugging at Microsoft, which is where this cost us an afternoon.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex) { _logger.LogWarning(ex, "Graph sync failed for profile {Profile}; serving cache.", link.ProfileId); }
         }
 

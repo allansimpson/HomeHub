@@ -8,6 +8,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The assistant's fuzzy list matching is pure, deterministic and easy to break by accident;
+         exposing it to the test project is cheaper than routing every case through an HTTP call
+         that would write a real task to someone's Microsoft To Do list. -->
+    <InternalsVisibleTo Include="HomeHub.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

@@ -75,9 +75,32 @@ coverage/
 *.log
 logs/
 
+# ---- Cached recipe images (Stage M2, meals-planning.md D5) ----
+# Downloaded at import so a recipe card doesn't depend on someone else's CDN. Machine-local cache,
+# content-addressed and re-fetchable, so it is not source. Deliberately NOT under wwwroot — that
+# directory is the SPA build output and every deploy replaces it wholesale.
+recipe-images/
+
+# ---- Local development TLS (scripts/make-dev-certs.sh) ----
+# A private CA key that can sign for any hostname, plus the server key it signs. Both are secrets in
+# the plain sense — anyone holding the CA key can mint a certificate the household's phones will
+# trust without warning, because those phones have been told to trust this CA. Machine-local and
+# regenerable in one command, so nothing is lost by never committing them.
+certs/
+
 # ---- OS / editor ----
 .DS_Store
 Thumbs.db
 *.swp
 .idea/
 *.code-workspace
+
+# The dev CA, copied into public/ so a phone can download it from the dev server itself
+# (deploy/dev-https.md §3). Public by nature — it is meant to be handed to devices — but
+# machine-specific, so it is not source.
+#
+# Matched by name anywhere rather than at one path: `npm run build` copies everything in
+# `client/public/` into `src/HomeHub.Api/wwwroot/`, so pinning the rule to the source location left
+# the built copy untracked-and-committable. Delete it from `public/` once the household's devices
+# are set up — otherwise every production build ships a development CA to a public URL.
+homehub-dev-ca.crt

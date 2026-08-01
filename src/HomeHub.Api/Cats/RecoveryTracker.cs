@@ -12,6 +12,9 @@ namespace HomeHub.Api.Cats;
 /// </remarks>
 public sealed class RecoveryTracker
 {
+    /// <summary>The one wording for a panel pause, so the set and the clear cannot drift apart.</summary>
+    private const string PausedHold = "Paused from the panel";
+
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Episode> _episodes = new(StringComparer.Ordinal);
 
@@ -25,6 +28,7 @@ public sealed class RecoveryTracker
         public DateTimeOffset? LastCatSeenUtc;
         public DateTimeOffset? StableSinceUtc;
         public string? HoldReason;
+        public bool Paused;
     }
 
     private Episode For(string slug)
@@ -59,7 +63,10 @@ public sealed class RecoveryTracker
         lock (_gate)
         {
             var episode = For(slug);
-            episode.HoldReason = null;
+            // A pause is a standing decision, not an episode detail: clearing it here left the panel
+            // reporting auto-recovery off with no reason given, because `Paused` stayed true while
+            // the sentence explaining it disappeared on the first usable reading.
+            episode.HoldReason = episode.Paused ? PausedHold : null;
             episode.StableSinceUtc ??= now;
 
             var hadEpisode = episode.FaultSinceUtc is not null || episode.Attempts > 0;
@@ -102,6 +109,33 @@ public sealed class RecoveryTracker
         lock (_gate) For(slug).HoldReason = reason;
     }
 
+    /// <summary>
+    /// Stop or resume automatic intervention for one robot, from the panel — the "leave it alone" a
+    /// household needs when it can see the box trying to fix itself and knows better.
+    /// </summary>
+    /// <remarks>
+    /// Survives the episode closing, so pausing means paused until someone resumes it, not until the
+    /// next stable reading. It does not survive a restart, which matches the rest of this class: a
+    /// restarted app re-observes rather than inheriting a decision nobody remembers making. Pausing
+    /// never silences the alerts — the observe-only branch still reports a box that needs hands.
+    /// </remarks>
+    public void SetPaused(string slug, bool paused)
+    {
+        lock (_gate)
+        {
+            var episode = For(slug);
+            episode.Paused = paused;
+            if (paused) episode.HoldReason = PausedHold;
+            else if (episode.HoldReason == PausedHold) episode.HoldReason = null;
+        }
+    }
+
+    /// <summary>Whether automatic intervention is paused for this robot.</summary>
+    public bool IsPaused(string slug)
+    {
+        lock (_gate) return For(slug).Paused;
+    }
+
     /// <summary>A read-only view of the gate inputs, taken atomically.</summary>
     public (int Attempts, DateTimeOffset? FaultSince, DateTimeOffset? NextDue, DateTimeOffset? LastCat) Read(string slug)
     {
@@ -112,6 +146,10 @@ public sealed class RecoveryTracker
         }
     }
 
+    /// <summary>
+    /// The panel's view. <paramref name="enabled"/> is the configured master switch; a robot paused from
+    /// the panel reports disabled too, so the UI has one flag to read rather than two to reconcile.
+    /// </summary>
     public RecoveryState Snapshot(string slug, bool enabled, int attemptsToday)
     {
         lock (_gate)
@@ -119,7 +157,7 @@ public sealed class RecoveryTracker
             var episode = For(slug);
             return new RecoveryState(
                 slug,
-                enabled,
+                enabled && !episode.Paused,
                 episode.FaultCode,
                 episode.FaultSinceUtc,
                 episode.Attempts,

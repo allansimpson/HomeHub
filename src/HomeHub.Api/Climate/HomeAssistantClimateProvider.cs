@@ -47,6 +47,10 @@ public sealed class HomeAssistantClimateProvider : IClimateProvider
             }
             await _db.SaveChangesAsync(ct);
         }
+        // A caller that went away is not a failed fetch. Without this, every abandoned request —
+        // a page reload, a poll overtaking its predecessor — logs "Home Assistant states fetch
+        // failed", which sends anyone reading the logs after an incident looking at HA.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Home Assistant states fetch failed; serving cached climate.");

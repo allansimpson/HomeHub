@@ -16,6 +16,12 @@ def _env_opt(name: str) -> str | None:
     return v if v else None
 
 
+def _env_list(name: str, default: str = "") -> tuple[str, ...]:
+    """Comma-separated setting → tuple, blanks dropped. Accepts a single value unchanged."""
+    raw = os.environ.get(name, default)
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
 @dataclass(frozen=True)
 class Config:
     # --- HomeHub API (the .NET app; same host as the SPA) ---
@@ -23,11 +29,14 @@ class Config:
     http_timeout: float          # seconds for transcribe/chat calls
 
     # --- Wake word (openWakeWord, fully local) ---
-    wake_model_path: str | None  # path to a custom "hey_barnaby.onnx"; None → use wake_model name
+    # Several models can run at once and any one of them opens the mic: openWakeWord scores a frame
+    # against every loaded model, so "Hey Barnaby" and "Oh Barnaby" are two models, not two strings.
+    # A phrase with no model of its own is never heard, however it is spelled here.
+    wake_model_paths: tuple[str, ...]  # custom .onnx paths; empty → fall back to wake_model
     wake_model: str              # pretrained fallback name if no custom model (e.g. "hey_jarvis")
     wake_framework: str          # "onnx" or "tflite"
     wake_threshold: float        # score in [0,1] above which the phrase counts as detected
-    wake_phrase: str             # display label only
+    wake_phrases: tuple[str, ...]  # display labels only
 
     # --- Audio capture ---
     mic_device: str | None       # sounddevice device name/index; None = system default
@@ -60,11 +69,13 @@ class Config:
         return Config(
             api_base_url=_env("HOMEHUB_API_BASE_URL", "http://localhost:5220").rstrip("/"),
             http_timeout=float(_env("HOMEHUB_HTTP_TIMEOUT", "30")),
-            wake_model_path=_env_opt("WAKE_MODEL_PATH"),
+            # WAKE_MODEL_PATH takes a comma-separated list, so an existing single-path install keeps
+            # working untouched.
+            wake_model_paths=_env_list("WAKE_MODEL_PATH"),
             wake_model=_env("WAKE_MODEL", "hey_jarvis"),
             wake_framework=_env("WAKE_FRAMEWORK", "onnx"),
             wake_threshold=float(_env("WAKE_THRESHOLD", "0.5")),
-            wake_phrase=_env("WAKE_PHRASE", "Hey Barnaby"),
+            wake_phrases=_env_list("WAKE_PHRASE", "Hey Barnaby, Oh Barnaby"),
             mic_device=_env_opt("MIC_DEVICE"),
             vad_aggressiveness=int(_env("VAD_AGGRESSIVENESS", "2")),
             start_timeout_ms=int(_env("START_TIMEOUT_MS", "3000")),

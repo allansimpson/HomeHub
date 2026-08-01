@@ -151,7 +151,7 @@ The assistant is **hybrid**: routine requests answered by a **local model on the
 
 ## 9 · Tests
 
-`tests/HomeHub.Tests` — **55 passing**, 0 warnings. Boots the real app via `WebApplicationFactory<Program>`
+`tests/HomeHub.Tests` — **294 passing**, 0 warnings. Boots the real app via `WebApplicationFactory<Program>`
 with an isolated **EF InMemory** database per factory (seeded via `EnsureCreated`). Coverage: health,
 profiles + PIN lockout, settings, sensors + alert engine (raise/clear/duration), weather refresh +
 alert reconcile + expiry, calendar CRUD/range/upcoming, tasks CRUD/filter/ordering, climate
@@ -182,8 +182,8 @@ and [`deploy/pi-kiosk.md`](deploy/pi-kiosk.md).
 
 ## 11 · Out of scope (future workstreams)
 
-Not built unless explicitly scoped: camera systems / camera-image→AI, shared shopping list,
-message board, meal planning, lighting/lock/leak control, local-vision AI. Also deferred but
+Not built unless explicitly scoped: camera systems / camera-image→AI, message board,
+lighting/lock/leak control, local-vision AI. Also deferred but
 additive behind existing seams: Govee-via-HA sensors (`ISensorProvider`), assistant *actions*
 (wiring the assistant to the calendar/todo/climate seams), HA WebSocket live push, and SignalR
 backend→client push.
@@ -196,6 +196,17 @@ architecture, seams and conventions; each doc owns its workstream's stages):
 - **`voice-tts.md`** — voice *output*; companion to §6 above, which owns STT and assistant
   routing. Stage 8R (prosody/cache refactor of the shipped `ITextToSpeech` seam) and Stage 8.5
   (Chatterbox, deferred until a GPU is installed).
+- **`meals-planning.md`** — the **Meals** tab: week planner, local recipe folder, and web
+  recipe import. Stages M1–M5. Moves *meal planning* and *shared shopping list* out of the
+  out-of-scope list above. Note three deliberate deviations from this file's conventions, all
+  argued in the doc: recipes are **locally owned with no provider seam** (§4's pattern needs an
+  external system of record; there isn't one), **import has no seam either** (one format —
+  schema.org `Recipe` JSON-LD — so one class, extract an interface only if a second strategy
+  ever lands), and `MealPlanEntry.Date` is **`DateOnly`**, not `DateTime …Utc` (a meal slot is a
+  calendar date, not an instant). Reuses the Stage 5 To Do provider and the 8R speech path;
+  notably it does **not** use §6's assistant routing — import is fully deterministic and works
+  with no AI configured. Takes the nav from eight items to **nine** — see the doc's D8 before
+  touching `ledger.css` metrics.
 
 Active build order and the human-gated verification items live in `TODO.md`.
 

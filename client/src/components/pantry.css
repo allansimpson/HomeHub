@@ -1,0 +1,1303 @@
+/*
+ * PANTRY — Meridian Ledger, dark only, no radius, no shadows.
+ *
+ * All sizes come from PANTRY_SCREEN.md's 540×960 reference canvas, divided by 16 for rem. Hairlines
+ * stay in device px via --hairline-px so they never blur at 4K. This file introduces no new tokens;
+ * the section deliberately reuses the Meals palette (design_handoff_pantry/README).
+ *
+ * Its own file rather than more lines on meals.css for the same reason meals.css exists: the two
+ * sections reference each other constantly but are edited separately, and one 5,000-line stylesheet
+ * is where that stops being true.
+ *
+ * The `pt-` prefix is the section's. Nothing here restyles a shared `ml-` component.
+ */
+
+/* IBM Plex Mono is the spec's face for amounts and barcodes; it is not bundled, so this falls
+   through to the platform monospace — same role, same tabular figures. */
+.pt-mono,
+.pt-row__amount,
+.pt-receipt__from,
+.pt-receipt__to,
+.pt-receipt__state,
+.pt-check__needs,
+.pt-runrow__count,
+.pt-importrow__raw,
+.pt-importrow__count,
+.pt-unmatched__code,
+.pt-grow__qty {
+  font-family: var(--font-mono, ui-monospace, 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace);
+}
+
+/* ---- 9a · the tab ---- */
+
+/* The grocery drill-in, sitting in the header's status slot. */
+.pt-header__link {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--brass-bright);
+}
+
+/* "Last touched Tuesday by Eleanor…" — 13px/300, line-height 1.55 (§1.3). */
+.pt-hedge {
+  padding: 0.875rem var(--gutter) 0;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+/* The location segment (§1.4). Cells are divided by hairlines, not gaps. */
+.pt-segment {
+  display: flex;
+  margin: 0.875rem var(--gutter) 0;
+  border: var(--hairline-px) solid var(--border-inactive);
+}
+
+.pt-segment__cell {
+  padding: 0.875rem 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  border-left: var(--hairline-px) solid var(--border-inactive);
+}
+
+.pt-segment__cell:first-child {
+  border-left: none;
+}
+
+.pt-segment__cell--on {
+  color: var(--brass-bright);
+  background: var(--bg-active);
+}
+
+.pt-segment__count {
+  margin-left: 0.375rem;
+  font-size: 0.5625rem;
+  color: var(--text-disabled);
+}
+
+/* `36 THINGS · 4 PROBABLY LOW · 2 PROBABLY OUT` — always hedged (§1.5). */
+.pt-tally {
+  padding: 0.625rem var(--gutter) 0;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+
+/* A waiting import: one ruled row above the list, never a banner (§4). */
+.pt-waiting {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+  margin: 0.75rem 0 0;
+  padding: 0.875rem var(--gutter);
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+
+.pt-waiting__text {
+  flex: 1;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--brass-bright);
+}
+
+/*
+ * Section label — brass, 0.32em (§ recurring motifs).
+ *
+ * Carries its own gutter. It is used both inside `.pt-group` (which has one) and bare on the modal
+ * screens (which do not), and relying on the parent meant the modal versions sat flush against the
+ * screen edge with their right-hand meta overflowing — which widened the whole page and pushed
+ * every other element out of view, since `body` hides the overflow rather than scrolling it. The
+ * symptom looked like a broken layout scale; the cause was one missing gutter.
+ */
+.pt-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1.125rem var(--gutter) 0.25rem;
+}
+
+/* Inside a group the gutter is already applied by the group, so don't double it. */
+.pt-group .pt-label,
+.pt-gsection .pt-label {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.pt-label__text {
+  font-size: 0.6875rem;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+/* The one amber label in the section: `WORTH A LOOK`. Nothing else may use it — that is what
+   keeps amber meaning "look at this now" rather than becoming decoration. */
+.pt-label--amber .pt-label__text {
+  color: var(--alert);
+}
+
+.pt-label__meta {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pt-group {
+  padding: 0 var(--gutter);
+}
+
+/* "Nothing in the freezer yet" — the section is never hidden (behaviours §6). Same gutter story as
+   `.pt-label`: also used bare on the scan and import screens. */
+.pt-group__empty {
+  padding: 0.75rem var(--gutter);
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--text-disabled);
+}
+
+.pt-group .pt-group__empty {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* The list row (§1.6). Name flexes, amount is mono, age is a fixed 64px right-aligned cell. */
+.pt-row {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+  padding: 0.75rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+
+.pt-row__name {
+  flex: 1;
+  font-size: 0.9375rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.pt-row__amount {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.pt-row__age {
+  width: 4rem;
+  text-align: right;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-disabled);
+}
+
+/* The five row states — the tracking model made visible (§1.6).
+   Amber on the amount for anything low or gone; the *name* dims only when we believe it is gone or
+   never counted, so a low item still reads as a thing you have. */
+.pt-row--low .pt-row__amount,
+.pt-row--gone .pt-row__amount {
+  color: var(--alert);
+}
+
+.pt-row--estimated .pt-row__amount {
+  color: var(--text-secondary);
+}
+
+.pt-row--gone .pt-row__name,
+.pt-row--staple .pt-row__name {
+  color: var(--text-muted);
+}
+
+.pt-row--staple .pt-row__amount {
+  font-size: 0.75rem;
+  color: var(--text-disabled);
+}
+
+/* Empty pantry (§1, empty state). */
+.pt-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem var(--gutter);
+  text-align: center;
+}
+
+.pt-empty--short {
+  padding: 3rem var(--gutter);
+}
+
+.pt-empty__box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 5.5rem;
+  height: 5.5rem;
+  margin-bottom: 0.5rem;
+  border: var(--hairline-px) solid var(--brass-dim);
+  color: var(--brass-dim);
+}
+
+.pt-empty__title {
+  font-size: 1.4375rem;
+  color: var(--text-secondary);
+}
+
+.pt-empty__body {
+  max-width: 22rem;
+  font-size: 0.875rem;
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.pt-empty__actions {
+  display: flex;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 1rem;
+}
+
+/* Footer actions (§1.7). No scan button — the panel is on a wall. */
+.pt-footer {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem var(--gutter) 0.875rem;
+}
+
+.pt-footer--column {
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pt-footer__row {
+  display: flex;
+  gap: 0.625rem;
+  width: 100%;
+}
+
+.pt-footnote {
+  font-size: 0.6875rem;
+  font-weight: 300;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.pt-footnote--tap {
+  width: 100%;
+  padding: 0.5rem 0 0;
+  color: var(--brass-bright);
+}
+
+/* ---- buttons ---- */
+
+.pt-btn {
+  padding: 1.0625rem 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.pt-btn--primary {
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+
+.pt-btn--secondary {
+  padding: 0.9375rem 0;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-secondary);
+  letter-spacing: 0.2em;
+}
+
+.pt-btn:disabled {
+  color: var(--text-disabled);
+  border-color: var(--brass-dim);
+}
+
+.pt-chev {
+  font-size: 1.1875rem;
+  color: var(--brass-dim);
+}
+
+/* ---- modal chrome (9b · 9c · 9d · 9f) ---- */
+
+.pt-modal__header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 1.625rem var(--gutter) 0;
+}
+
+.pt-modal__back {
+  justify-self: start;
+  padding: 0.8125rem 1.25rem;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  color: var(--text-muted);
+}
+
+/* 9f has no way back — the deduction already happened — so its left cell is a word, not a control. */
+.pt-modal__when {
+  justify-self: start;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  color: var(--text-muted);
+}
+
+.pt-modal__title {
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  color: var(--brass);
+}
+
+.pt-modal__meta {
+  justify-self: end;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-disabled);
+  text-align: right;
+}
+
+.pt-modal__foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0 var(--gutter) 0.875rem;
+}
+
+/* ---- 9b · the stock check ---- */
+
+.pt-check__title {
+  padding: 1.25rem var(--gutter) 0;
+  font-size: 1.6875rem;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.pt-check__sub {
+  padding: 0.625rem var(--gutter) 0;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.pt-check__dish {
+  color: var(--text-secondary);
+}
+
+.pt-check__divider {
+  margin: 1.125rem var(--gutter) 0;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+}
+
+.pt-check__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0 var(--gutter);
+  padding: 0.75rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+
+.pt-check__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.875rem;
+}
+
+.pt-check__name {
+  flex: 1;
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+/* Amber when the panel believes you are short; muted when it cannot tell. The difference between
+   "you need six" and "we don't know" is the whole point of the six statuses. */
+.pt-check__needs {
+  font-size: 0.8125rem;
+  color: var(--alert);
+}
+
+.pt-check__needs--unsure {
+  color: var(--text-muted);
+}
+
+.pt-check__evidence {
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--text-muted);
+}
+
+.pt-check__tail {
+  padding: 0.875rem var(--gutter) 0;
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--text-disabled);
+}
+
+/* The four ruled action rows (§2.10). Rows, not buttons — each states its consequence. */
+.pt-actions {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.5rem;
+}
+
+.pt-action {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+  padding: 0.8125rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+
+.pt-action:last-child {
+  border-bottom: none;
+}
+
+.pt-action__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.pt-action__title {
+  font-size: 0.9375rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+}
+
+.pt-action__note {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* The do-nothing row, muted so it does not read as an equal of the other three. */
+.pt-action--muted .pt-action__title {
+  color: var(--text-muted);
+}
+
+.pt-action--muted .pt-action__note {
+  color: var(--text-disabled);
+}
+
+/* ---- 9f · the receipt ---- */
+
+.pt-receipt {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0 var(--gutter);
+  padding: 0.8125rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+
+.pt-receipt__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.pt-receipt__name {
+  flex: 1;
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.pt-receipt__note {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.pt-receipt__from {
+  font-size: 0.8125rem;
+  color: var(--text-disabled);
+}
+
+.pt-receipt__arrow {
+  font-size: 0.8125rem;
+  color: var(--brass-dim);
+}
+
+.pt-receipt__to,
+.pt-receipt__state {
+  min-width: 2.75rem;
+  text-align: right;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+/* Amber only when something actually hit zero — that is the one line worth reacting to. */
+.pt-receipt__to--none {
+  color: var(--alert);
+}
+
+/* An unticked (reversed) line reads as struck through rather than vanishing: the household needs to
+   see what they undid, not to have the row disappear under their finger. */
+.pt-receipt--undone .pt-receipt__name,
+.pt-receipt--undone .pt-receipt__from,
+.pt-receipt--undone .pt-receipt__to,
+.pt-receipt--undone .pt-receipt__state {
+  color: var(--text-disabled);
+  text-decoration: line-through;
+}
+
+.pt-receipt--staples .pt-receipt__name {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+
+.pt-receipt--staples .pt-receipt__state {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-disabled);
+}
+
+/* ---- 9e · grocery ---- */
+
+/* The mirror strip — permanent, never a toast (DECISIONS PG8). */
+.pt-mirror {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: calc(100% - 2 * var(--gutter));
+  margin: 1rem var(--gutter) 0;
+  padding: 0.875rem 1rem;
+  text-align: left;
+}
+
+.pt-mirror--ok {
+  border: var(--hairline-px) solid var(--live-dim);
+  background: var(--live-fill-a);
+}
+
+.pt-mirror--warn {
+  border: var(--hairline-px) solid var(--alert);
+  background: #1F1A10;
+}
+
+.pt-mirror--off {
+  border: var(--hairline-px) solid var(--border-inactive);
+  background: var(--bg-zone-expand-rule);
+}
+
+.pt-mirror__dot {
+  width: 0.5625rem;
+  height: 0.5625rem;
+}
+
+.pt-mirror--ok .pt-mirror__dot { background: var(--live-accent); }
+.pt-mirror--warn .pt-mirror__dot { background: var(--alert); }
+.pt-mirror--off .pt-mirror__dot { background: var(--text-disabled); }
+
+.pt-mirror__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+
+.pt-mirror__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+}
+
+.pt-mirror--ok .pt-mirror__label { color: var(--live-text); }
+.pt-mirror--warn .pt-mirror__label { color: var(--alert); }
+.pt-mirror--off .pt-mirror__label { color: var(--text-muted); }
+
+.pt-mirror__detail {
+  font-size: 0.6875rem;
+  font-weight: 300;
+}
+
+.pt-mirror--ok .pt-mirror__detail { color: #7D9A8D; }
+.pt-mirror--warn .pt-mirror__detail { color: var(--text-muted); }
+.pt-mirror--off .pt-mirror__detail { color: var(--text-disabled); }
+
+.pt-gsection {
+  padding: 0 var(--gutter);
+}
+
+/* `GOT IT` and its count are both --text-disabled: done work recedes. */
+.pt-gsection--done .pt-label__text,
+.pt-gsection--done .pt-label__meta {
+  color: var(--text-disabled);
+}
+
+.pt-grow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8125rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+
+.pt-grow__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.pt-grow__name {
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.pt-grow__qty {
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.pt-grow__sub {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+/* The return trip is verdigris — a genuinely live status ("this just went back on a shelf"), which
+   is the section's only licence to use the colour. */
+.pt-grow__sub--return {
+  color: var(--live-text);
+}
+
+.pt-grow--done .pt-grow__name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.pt-tick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: var(--control-border) solid var(--brass-dim);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.pt-tick--on {
+  background: var(--brass);
+  color: var(--bg-screen);
+}
+
+.pt-addrow {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+}
+
+.pt-addrow .pt-field__input {
+  flex: 2;
+}
+
+/* ---- 9c · scan ---- */
+
+.pt-viewfinder {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 15.625rem;
+  margin: 1rem var(--gutter) 0;
+  border: var(--hairline-px) solid var(--border-inactive);
+  overflow: hidden;
+}
+
+.pt-viewfinder__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pt-viewfinder__idle {
+  position: absolute;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  line-height: 1.9;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* Four corner ticks, 34×34, 2px brass, inset 14px (§3.3). */
+.pt-viewfinder__tick {
+  position: absolute;
+  width: 2.125rem;
+  height: 2.125rem;
+  border: 0 solid var(--brass);
+}
+
+.pt-viewfinder__tick--tl { top: 0.875rem; left: 0.875rem; border-top-width: var(--hairline-px); border-left-width: var(--hairline-px); }
+.pt-viewfinder__tick--tr { top: 0.875rem; right: 0.875rem; border-top-width: var(--hairline-px); border-right-width: var(--hairline-px); }
+.pt-viewfinder__tick--bl { bottom: 0.875rem; left: 0.875rem; border-bottom-width: var(--hairline-px); border-left-width: var(--hairline-px); }
+.pt-viewfinder__tick--br { bottom: 0.875rem; right: 0.875rem; border-bottom-width: var(--hairline-px); border-right-width: var(--hairline-px); }
+
+/* An unmatched barcode is a first-class row, not an error — brass hairline, never amber. */
+.pt-unmatched {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1rem var(--gutter) 0;
+  padding: 1rem 1.125rem;
+  border: var(--hairline-px) solid var(--brass);
+}
+
+.pt-unmatched__code {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+.pt-unmatched__what {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  color: var(--alert);
+}
+
+/* Where a pre-filled name came from. Muted, because it is provenance rather than a claim — the
+   household is about to decide whether to adopt those words. */
+.pt-unmatched__from {
+  font-size: 0.6875rem;
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.pt-unmatched__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pt-unmatched__actions .pt-nameit {
+  margin-left: auto;
+}
+
+/* Skipping is the quiet option and looks it: one unnameable pack must not stop the rest of the
+   bag being put away, but it is not the thing to reach for first. */
+.pt-unmatched__skip {
+  padding: 0.6875rem 0.875rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+
+.pt-nameit {
+  align-self: flex-start;
+  padding: 0.6875rem 0.875rem;
+  border: var(--control-border) solid var(--brass-dim);
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--brass-bright);
+}
+
+.pt-nameit--inline {
+  align-self: center;
+}
+
+/* A run row is a HoldButton, so the ledger row it looks like has to be rebuilt inside the hold's
+   own body/label wrappers rather than on the button itself. */
+.pt-runrow.ml-hold {
+  display: block;
+  width: 100%;
+  padding: 0.75rem var(--gutter);
+  border: none;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  background: none;
+  text-align: left;
+}
+
+.pt-runrow .ml-hold__body {
+  width: 100%;
+}
+
+.pt-runrow .ml-hold__label {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+}
+
+/* The hold's progress track sits under the row, brass on the hairline it already has. */
+.pt-runrow .ml-hold__track {
+  margin-top: 0.375rem;
+}
+
+.pt-runrow__name {
+  flex: 1;
+  font-size: 0.9375rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.pt-runrow__count {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.pt-runrow__loc {
+  width: 4.625rem;
+  text-align: right;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-disabled);
+}
+
+/* ---- 9d · import ---- */
+
+.pt-source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem var(--gutter) 0;
+  padding: 1rem 1.125rem;
+  border: var(--hairline-px) solid var(--border-inactive);
+}
+
+.pt-source__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.pt-source__vendor {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+}
+
+.pt-source__date,
+.pt-source__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+
+.pt-source__body {
+  font-size: 0.75rem;
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.pt-tallybox {
+  display: flex;
+  margin: 0.875rem var(--gutter) 0;
+  border: var(--hairline-px) solid var(--border-inactive);
+}
+
+.pt-tallybox__cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.8125rem 0;
+  border-left: var(--hairline-px) solid var(--border-inactive);
+}
+
+.pt-tallybox__cell:first-child {
+  border-left: none;
+}
+
+.pt-tallybox__n {
+  font-size: 1.375rem;
+}
+
+.pt-tallybox__n--ok { color: var(--live-text); }
+.pt-tallybox__n--new { color: var(--brass-bright); }
+.pt-tallybox__n--warn { color: var(--alert); }
+
+.pt-tallybox__label {
+  font-size: 0.5625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+
+.pt-importrow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+  width: 100%;
+  padding: 0.75rem var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+
+/* The raw string is always visible and always first. It is the only way a wrong interpretation
+   gets caught, and hiding it would make the panel's guess look like a fact. */
+.pt-importrow__raw {
+  font-size: 0.6875rem;
+  color: var(--text-disabled);
+}
+
+.pt-importrow__body {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.pt-importrow__name {
+  flex: 1;
+  font-size: 0.9375rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.pt-importrow__name--unread {
+  color: var(--alert);
+}
+
+.pt-importrow__new {
+  margin-left: 0.5rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--live-text);
+}
+
+.pt-importrow__count {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+/* A weight-derived count is brass, never body colour — it is a guess wearing a number. */
+.pt-importrow__count--guess {
+  color: var(--brass-bright);
+}
+
+.pt-importrow__loc {
+  width: 4rem;
+  text-align: right;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+
+.pt-importrow__guess {
+  font-size: 0.6875rem;
+  font-weight: 300;
+  color: var(--text-muted);
+}
+
+/* ---- the item sheet (9a row sheet, ADD BY HAND, import line correction) ---- */
+
+/*
+ * `fixed`, not `absolute`. `.ml-shell__body` is the nearest positioned ancestor, so an absolute
+ * sheet would stop at the top of the bottom nav — leaving the tab bar live under a modal and the
+ * scrim covering only part of the screen. Fixed covers the panel.
+ *
+ * z-index sits under the on-screen keyboard (60), which the sheet's text fields need above them.
+ */
+.pt-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(10, 11, 13, 0.72);
+}
+
+.pt-sheet__panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 88%;
+  background: var(--bg-menu);
+  border-top: var(--hairline-px) solid var(--brass);
+}
+
+.pt-sheet__head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 1.125rem var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+
+.pt-sheet__cancel {
+  justify-self: start;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  color: var(--text-muted);
+}
+
+.pt-sheet__title {
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  color: var(--brass);
+}
+
+.pt-sheet__save {
+  justify-self: end;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  color: var(--brass-bright);
+}
+
+.pt-sheet__save:disabled {
+  color: var(--text-disabled);
+}
+
+.pt-sheet__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem var(--gutter) 1.25rem;
+  overflow-y: auto;
+}
+
+.pt-sheet__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.875rem var(--gutter) 1.125rem;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+}
+
+.pt-sheet__confirm {
+  flex: 1;
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--text-muted);
+}
+
+/* Terracotta, the destructive accent — and used nowhere else in this section. */
+.pt-sheet__delete {
+  width: 100%;
+  padding: 0.875rem 0;
+  border: var(--control-border) solid var(--danger);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--danger);
+}
+
+.pt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.pt-field__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+.pt-field__input {
+  padding: 0.875rem 1rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: transparent;
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-primary);
+  caret-color: var(--brass-bright);
+}
+
+.pt-field__input::placeholder {
+  color: var(--text-disabled);
+}
+
+.pt-field__area {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  resize: none;
+}
+
+.pt-chips {
+  display: flex;
+  gap: 0.5625rem;
+  flex-wrap: wrap;
+}
+
+.pt-chips--scan {
+  margin: 0.875rem var(--gutter) 0;
+}
+
+.pt-chip {
+  padding: 0.6875rem 0.9375rem;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+
+.pt-chip--on {
+  border-color: var(--brass-dim);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+
+/* The tracking class is chosen with its consequence in words beside it, never as a bare toggle —
+   it is the field that decides whether this item can ever be claimed short. */
+.pt-tracking {
+  display: flex;
+  flex-direction: column;
+  border: var(--control-border) solid var(--border-inactive);
+}
+
+.pt-tracking__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  padding: 0.75rem 1rem;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  text-align: left;
+}
+
+.pt-tracking__row:first-child {
+  border-top: none;
+}
+
+.pt-tracking__row--on {
+  background: var(--bg-active);
+}
+
+.pt-tracking__name {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+}
+
+.pt-tracking__row--on .pt-tracking__name {
+  color: var(--brass-bright);
+}
+
+.pt-tracking__note {
+  font-size: 0.75rem;
+  font-weight: 300;
+  color: var(--text-disabled);
+}
+
+.pt-amount {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.pt-amount__unit {
+  flex: 1;
+}
+
+.pt-stepper {
+  display: flex;
+  align-items: center;
+  border: var(--control-border) solid var(--brass-dim);
+}
+
+.pt-stepper button {
+  width: 3.25rem;
+  height: 3.25rem;
+  font-size: 1.375rem;
+  color: var(--brass-bright);
+}
+
+/* An input, not a label — a 500 g bag is a normal pantry line and no thumb is stepping to it. */
+.pt-stepper__value {
+  width: 5rem;
+  text-align: center;
+  font-size: 1.5rem;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-left: var(--hairline-px) solid var(--brass-dim);
+  border-right: var(--hairline-px) solid var(--brass-dim);
+  padding: 0.5rem 0;
+}
+
+/* The native number spinners would be a second, tiny, wrong-sized stepper beside the real one. */
+.pt-stepper__value::-webkit-outer-spin-button,
+.pt-stepper__value::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.pt-stepper__value[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.pt-unmatched__label {
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  color: var(--brass);
+}
+
+.pt-note {
+  font-size: 0.75rem;
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.pt-history {
+  display: flex;
+  flex-direction: column;
+}
+
+.pt-history__row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+
+.pt-history__kind {
+  width: 5.5rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+
+.pt-history__what {
+  flex: 1;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.pt-history__when {
+  font-size: 0.5625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-disabled);
+}
+
+.pt-history__undo {
+  font-size: 0.5625rem;
+  letter-spacing: 0.18em;
+  color: var(--brass-bright);
+}
+
+/* An undone row stays visible and struck through — the ledger never hides what it reversed. */
+.pt-history__row--undone .pt-history__kind,
+.pt-history__row--undone .pt-history__what {
+  color: var(--text-disabled);
+  text-decoration: line-through;
+}

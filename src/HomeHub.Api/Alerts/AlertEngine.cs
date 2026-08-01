@@ -74,9 +74,19 @@ public sealed class AlertEngine
     /// sensor alerts (no duplicate mechanism). These carry an explicit expiry rather than a
     /// sustained-duration rule.
     /// </summary>
-    public async Task ReconcileAsync(
+    /// <summary>
+    /// Returns the alerts that were <b>newly raised</b> by this pass — the transitions, not the
+    /// still-open ones.
+    /// </summary>
+    /// <remarks>
+    /// Notifications are emitted from these rather than from the open set, because "this condition is
+    /// true" and "this just happened" are different claims. Reconciling on every tick would otherwise
+    /// re-announce a fault that has been sitting there for an hour.
+    /// </remarks>
+    public async Task<IReadOnlyList<ExternalAlert>> ReconcileAsync(
         HomeHubDbContext db, string type, IReadOnlyList<ExternalAlert> incoming, DateTime nowUtc, CancellationToken ct = default)
     {
+        var raised = new List<ExternalAlert>();
         var open = await db.ActiveAlerts
             .Where(a => a.Type == type && a.ClearedAtUtc == null)
             .ToListAsync(ct);
@@ -112,10 +122,12 @@ public sealed class AlertEngine
                     StartedAtUtc = nowUtc,
                     ExpiresAtUtc = input.ExpiresAtUtc,
                 });
+                raised.Add(input);
             }
         }
 
         await db.SaveChangesAsync(ct);
+        return raised;
     }
 
     private static async Task<(bool BreachingNow, bool Sustained, double LatestValue)> EvaluateThresholdAsync(

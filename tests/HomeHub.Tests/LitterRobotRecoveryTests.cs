@@ -1,5 +1,6 @@
 namespace HomeHub.Tests;
 
+using HomeHub.Api.Alerts;
 using HomeHub.Api.Cats;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -49,6 +50,10 @@ public class LitterRobotRecoveryTests
         public Task<IReadOnlyList<LitterRobotSnapshot>> GetFreshSnapshotsAsync(CancellationToken ct) =>
             Task.FromResult<IReadOnlyList<LitterRobotSnapshot>>([Snapshot()]);
 
+        // History is a panel concern; the recovery loop never asks for it.
+        public Task<LitterRobotHistory?> GetHistoryAsync(string slug, int days, CancellationToken ct) =>
+            Task.FromResult<LitterRobotHistory?>(null);
+
         private LitterRobotSnapshot Snapshot() => new(
             "box", "Box", LitterRobotFaults.Classify(Code),
             WasteDrawerPercent: 20, LitterPercent: LitterPercent, PetWeightLbs: null,
@@ -68,6 +73,22 @@ public class LitterRobotRecoveryTests
         public Task StartCleanCycleAsync(string slug, CancellationToken ct) => Send(RecoveryStep.CleanCycle);
         public Task ShortResetAsync(string slug, CancellationToken ct) => Send(RecoveryStep.ShortReset);
         public Task PowerCycleAsync(string slug, CancellationToken ct) => Send(RecoveryStep.PowerCycle);
+
+        // Maintenance commands are not rungs of the ladder — the recovery loop never sends them, and a
+        // test that saw one would be describing a bug.
+        public List<string> Maintenance { get; } = [];
+        public Task ResetWasteDrawerAsync(string slug, CancellationToken ct) => Note("drawer");
+        public Task ResetLitterLevelAsync(string slug, CancellationToken ct) => Note("litter");
+        public Task SetSwitchAsync(string slug, LitterRobotSwitch which, bool on, CancellationToken ct) =>
+            Note($"{which}:{(on ? "on" : "off")}");
+        public Task SetSelectAsync(string slug, LitterRobotSelect which, string option, CancellationToken ct) =>
+            Note($"{which}:{option}");
+
+        private Task Note(string what)
+        {
+            Maintenance.Add(what);
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>No DbContext: the runner must still work on a shell with no database configured.</summary>
@@ -348,5 +369,128 @@ public class LitterRobotRecoveryTests
 
         tracker.NoteAttempt("box", now.AddMinutes(5), options);
         Assert.Equal(now.AddMinutes(20), tracker.Read("box").NextDue);
+    }
+
+    // ---- pausing from the panel ----
+
+    /// <summary>
+    /// The panel's "leave it alone". It reports as disabled through the same flag the configured master
+    /// switch uses, so the UI reads one value rather than reconciling two.
+    /// </summary>
+    [Fact]
+    public void Pausing_from_the_panel_reports_recovery_as_disabled()
+    {
+        var tracker = new RecoveryTracker();
+
+        Assert.True(tracker.Snapshot("box", enabled: true, attemptsToday: 0).Enabled);
+
+        tracker.SetPaused("box", true);
+
+        var state = tracker.Snapshot("box", enabled: true, attemptsToday: 0);
+        Assert.False(state.Enabled);
+        Assert.Equal("Paused from the panel", state.HoldReason);
+        Assert.True(tracker.IsPaused("box"));
+
+        tracker.SetPaused("box", false);
+        Assert.True(tracker.Snapshot("box", enabled: true, attemptsToday: 0).Enabled);
+        Assert.Null(tracker.Snapshot("box", enabled: true, attemptsToday: 0).HoldReason);
+    }
+
+    /// <summary>
+    /// Pausing means paused until someone resumes it — not until the box next looks fine. A pause that
+    /// evaporated when the episode closed would quietly re-arm the loop on the same robot the household
+    /// had just told it to leave.
+    /// </summary>
+    [Fact]
+    public void A_pause_survives_the_episode_closing()
+    {
+        var tracker = new RecoveryTracker();
+        var now = new DateTimeOffset(2026, 7, 29, 3, 0, 0, TimeSpan.Zero);
+
+        tracker.NoteFault("box", "hpf", now);
+        tracker.SetPaused("box", true);
+
+        Assert.True(tracker.NoteStable("box", now.AddMinutes(10), TimeSpan.Zero));
+
+        Assert.True(tracker.IsPaused("box"));
+        var state = tracker.Snapshot("box", enabled: true, attemptsToday: 0);
+        Assert.False(state.Enabled);
+        // And it still says *why*. NoteStable used to clear HoldReason unconditionally, so the first
+        // usable reading left the panel reporting auto-recovery off with no explanation beside it —
+        // the pause intact but invisible, which reads as the panel having decided on its own.
+        Assert.Equal("Paused from the panel", state.HoldReason);
+    }
+
+    /// <summary>The configured master switch still wins — resuming a robot can't switch the section on.</summary>
+    [Fact]
+    public void Resuming_cannot_override_the_configured_master_switch()
+    {
+        var tracker = new RecoveryTracker();
+        tracker.SetPaused("box", false);
+
+        Assert.False(tracker.Snapshot("box", enabled: false, attemptsToday: 0).Enabled);
+    }
+
+    // ---- The change-the-litter alert ----
+
+    private static LitterRobotSnapshot Drawer(double? percent, string code = "rdy") => new(
+        "box", "Box", LitterRobotFaults.Classify(code),
+        WasteDrawerPercent: percent, LitterPercent: 60, PetWeightLbs: null,
+        TotalCycles: 100, LastSeenUtc: null,
+        FetchedUtc: new DateTimeOffset(2026, 7, 29, 3, 0, 0, TimeSpan.Zero), Stale: false);
+
+    [Theory]
+    [InlineData(79, 80, false)]  // just under — silent
+    [InlineData(80, 80, true)]   // exactly at the threshold counts as reaching it
+    [InlineData(95, 80, true)]
+    [InlineData(55, 50, true)]   // the household's own number is what is honoured, not a constant
+    [InlineData(45, 50, false)]
+    public void The_drawer_alert_follows_the_configured_threshold(double percent, int threshold, bool expected)
+    {
+        var alert = LitterRobotRecoveryService.DrawerAlert(Drawer(percent), threshold);
+
+        Assert.Equal(expected, alert is not null);
+        if (expected)
+        {
+            // Warning, not Severe: the box still cycles. Severe is reserved for it refusing to.
+            Assert.Equal(AlertSeverity.Warning, alert!.Severity);
+            Assert.Contains("change the litter", alert.Message, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    /// <summary>
+    /// The LR3 cannot measure its drawer at all. A missing reading is not a low one, and inventing
+    /// either answer would be worse than staying quiet.
+    /// </summary>
+    [Fact]
+    public void A_robot_that_cannot_measure_its_drawer_raises_nothing()
+    {
+        Assert.Null(LitterRobotRecoveryService.DrawerAlert(Drawer(null), 80));
+    }
+
+    /// <summary>
+    /// Once the robot reports drawer-full itself, that fault raises its own Severe alert. Two banners
+    /// about one drawer is one too many, and the quieter of the two is the one to drop.
+    /// </summary>
+    [Theory]
+    [InlineData("dfs")]
+    [InlineData("sdf")]
+    public void The_robots_own_drawer_full_fault_suppresses_this_one(string code)
+    {
+        Assert.Null(LitterRobotRecoveryService.DrawerAlert(Drawer(100, code), 80));
+    }
+
+    /// <summary>
+    /// Distinct from the fault alert's key, so both can be open at once — a robot can be jammed *and*
+    /// have a full drawer, and collapsing them would lose one.
+    /// </summary>
+    [Fact]
+    public void The_drawer_alert_has_its_own_dedupe_key()
+    {
+        var alert = LitterRobotRecoveryService.DrawerAlert(Drawer(90), 80);
+
+        Assert.Equal("litterrobot:box:drawer_full", alert!.DedupeKey);
+        // Source drives where the dashboard banner navigates.
+        Assert.Equal("cat:box", alert.Source);
     }
 }

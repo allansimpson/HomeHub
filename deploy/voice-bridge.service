@@ -1,5 +1,5 @@
 [Unit]
-Description=HomeHub Voice Bridge (Hey Barnaby wake word + STT + Piper TTS)
+Description=HomeHub Voice Bridge (Hey/Oh Barnaby wake word + STT + Piper TTS)
 After=network-online.target sound.target
 Wants=network-online.target
 

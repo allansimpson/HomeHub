@@ -4,10 +4,8 @@ import { ScreenShell, ScrollArea, EmptyState } from '../components'
 import { Icon } from '../icons/Icon'
 import { useSession } from '../app/SessionProvider'
 import { useTasks } from '../app/TasksProvider'
-import { getShowToday, getShowAll } from '../app/todoPrefs'
+import { getShowToday, getShowAll, getActiveList, setActiveList as setStoredActiveList } from '../app/todoPrefs'
 import type { TaskItemDto } from '../api/types'
-
-const ACTIVE_LIST_KEY = 'homehub.todo.activeList'
 
 type Urgency = 'overdue' | 'today' | 'soon' | 'later' | ''
 
@@ -37,7 +35,7 @@ function dueInfo(task: TaskItemDto): { label: string; urgency: Urgency } {
 export function TodoScreen() {
   const navigate = useNavigate()
   const { activeProfile } = useSession()
-  const { tasks, toggleTask, setImportant, renameTask, deleteTask, createTask, offline } = useTasks()
+  const { tasks, toggleTask, setImportant, renameTask, deleteTask, createTask, offline, loading } = useTasks()
 
   // The signed-in profile's own tasks (spec 03: no user data reaches TODO unless signed in).
   const myTasks = useMemo(
@@ -54,13 +52,49 @@ export function TodoScreen() {
   const showTodayTab = getShowToday() && hasDue
   const showAllTab = getShowAll()
 
-  const [activeList, setActiveList] = useState<string>(() => localStorage.getItem(ACTIVE_LIST_KEY) ?? 'all')
-  useEffect(() => localStorage.setItem(ACTIVE_LIST_KEY, activeList), [activeList])
-  // Keep the active tab valid as tabs appear/disappear (prefs, due-dates, lists).
+  const profileId = activeProfile?.id ?? null
+
+  /**
+   * The selected tab, carried together with the profile it belongs to.
+   *
+   * Paired in one state value rather than held separately because the two must move atomically. On
+   * the commit where the profile changes, the re-read effect below and the persist effect both run;
+   * with the tab held on its own, the persist effect would still see the *previous* member's tab
+   * alongside the *new* profile id and write one member's choice under the other's key.
+   */
+  const [active, setActive] = useState<{ owner: number | null; list: string }>(() => ({
+    owner: profileId,
+    list: getActiveList(profileId) ?? 'all',
+  }))
+  const activeList = active.list
+  const setActiveList = useCallback((list: string) => setActive((a) => ({ ...a, list })), [])
+
+  // Re-read when the profile changes: each member has their own remembered tab, and switching
+  // profiles without this would leave the previous person's choice on screen.
   useEffect(() => {
+    setActive({ owner: profileId, list: getActiveList(profileId) ?? 'all' })
+  }, [profileId])
+
+  useEffect(() => {
+    // Don't write back the placeholder chosen while tasks are still loading — that is precisely
+    // the value that would overwrite the remembered one.
+    if (loading) return
+    // Nor a tab that still belongs to whoever was signed in a moment ago.
+    if (active.owner !== profileId) return
+    setStoredActiveList(profileId, active.list)
+  }, [profileId, active, loading])
+
+  // Keep the active tab valid as tabs appear/disappear (prefs, due-dates, lists).
+  //
+  // Deliberately inert while tasks are loading. `listNames` is derived from the tasks, so during the
+  // first fetch it is empty and every remembered list tab looks invalid — this guard would "correct"
+  // it to All and persist that, destroying the preference a moment before the lists that justify it
+  // arrive. That race is why the tab appeared not to survive signing back in.
+  useEffect(() => {
+    if (loading) return
     const available = [...(showTodayTab ? ['today'] : []), ...(showAllTab ? ['all'] : []), ...listNames]
     if (available.length > 0 && !available.includes(activeList)) setActiveList(available[0])
-  }, [activeList, showTodayTab, showAllTab, listNames])
+  }, [activeList, showTodayTab, showAllTab, listNames, loading, setActiveList])
 
   const [draft, setDraft] = useState('')
   const [showCompleted, setShowCompleted] = useState(false)
@@ -114,7 +148,7 @@ export function TodoScreen() {
   // sync state, with no duplicate name/avatar cluster.
   const header = (
     <header className="ml-header ml-todo__header">
-      <span className="ml-todo__title serif">TODO</span>
+      <span className="ml-todo__title serif">TO DO</span>
       <span className={'ml-todo__sync' + (offline ? ' ml-todo__sync--off' : '')}>
         <span className="ml-todo__syncdot" aria-hidden="true" />
         {offline ? 'Offline' : 'Synced'}

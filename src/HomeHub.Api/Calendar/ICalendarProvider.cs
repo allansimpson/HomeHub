@@ -35,4 +35,14 @@ public interface ICalendarListSyncProvider
 
     /// <summary>Replace the profile's synced-calendar selection (empty = sync none).</summary>
     Task SetSelectedCalendarsAsync(int profileId, IReadOnlyList<string> selectedCalendarIds, CancellationToken ct);
+
+    /// <summary>
+    /// Set (or clear, with a null icon) the icon shown for a calendar's events.
+    /// </summary>
+    /// <returns>
+    /// <c>false</c> when the profile has explicitly deselected this calendar, so there is nothing to
+    /// mark and nothing was stored. Reported rather than swallowed: a silent no-op here is
+    /// indistinguishable from success at the panel, and the mark simply vanishes on the next read.
+    /// </returns>
+    Task<bool> SetCalendarIconAsync(int profileId, string calendarId, string? icon, CancellationToken ct);
 }

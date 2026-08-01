@@ -143,7 +143,7 @@ public sealed partial class AssistantActions
         return Outcome.Ok($"Added {title} to your {target.Name} list.", "task");
     }
 
-    private sealed record ListCandidate(string? GraphListId, string Name);
+    internal sealed record ListCandidate(string? GraphListId, string Name);
 
     /// <summary>The profile's lists to add to: the synced Microsoft lists when linked, else the
     /// distinct list names on that profile's cached tasks (what the TODO screen shows).</summary>
@@ -173,7 +173,7 @@ public sealed partial class AssistantActions
 
     // ---- Fuzzy list resolution ----
 
-    private static ListCandidate? ResolveList(string query, IReadOnlyList<ListCandidate> candidates)
+    internal static ListCandidate? ResolveList(string query, IReadOnlyList<ListCandidate> candidates)
     {
         var q = Normalize(query);
         if (q.Length == 0) return null;
@@ -187,28 +187,62 @@ public sealed partial class AssistantActions
         return bestScore >= 0.45 ? best : null;
     }
 
-    /// <summary>Lowercase, drop the word "list", strip punctuation, collapse spaces — so "Grocery List",
-    /// "grocery", and "the groceries" line up.</summary>
+    /// <summary>
+    /// Lowercase, drop the word "list" and leading articles, strip punctuation, collapse spaces — so
+    /// "Grocery List", "grocery" and "the groceries" reduce to comparable forms.
+    /// </summary>
     private static string Normalize(string s)
     {
         s = s.ToLowerInvariant();
         s = Regex.Replace(s, @"\blist\b", " ");
+        s = Regex.Replace(s, @"^\s*(the|a|an|my|our|your|his|her|their)\b", " ");
         s = Regex.Replace(s, @"[^a-z0-9 ]", " ");
         return Regex.Replace(s, @"\s+", " ").Trim();
+    }
+
+    /// <summary>
+    /// Crude singulariser, enough to make "groceries" and "grocery" the same word. Not linguistics —
+    /// it only has to survive the handful of nouns a household names a list after.
+    /// </summary>
+    private static string Stem(string w) =>
+        w.Length > 4 && w.EndsWith("ies", StringComparison.Ordinal) ? w[..^3] + "y"
+        : w.Length > 3 && w.EndsWith("s", StringComparison.Ordinal) ? w[..^1]
+        : w;
+
+    /// <summary>How alike two single words are, after singularising both.</summary>
+    private static double TokenScore(string x, string y)
+    {
+        if (x == y) return 1.0;
+        var sx = Stem(x);
+        var sy = Stem(y);
+        if (sx == sy) return 1.0;
+        if (sx.Length >= 4 && sy.Length >= 4 && (sx.Contains(sy, StringComparison.Ordinal) || sy.Contains(sx, StringComparison.Ordinal)))
+            return 0.95;
+        return 1.0 - (double)Levenshtein(sx, sy) / Math.Max(sx.Length, sy.Length);
     }
 
     private static double Score(string a, string b)
     {
         if (a.Length == 0 || b.Length == 0) return 0;
         if (a == b) return 1.0;
-        if (a.Contains(b) || b.Contains(a)) return 0.85;
+        if (a.Contains(b, StringComparison.Ordinal) || b.Contains(a, StringComparison.Ordinal)) return 0.85;
 
         var ta = a.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
         var tb = b.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+
+        // Word against word, not phrase against phrase. Households name lists things like "Grocery
+        // Shopping", and comparing whole strings meant "groceries" shared nothing with it — no common
+        // token, and a Levenshtein distance across the extra word that sank the score below the
+        // threshold. The strongest single word match is what actually decides this.
+        var bestToken = 0.0;
+        foreach (var x in ta)
+            foreach (var y in tb)
+                bestToken = Math.Max(bestToken, TokenScore(x, y));
+        if (bestToken >= 0.8) return 0.5 + 0.35 * bestToken;
+
         var overlap = ta.Intersect(tb).Count();
         if (overlap > 0) return 0.5 + 0.35 * ((double)overlap / Math.Max(ta.Count, tb.Count));
 
-        // Typo tolerance ("grocary" → "grocery").
         var dist = Levenshtein(a, b);
         return 1.0 - (double)dist / Math.Max(a.Length, b.Length);
     }

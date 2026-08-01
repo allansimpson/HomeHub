@@ -1,7 +1,7 @@
 """The bridge loop: wake → capture → transcribe → assistant → speak, then back to listening.
 
 The mic is owned here for the whole voice turn, and while the reply is being spoken the wake detector
-is not running (the loop is sequential), so the reply can't self-trigger "Hey Barnaby". After speaking
+is not running (the loop is sequential), so the reply can't self-trigger a wake phrase. After speaking
 we flush buffered audio and reset the detector before listening again.
 
 Speech goes through the HomeHub API's voice endpoint so the bridge shares the panel's voice, prosody
@@ -36,13 +36,16 @@ def run(cfg: Config) -> None:
     history: deque[dict] = deque(maxlen=cfg.history_turns * 2)
 
     mic.start()
-    log.info("Listening for wake word '%s' (API %s)…", cfg.wake_phrase, cfg.api_base_url)
+    log.info("Listening for %s (API %s)…", " or ".join(f"'{p}'" for p in cfg.wake_phrases), cfg.api_base_url)
     try:
         while True:
-            if not wake.detect(mic.read(WAKE_FRAME)):
+            heard = wake.detect(mic.read(WAKE_FRAME))
+            if not heard:
                 continue
 
-            log.info("Wake word detected — capturing…")
+            # Names the model that fired, so with several phrases loaded the log says which one —
+            # otherwise a mis-tuned model that triggers on everything is invisible.
+            log.info("Wake word detected (%s) — capturing…", heard)
             audio = capture_utterance(mic, vad, cfg)
             if audio is None:
                 log.info("No speech after wake; back to listening.")

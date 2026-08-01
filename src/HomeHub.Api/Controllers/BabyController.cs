@@ -23,8 +23,41 @@ public class BabyController : ControllerBase
     private static readonly TimeSpan MaxHistoryWindow = TimeSpan.FromDays(31);
 
     private readonly IHuckleberryProvider _huckleberry;
+    private readonly Notifications.NotificationService? _notifications;
 
-    public BabyController(IHuckleberryProvider huckleberry) => _huckleberry = huckleberry;
+    public BabyController(IHuckleberryProvider huckleberry, IServiceProvider services)
+    {
+        _huckleberry = huckleberry;
+        // Optional: the app boots without a database, and a missing notification store must not stop
+        // anyone logging a feed.
+        _notifications = services.GetService<Notifications.NotificationService>();
+    }
+
+    /// <summary>
+    /// Tell the household what was just recorded.
+    /// </summary>
+    /// <remarks>
+    /// Baby notifications are <b>records, not prompts</b>: they tell the other parent what happened,
+    /// and never ask for anything. That is not a stylistic choice — the panel cannot amend or delete
+    /// a Huckleberry entry, so a notification offering to do something about one would be a lie. The
+    /// meta line says so out loud.
+    /// </remarks>
+    private async Task NotifyAsync(string childName, string headline, CancellationToken ct)
+    {
+        if (_notifications is null) return;
+        var now = DateTime.UtcNow;
+        await _notifications.RecordAsync(
+            Notifications.NotificationSources.Baby,
+            "Baby",
+            Notifications.NotificationSeverities.WorthKnowing,
+            "brass",
+            headline,
+            $"baby:{childName}:{headline}:{now:O}",
+            now,
+            meta: "Cannot be amended",
+            route: "/baby",
+            ct: ct);
+    }
 
     /// <summary>Whether Huckleberry is connected, and how it's failing when it isn't.</summary>
     [HttpGet("health")]
@@ -107,7 +140,9 @@ public class BabyController : ControllerBase
         if (!TryParseOptional<PooConsistency>(input.Consistency, out var consistency)) return BadRequest("Invalid consistency.");
 
         var entry = new DiaperEntry(kind, pee, poo, color, consistency, input.DiaperRash, input.Notes);
-        return Result(await _huckleberry.LogDiaperAsync(childKey, entry, ct));
+        var result = await _huckleberry.LogDiaperAsync(childKey, entry, ct);
+        if (result.Success) await NotifyAsync(childKey, $"Diaper recorded, {kind.ToString().ToLowerInvariant()}", ct);
+        return Result(result);
     }
 
     /// <summary>Logs a bottle feed now.</summary>
@@ -121,7 +156,9 @@ public class BabyController : ControllerBase
         if (!Enum.TryParse<BottleUnits>(input.Units ?? "oz", ignoreCase: true, out var units))
             return BadRequest($"Unknown units '{input.Units}'. Use ml or oz.");
 
-        return Result(await _huckleberry.LogBottleAsync(childKey, new BottleEntry(input.Amount, type, units), ct));
+        var result = await _huckleberry.LogBottleAsync(childKey, new BottleEntry(input.Amount, type, units), ct);
+        if (result.Success) await NotifyAsync(childKey, $"Bottle recorded, {input.Amount:0.##} {units.ToString().ToLowerInvariant()}", ct);
+        return Result(result);
     }
 
     /// <summary>
