@@ -1,0 +1,1587 @@
+/*
+ * Assist — the chat system (ASSIST.md).
+ *
+ * The inbox, the transcript and the composer. Its own file because Assist is a section rather than
+ * an overlay now, and because the row it draws is the ledger row plus a preview line and a badge:
+ * close enough to want to sit beside ledger.css, different enough that folding it in would make both
+ * harder to read.
+ *
+ * Sizing follows the project's rem rule — 1rem = 16 mock-px — so the design's 34px gutter is the
+ * shared --gutter, its 15px title is 0.9375rem, and so on.
+ */
+
+/* ---- Header: the agent's name, the mic state, the avatar ---- */
+
+/* Padding comes from `.ml-header`, which already reserves the avatar's clearance. */
+.ml-assist__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ml-assist__identity {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * With one agent assigned this is a plain span; with two or more it is this button. The design is
+ * explicit that a locked agent gets no chevron, no badge and no tap target — so there is no
+ * `:disabled` variant here on purpose. A disabled control still says "there is something here",
+ * which is exactly the wrong thing to say.
+ */
+.ml-assist__agent {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+/*
+ * Caps, unlike every other Marcellus screen title in the app — the design draws BARNABY and GEIST
+ * that way in the header and again in the dropdown, and an agent's name is a nameplate here rather
+ * than a page title. Same size as `.ml-drillin-header__title` so the two headers still line up.
+ */
+.ml-assist__agentname {
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Unread from the *other* agents, beside the chevron, so nothing hides behind the switch. */
+.ml-assist__agentbadge,
+.ml-chatrow__badge {
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3125rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brass);
+  color: var(--bg-screen);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Turns over when the menu is open, so the control says which way it will go. */
+.ml-assist__chev {
+  display: inline-flex;
+  color: var(--brass-bright);
+  transition: transform 140ms ease;
+}
+
+.ml-assist__chev--open {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-assist__chev {
+    transition: none;
+  }
+}
+
+.ml-assist__mic {
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ml-assist__mic--live {
+  color: var(--live-text);
+}
+
+/* ---- Agent dropdown (1d) ---- */
+
+/*
+ * Anchored under the header rule rather than centred: it belongs to the name it drops from, and a
+ * centred sheet would read as a modal about the whole screen when it changes exactly one thing.
+ *
+ * `position: fixed` inside the shell rather than absolute, because the shell's content box scrolls
+ * and a menu that scrolls away from its own trigger is a menu nobody can dismiss by aiming at it.
+ */
+.ml-agentmenu {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.ml-agentmenu__scrim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  padding: 0;
+  background: rgba(10, 11, 13, 0.72);
+  cursor: pointer;
+}
+
+.ml-agentmenu__panel {
+  position: absolute;
+  /* Clears the header + double rule. Matches the design's anchor under the rule. */
+  top: 5.25rem;
+  left: var(--gutter);
+  right: var(--gutter);
+  background: var(--bg-tile);
+  border: var(--control-border) solid var(--border-inactive);
+  outline: none;
+}
+
+.ml-agentmenu__label {
+  padding: 0.625rem 1.125rem 0.25rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+.ml-agentmenu__row {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  width: 100%;
+  padding: 0.9375rem 1.125rem;
+  background: none;
+  border: none;
+  border-bottom: var(--control-border) solid var(--rule-minor);
+  text-align: left;
+  color: var(--brass-bright);
+  cursor: pointer;
+}
+
+.ml-agentmenu__row--active {
+  background: var(--bg-active);
+}
+
+.ml-agentmenu__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+
+.ml-agentmenu__name {
+  font-size: 1.3125rem;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.ml-agentmenu__row--active .ml-agentmenu__name {
+  color: var(--text-primary);
+}
+
+.ml-agentmenu__tagline {
+  font-size: 0.75rem;
+  font-weight: 300;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ml-agentmenu__row--active .ml-agentmenu__tagline {
+  color: var(--brass-meta);
+}
+
+.ml-agentmenu__badge {
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3125rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brass);
+  color: var(--bg-screen);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.ml-agentmenu__note {
+  padding: 0.625rem 1.125rem 0.75rem;
+  border-top: var(--control-border) solid var(--rule-minor);
+  font-size: 0.6875rem;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  color: var(--text-disabled);
+}
+
+/* ---- Search, and the selection toolbar it turns into (1g) ---- */
+
+/*
+ * One row, two shapes. Selection slides an exit box in on the left and a trash on the right and
+ * narrows the search field between them — `stretch` rather than `center` so all three are the same
+ * height, which is what makes them read as one control strip rather than three things that happen
+ * to be near each other.
+ */
+.ml-assist__searchrow {
+  display: flex;
+  align-items: stretch;
+  gap: 0.625rem;
+  padding: 1rem var(--gutter) 0;
+}
+
+.ml-assist__search {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.75rem 0.9375rem;
+  color: var(--text-disabled);
+}
+
+/*
+ * 46px square. Animating the *width* rather than sliding a positioned box is deliberate: the search
+ * field is a flex sibling, so the box growing from nothing is exactly what narrows it, and the two
+ * halves of the design's transition come from one animation instead of two that can drift apart.
+ *
+ * The toolbar is drawn to hold more actions later. Today it is exit and trash.
+ */
+.ml-assist__seltool {
+  flex-shrink: 0;
+  width: 2.875rem;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  animation: ml-seltool-in 160ms ease;
+}
+
+/* Terracotta, and only here — the trash is the one control in Assist that destroys something. */
+.ml-assist__seltool--danger {
+  border-color: var(--danger);
+  background: var(--bg-danger-soft);
+  color: var(--danger);
+}
+
+/* Nothing picked yet. Dimmed rather than hidden: the toolbar's shape should not change as rows are
+   ticked and unticked, or the strip jitters every time somebody changes their mind. */
+.ml-assist__seltool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@keyframes ml-seltool-in {
+  from { width: 0; opacity: 0; border-width: 0; }
+}
+
+.ml-assist__selcount {
+  padding: 0.75rem var(--gutter) 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-assist__seltool { animation: none; }
+}
+
+.ml-assist__searchinput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.ml-assist__searchinput::placeholder {
+  color: var(--text-disabled);
+}
+
+/* ---- The list ---- */
+
+.ml-assist__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--gutter);
+}
+
+/*
+ * The row's track. Holds the rule and clips the action panels, so a row sliding under the gesture
+ * takes its content with it and leaves the list's own division line where it was — the rule belongs
+ * to the gap between two conversations, not to either one of them.
+ */
+.ml-chatrow__slot {
+  position: relative;
+  overflow: hidden;
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+
+/*
+ * A conversation row.
+ *
+ * Read is the quiet default; unread is the emphasis. That direction matters — styling *read* rows as
+ * a deviation would make a full inbox louder than an empty one.
+ *
+ * Opaque, because it slides over the action panel rather than beside it. `pan-y` leaves vertical
+ * scrolling to the browser and claims only the horizontal axis; without it the list would fight the
+ * swipe on a touch panel and usually win.
+ */
+.ml-chatrow {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+  width: 100%;
+  padding: 0.8125rem 0;
+  background: var(--bg-screen);
+  border: none;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  touch-action: pan-y;
+  /* One declaration, two jobs: the spring back from a swipe, and the inset that comes and goes with
+     selection mode. A second `transition` further down would silently replace this one. */
+  transition: transform 180ms ease, padding 140ms ease;
+}
+
+/*
+ * Under the finger. The transition comes *off* while dragging so the row tracks the pointer exactly,
+ * and back on when the class is removed — which is what animates the spring back to rest.
+ */
+.ml-chatrow--sliding {
+  transition: none;
+}
+
+/*
+ * Selection mode insets every row, selected or not.
+ *
+ * The highlight is the row, so with no inset the content butts straight against the fill's left and
+ * right edges and the block reads as clipped rather than as filled. The inset applies to unselected
+ * rows too — otherwise ticking one would shunt its text sideways, and a list where the words move
+ * as you choose them is a list you cannot aim at.
+ */
+.ml-chatrow--selecting {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.ml-chatrow--selected {
+  background: var(--bg-active);
+}
+
+/*
+ * The swipe actions (1f): archive on the right, revealed by pulling left; pin on the left, revealed
+ * by pulling right. Full height, 118px, and only ever one on screen at a time.
+ *
+ * `--armed` is the row past the commit threshold. It exists because the alternative is a gesture
+ * that only tells you what it did after it has done it — the panel brightening is the moment you
+ * can still change your mind by sliding back.
+ */
+.ml-chatrow__panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 7.375rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.ml-chatrow__panel--archive {
+  right: 0;
+  background: var(--brass-meta);
+  color: var(--bg-screen);
+}
+
+/* Quieter than archive at rest: pinning is the smaller of the two, and a swipe right that looked
+   as loud as a swipe left would suggest they weigh the same. */
+.ml-chatrow__panel--pin {
+  left: 0;
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+
+.ml-chatrow__panel--archive.ml-chatrow__panel--armed {
+  background: var(--brass);
+}
+
+.ml-chatrow__panel--pin.ml-chatrow__panel--armed {
+  background: var(--brass-meta);
+  color: var(--bg-screen);
+}
+
+/* Selection mode's 20px box, in the gutter the row's content shifts over for. */
+.ml-chatrow__check {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  margin-top: 0.125rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--bg-screen);
+}
+
+.ml-chatrow__check--on {
+  border-color: var(--brass);
+  background: var(--brass);
+}
+
+/* `JUL 30 · 12 MESSAGES` — replaces the preview while selecting. What you need in order to pick a
+   conversation to delete is which one it is, not what was last said in it. */
+.ml-chatrow__meta {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-chatrow { transition: none; }
+}
+
+.ml-chatrow__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ml-chatrow__title,
+.ml-chatrow__preview {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ml-chatrow__title {
+  font-size: 1.0625rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.ml-chatrow__preview {
+  font-size: 0.9375rem;
+  font-weight: 300;
+  color: var(--text-muted);
+}
+
+.ml-chatrow__speaker {
+  color: var(--text-disabled);
+}
+
+/* SMS convention: title semibold, preview at reading brightness, timestamp brass, count badge. */
+.ml-chatrow--unread .ml-chatrow__title {
+  font-weight: 600;
+}
+
+.ml-chatrow--unread .ml-chatrow__preview {
+  color: var(--text-primary);
+}
+
+.ml-chatrow--unread .ml-chatrow__speaker {
+  color: var(--text-quiet);
+}
+
+.ml-chatrow--unread .ml-chatrow__time {
+  color: var(--brass-bright);
+}
+
+.ml-chatrow__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4375rem;
+  flex-shrink: 0;
+  padding-top: 0.125rem;
+}
+
+.ml-chatrow__time {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Sits where the count badge would. The two never collide — a pinned row shows one or the other. */
+.ml-chatrow__pinned {
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+/* The archive's only entry point. Quiet, centred, and carrying its own count. */
+.ml-assist__archiverow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5625rem;
+  width: 100%;
+  padding: 1rem 0;
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+  cursor: pointer;
+}
+
+/* ---- Search results (1i) ---- */
+
+/*
+ * Per match, not per chat — one conversation that mentions the boiler four times is four rows. The
+ * header says so out loud (`n MATCHES · n CONVERSATIONS`) because a list longer than the number of
+ * conversations you have would otherwise look like a bug.
+ */
+.ml-search__header {
+  padding: 1rem 0 0.5rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+.ml-search__status {
+  padding: 1.5rem 0;
+  font-size: 0.875rem;
+  font-weight: 300;
+  color: var(--text-muted);
+}
+
+.ml-searchhit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  width: 100%;
+  padding: 0.8125rem 0;
+  background: none;
+  border: none;
+  border-bottom: var(--control-border) solid var(--rule-minor);
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.ml-searchhit__top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ml-searchhit__title {
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Archived hits are shown rather than filtered out — being out of the way is not the same as being
+   irrelevant — so they are labelled instead. */
+.ml-searchhit__chip {
+  flex-shrink: 0;
+  padding: 0.125rem 0.3125rem;
+  border: var(--control-border) solid var(--brass-dim);
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+.ml-searchhit__time {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Two lines of the transcript around the hit. Longer and the results stop being scannable; shorter
+   and a match loses the context that made it the one you were looking for. */
+.ml-searchhit__line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 0.9375rem;
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Underlined rather than filled: a block of highlight colour behind a word reads as a UI element in
+   a screen made of rules, and the term is inside a sentence someone said. */
+.ml-searchhit__mark {
+  background: none;
+  color: var(--brass-bright);
+  border-bottom: var(--control-border) solid var(--brass);
+}
+
+/* ---- Archive (1h) ---- */
+
+/*
+ * Muted throughout — an archived chat is deliberately quieter than an active one, and the row's own
+ * `UNARCHIVE` control is the only thing on it meant to catch the eye. There is no destructive action
+ * here: archiving hides a conversation, it does not begin deleting one.
+ */
+.ml-archiverow {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem 0;
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+
+.ml-archiverow__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ml-archiverow__title {
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-quiet);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ml-archiverow__meta {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+.ml-archiverow__action {
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: none;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+  cursor: pointer;
+}
+
+/* ---- Empty state (1m) ---- */
+
+.ml-assist__empty {
+  flex: 1;
+  min-height: 12rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.875rem;
+  padding: 2rem 1.625rem;
+  text-align: center;
+}
+
+.ml-assist__emptytitle {
+  font-size: 1.5rem;
+  color: var(--text-secondary);
+}
+
+.ml-assist__emptybody {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 300;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+/* ---- Delete confirm (1g, second frame) ---- */
+
+/*
+ * The only modal in Assist, in front of the only irreversible thing in it. Everything else here —
+ * archiving, pinning, unarchiving — is undone by doing it again, which is why none of them ask.
+ *
+ * `fixed` rather than `absolute`: the shell's content box scrolls and has the nav below it, and a
+ * confirm that scrolled away from itself or left the nav tappable would not be a confirm.
+ */
+.ml-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gutter);
+}
+
+.ml-modal__scrim {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(10, 11, 13, 0.72);
+  cursor: pointer;
+}
+
+/* Terracotta along the top edge rather than a full terracotta panel: the dialog has to be readable
+   first and alarming second, and a red box is read as an error rather than a question. */
+.ml-modal__dialog {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.625rem;
+  background: var(--bg-tile);
+  border: var(--control-border) solid var(--border-inactive);
+  border-top: 0.125rem solid var(--danger);
+}
+
+.ml-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--danger);
+}
+
+.ml-modal__title .serif {
+  font-size: 1.3125rem;
+  color: var(--text-primary);
+}
+
+/* The chat names and the message count — what is about to go, stated before why it matters. */
+.ml-modal__subtitle {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  letter-spacing: 0.04em;
+  color: var(--text-disabled);
+}
+
+.ml-modal__body {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* The clause people do not expect: this is not tidying an inbox, it is making the agent forget. */
+.ml-modal__count {
+  color: var(--text-primary);
+}
+
+.ml-modal__btns {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.ml-confirmbtn {
+  flex: 1 1 0;
+  padding: 0.6875rem 0;
+  text-align: center;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ml-confirmbtn--danger {
+  border-color: var(--danger);
+  background: var(--bg-danger-fill);
+  color: var(--danger);
+}
+
+/* The affirmative counterpart, in brass. Same shape as the danger variant and a different colour,
+   because renaming a chat is the opposite kind of act from deleting one and the button that does it
+   must not be the one people have learned to hesitate over. */
+.ml-confirmbtn--go {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+
+.ml-confirmbtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The rename field. Sized like the composer's, so the two places you type a chat's words into look
+   like the same kind of thing. */
+.ml-rename__field {
+  width: 100%;
+  height: 2.875rem;
+  box-sizing: border-box;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-tile);
+  outline: none;
+  padding: 0 0.9375rem;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+
+.ml-rename__field::placeholder {
+  color: var(--text-disabled);
+}
+
+/* ---- Composer ---- */
+
+.ml-composer {
+  /*
+   * Never gives up height, whatever is left of the screen.
+   *
+   * On a phone the software keyboard shortens the layout viewport (`interactive-widget` in
+   * index.html) while the type stays the size it was (`app/remScale.ts`), so this row and the
+   * transcript above it are competing for a much smaller box. As a plain flex child the composer
+   * would take its share of the squeeze and crush the field you are typing into; the transcript is
+   * the one that should give, because it scrolls and this does not.
+   */
+  flex: 0 0 auto;
+  /* The attach menu hangs off the top edge of this row (`bottom: 100%`), so this is its containing
+     block. Without it the menu would position against the viewport and sit over the header. */
+  position: relative;
+  border-top: var(--control-border) solid var(--rule-minor);
+  padding: 0.875rem var(--gutter) 1.125rem;
+}
+
+/*
+ * Bottom-aligned, not centred.
+ *
+ * The field grows upward as the message wraps and the mic does not grow at all. Centred, the button
+ * would drift up the side of a five-line draft and sit against nothing; against the bottom edge it
+ * stays beside the line being typed, which is where the hand already is.
+ */
+.ml-composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+/*
+ * One line to start, five at most, then it scrolls — the height itself is set in JS, which is the
+ * only place the wrapped line count is knowable (see `AssistComposer`).
+ *
+ * `min-height` rather than `height`, and it matches the button beside it (2.875rem / 46px): padding
+ * alone left the field a few pixels shorter than the mic, which on a row of two controls reads as one
+ * of them being slightly wrong rather than as a deliberate difference. The line-height and the
+ * vertical padding are what add up to it, so a single-line composer is pixel-identical to the input
+ * this replaced.
+ */
+.ml-composer__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 2.875rem;
+  box-sizing: border-box;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  outline: none;
+  padding: 0.625rem 0.9375rem;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.5rem;
+  font-weight: 300;
+  color: var(--text-primary);
+  /* The drag handle is a desktop affordance on a machine-age touch appliance, and it would let
+     somebody resize a field whose height this screen owns. */
+  resize: none;
+  overflow-y: auto;
+  /* A textarea is inline-block and sits on the text baseline, which puts a few pixels of descender
+     space under it and breaks the alignment with the button. */
+  display: block;
+  scrollbar-width: none;
+}
+
+.ml-composer__input::-webkit-scrollbar {
+  display: none;
+}
+
+.ml-composer__input::placeholder {
+  color: var(--text-disabled);
+}
+
+.ml-composer__input:focus {
+  border-color: var(--brass);
+}
+
+/* The empty state's brass border — the only way in, so it says so. */
+.ml-composer__row--emphasised .ml-composer__input {
+  border-color: var(--brass);
+  background: var(--bg-tile);
+}
+
+.ml-composer__action {
+  width: 2.875rem;
+  height: 2.875rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  cursor: pointer;
+}
+
+.ml-composer__action--send {
+  font-size: 1.375rem;
+  line-height: 1;
+}
+
+.ml-composer__action--live {
+  border-color: var(--live-accent);
+  background: var(--live-fill-b);
+  color: var(--live-text);
+}
+
+/*
+ * Send and Stop — the two readings of the square that *do* something to a turn.
+ *
+ * Filled brass rather than outlined, which is the whole grammar of this control: the square holds one
+ * job at a time, and it is solid whenever that job is the thing to press. The mic keeps the outline,
+ * because listening is an offer rather than an action.
+ */
+.ml-composer__action--send,
+.ml-composer__action--stop {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: var(--bg-screen);
+}
+
+.ml-composer__action--send {
+  font-size: 1.375rem;
+  line-height: 1;
+}
+
+/* A filled square inside a filled square — the universal stop, and the same glyph the listening
+   band's own stop uses, so the gesture reads the same wherever it appears. */
+.ml-composer__stopglyph {
+  width: 0.9375rem;
+  height: 0.9375rem;
+  background: var(--bg-screen);
+}
+
+/*
+ * ＋ — the attach control, drawn as a glyph rather than a box.
+ *
+ * Two brass-edged squares either side of the input would fight, and the right-hand one should win:
+ * it is the thing you press to finish a turn, and this is the thing you press to add to one. It
+ * carries the same 46px tap area all the same, so the three controls share the row's rhythm even
+ * though only two of them are drawn as boxes.
+ *
+ * It stays live while a reply arrives — attaching the next thing is not an interruption.
+ */
+.ml-composer__plus {
+  width: 2.875rem;
+  height: 2.875rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+/* Turns into the close it now is. The rotation is the affordance: nothing else on the row moves, so
+   the one that does is the one holding the menu open. */
+.ml-composer__plus--open {
+  transform: rotate(45deg);
+  color: var(--brass-bright);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-composer__plus { transition: none; }
+}
+
+/* The pickers themselves. Positioned off-screen rather than `display:none`, which Safari has
+   historically treated as a reason not to open the picker at all. */
+.ml-composer__file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/*
+ * The attach menu, anchored to the composer rather than sheeted up from the bottom of the screen.
+ *
+ * The composer is what you are operating, and it should not slide away while you choose what to put
+ * in it. Brass along the top edge, which is the app's mark for "this panel is the live thing"; the
+ * rest is the ordinary tile border so it reads as belonging to the composer below it.
+ */
+.ml-attachmenu {
+  position: absolute;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: 100%;
+  z-index: 2;
+  margin-bottom: 0.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  border-top: 0.125rem solid var(--brass);
+  background: var(--bg-tile);
+  display: flex;
+  flex-direction: column;
+}
+
+.ml-attachmenu__label {
+  padding: 0.875rem 1.125rem 0.625rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+.ml-attachmenu__row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.875rem 1.125rem;
+  border-top: var(--control-border) solid var(--rule-minor);
+  font-size: 1.0625rem;
+  font-weight: 300;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.ml-attachmenu__row > svg {
+  color: var(--brass-bright);
+  flex-shrink: 0;
+}
+
+/*
+ * The scrim behind the menu.
+ *
+ * A real element rather than a document-level listener, so the tap that dismisses the menu is only
+ * that — a listener would let the same tap land on whatever row was underneath and open a chat on the
+ * way out. It dims the transcript rather than blacking it: the conversation is still the context for
+ * what you are attaching to it.
+ */
+.ml-composer__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: var(--bg-screen);
+  opacity: 0.6;
+  cursor: default;
+}
+
+/*
+ * What is attached, on its own line above the input.
+ *
+ * Indented to clear the plus, so the column of the input is unbroken and the attachment reads as
+ * belonging to the message being written rather than to the control beside it.
+ *
+ * <b>The meta line states the size and nothing else.</b> The design captioned it "STAYS ON THE HOME
+ * SERVER"; that claim was withdrawn rather than implemented, because HomeHub cannot know whether a
+ * turn leaves the house — Hermes chooses the model, the provider and any fallback. It is the same
+ * reason the LOCAL/CLOUD tag came off the turns themselves.
+ */
+.ml-attachdraft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 0 0.75rem 3.625rem;
+}
+
+.ml-attachdraft__thumb {
+  position: relative;
+  width: 3.625rem;
+  height: 3.625rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  background: var(--bg-tile);
+  color: var(--text-muted);
+}
+
+.ml-attachdraft__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Removing is a tap on the mark, not a swipe: a swipe here would compete with the transcript's own
+   scroll, and the target is small enough that it needs to be the only thing it does. */
+.ml-attachdraft__remove {
+  position: absolute;
+  top: -0.4375rem;
+  right: -0.4375rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-screen);
+  font-size: 0.625rem;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.ml-attachdraft__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
+}
+
+.ml-attachdraft__name {
+  font-size: 0.875rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ml-attachdraft__meta {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  color: var(--text-disabled);
+}
+
+.ml-composer__error {
+  padding-bottom: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--danger);
+}
+
+/* ---- Transcript additions ----
+ *
+ * `.ml-transcript`, `.ml-turn*` and `.ml-speaking*` are in ledger.css and carry over
+ * from the overlay unchanged. What is here is what the routed screen added: a scroll box, a per-turn
+ * time, and the IT TOUCHED receipt (whose rules lived in the overlay's own stylesheet).
+ */
+
+/*
+ * The transcript's frame — a positioning context for the fade, and nothing else.
+ *
+ * The fade has to hang over the scrolling text without moving with it, so it cannot live inside the
+ * scroll box. This wrapper is what it hangs from.
+ */
+.ml-transcript__frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ml-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /*
+   * Top padding so the first turn's speaker label does not sit against the double rule.
+   *
+   * The bottom is a full line of air. Without it the last message ends flush against the composer's
+   * top rule — the reply and the box you answer in read as one block, and on a full-width turn there
+   * is nothing between the last word and the field. It also gives the fade something to fade over.
+   */
+  padding: 0.875rem var(--gutter) 1.25rem;
+}
+
+/*
+ * More below the fold.
+ *
+ * A conversation that continues past the bottom edge looks exactly like one that ends there — the
+ * last visible line is a whole line either way — so without this the household reads a cut-off
+ * answer as the whole answer. It is absent at the bottom of the scroll on purpose: a gradient that
+ * is always there is decoration, one that comes and goes is information.
+ */
+.ml-transcript__frame::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 160ms ease;
+  background: linear-gradient(to top, var(--bg-screen), transparent);
+}
+
+.ml-transcript__frame--more::after {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-transcript__frame::after { transition: none; }
+}
+
+/*
+ * NEWEST ↓ — back to the end of the conversation.
+ *
+ * Hangs from the frame rather than the scroll box, for the same reason the fade does: it has to sit
+ * still while the text moves under it. It sits *above* the fade's 3rem so the gradient runs behind
+ * the chip and the chip does not appear to float on a hard edge, and it is drawn on `--bg-tile`
+ * rather than transparently — a control over moving text is unreadable without ground under it.
+ *
+ * Centred, not cornered. A control at the bottom-right of a portrait wall panel is at the far edge
+ * of arm's reach; this one is on the axis the thumb is already on.
+ */
+.ml-transcript__jump {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 0.4375rem 0.875rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-tile);
+  color: var(--brass-meta);
+  font-size: 0.6875rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+}
+
+.ml-transcript__loading {
+  padding: 1.5rem 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
+.ml-turn__time {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  color: var(--text-disabled);
+}
+
+/*
+ * COPY, at the far end of a turn's label row.
+ *
+ * Set in the label's own type at the label's own weight, so it belongs to the meta line rather than
+ * arriving as a button on top of it — a filled control beside every turn would turn a transcript
+ * into a list of things to press. It is disabled-grey at rest and brass while it is saying COPIED,
+ * which is the only moment it has anything to say.
+ *
+ * The auto margin puts it at the end of the row on its own, and stands down when a timestamp is
+ * already doing that job — otherwise both would claim the slack and the two would be pushed apart to
+ * opposite ends of the label.
+ */
+.ml-turn__copy {
+  margin-left: auto;
+  padding: 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+  transition: color 160ms ease;
+}
+.ml-turn__time + .ml-turn__copy {
+  margin-left: 0;
+}
+.ml-turn__copy--done {
+  color: var(--brass);
+}
+
+/*
+ * What a turn carried, named rather than shown.
+ *
+ * Nothing about an attachment is stored — an attachment is sent, not kept — so a turn that carried a
+ * photo cannot show it again once it is in the ledger. This line is what stops that message reading
+ * as a question about nothing.
+ *
+ * Set as meta rather than as a broken thumbnail on purpose: a grey box where an image should be reads
+ * as a failure to load, and invites somebody to reload a screen that is already showing them
+ * everything it has.
+ */
+.ml-turn__attachment {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.375rem;
+  color: var(--text-disabled);
+}
+
+/* The member's side is mirrored, so this row is too — see `.ml-turn--user .ml-turn__label`. */
+.ml-turn--user .ml-turn__attachment {
+  flex-direction: row-reverse;
+}
+
+.ml-turn__attachname {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ml-turn__attachsize {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+}
+
+/*
+ * The picture itself, while the turn is still the panel's to draw.
+ *
+ * Only ever on a turn that has not settled into the transcript — after that the bytes are gone. It is
+ * capped rather than full-bleed because a portrait photo at full width would push the reply that
+ * answers it entirely off the screen, which inverts what the transcript is for.
+ */
+.ml-turn__attachimage {
+  margin-bottom: 0.5rem;
+}
+
+.ml-turn--user .ml-turn__attachimage {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ml-turn__attachimage img {
+  max-width: min(14rem, 60%);
+  max-height: 11rem;
+  object-fit: cover;
+  border: var(--control-border) solid var(--border-inactive);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-turn__copy { transition: none; }
+}
+
+.ml-touched {
+  margin: 1rem 0 0.5rem;
+  padding: 0.75rem 0.875rem;
+  border: var(--control-border) solid var(--border-holdtrack);
+  background: var(--bg-brass-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ml-touched__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+.ml-touched__row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+/*
+ * Filled square = written. There is deliberately no outlined "read-only" counterpart: the API
+ * reports the *kind* of write, never a read, so drawing the distinction would mean inferring it —
+ * and a receipt that guesses is not a receipt.
+ */
+.ml-touched__mark {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+}
+
+.ml-touched__mark--written {
+  background: var(--brass);
+}
+
+.ml-touched__text {
+  font-size: 0.875rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+}
+
+/* ---- Nav unread dot ---- */
+
+/*
+ * Same corner and size as the Care fault dot, in brass rather than terracotta: one means "something
+ * is wrong", the other means "something is waiting", and they must not read as the same signal.
+ */
+.ml-nav__unread {
+  position: absolute;
+  top: -0.125rem;
+  right: -0.25rem;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  background: var(--brass);
+}
+
+/* ---- A turn in flight ---- */
+
+/*
+ * The caret. Two states, and the distinction is the whole point: a *waiting* caret pulses slowly
+ * while nothing has arrived yet, so the panel never looks asleep between submitting and the reply
+ * starting; a *typing* caret blinks beside text that is still growing. Without the first one, the
+ * gap before the first token reads as a dropped tap.
+ */
+.ml-turn__caret {
+  display: inline-block;
+  width: 0.5rem;
+  height: 1em;
+  margin-left: 0.125rem;
+  vertical-align: text-bottom;
+  background: var(--brass-bright);
+  animation: ml-caret 1s steps(2, start) infinite;
+}
+
+.ml-turn__caret--waiting {
+  animation: ml-caret-wait 1.4s ease-in-out infinite;
+}
+
+@keyframes ml-caret {
+  50% { opacity: 0; }
+}
+
+@keyframes ml-caret-wait {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-turn__caret,
+  .ml-turn__caret--waiting { animation: none; opacity: 0.7; }
+  .ml-turn__toolpulse { animation: none; }
+}
+
+/*
+ * The word typed out while a reply is still being composed. Set as live status — the tool line's
+ * treatment — and never as reply text, so the panel's small talk can never be read as the answer.
+ */
+.ml-turn__waiting {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  color: var(--brass-meta);
+}
+
+.ml-turn__waitingword {
+  /* The line is rewritten letter by letter, so it changes width on every tick. Without a floor
+     the caret walks left and right across the turn and drags the eye with it; with one it stays
+     put and only the word moves. Sized past the longest word in the list — "Discombobulating",
+     at sixteen characters — so raise it if a longer one is ever added. */
+  min-width: 9.5rem;
+}
+
+/*
+ * Live tool activity. Says what the agent is *doing*, never what it has *done* — the IT TOUCHED
+ * receipt is driven by HomeHub's own audit, because only that knows whether a write committed.
+ */
+.ml-turn__tool {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  color: var(--brass-meta);
+}
+
+.ml-turn__toolpulse {
+  width: 0.375rem;
+  height: 0.375rem;
+  flex-shrink: 0;
+  background: var(--brass);
+  animation: ml-caret-wait 1.2s ease-in-out infinite;
+}
+
+.ml-turn__stop {
+  align-self: flex-start;
+  margin: 0.25rem 0 0.75rem;
+  padding: 0.4375rem 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ml-turn__error {
+  margin: 0.5rem 0;
+  padding: 0.625rem 0.75rem;
+  border-left: 2px solid var(--danger);
+  font-size: 0.875rem;
+  color: var(--danger);
+}
+
+/* Retry / Dismiss under a failed turn. The words above them are the only copy of what was said —
+   these are what make that recoverable rather than merely visible. */
+.ml-turn__errorActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.625rem;
+}
+
+/*
+ * QUEUED, beside the name on a message that has been accepted but not sent yet.
+ *
+ * Stated rather than implied by dimming the block. A queued message *is* going to be sent — the turn
+ * ahead of it just has not finished — and greying it out would say the opposite: that the panel took
+ * the words and is not going to do anything with them. Brass because it is a live state, not a
+ * degraded one.
+ */
+.ml-turn__queued {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+/* A reply that stops short. Muted rather than red: nothing is broken and nobody needs to act — the
+   household just needs to know the answer above is not all of it. Same left rule as the error so the
+   two read as the same kind of aside, at different volumes. */
+.ml-turn__cutoff {
+  margin: 0.5rem 0;
+  padding: 0.625rem 0.75rem;
+  border-left: 2px solid var(--rule-minor);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}

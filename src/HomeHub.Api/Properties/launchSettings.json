@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "//": "No applicationUrl anywhere in this file, deliberately. Program.cs is the single place that binds ports — 5220 HTTP, plus 7288 HTTPS once certs/homehub-dev.* exist — on 0.0.0.0 (not localhost) so tablets and phones on the LAN reach the panel at http://<host-ip>:5220. Declaring the same ports here as well is what made Kestrel log 'Overriding address(es)' on every start: the two sources never disagreed, there were simply two of them.",
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

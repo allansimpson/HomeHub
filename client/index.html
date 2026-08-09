@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Kiosk: portrait touch panel, no pinch-zoom, cover the panel edges.
+
+      `interactive-widget=resizes-content` is for the phone. The app is a fixed-height shell with the
+      composer pinned to the bottom, so under the default (`resizes-visual`) the device keyboard
+      slides up *over* it — you would be typing into a field you cannot see. Resizing the content
+      instead shortens the layout viewport, the shell lays out inside what is left, and the composer
+      stays above the keyboard. Nothing on the wall panel, which never opens one.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <!--
+      The app's own screen colour, not the icon plate's ink (#141210). This paints the browser
+      chrome and the Android status bar, and on a panel running standalone that band sits directly
+      above the app — matching --bg-screen is what makes it disappear. `manifest.webmanifest`
+      carries the same value for the same reason; its `background_color` stays on the icon plate, so
+      the launch splash reads as one piece with the mark on it.
+    -->
+    <meta name="theme-color" content="#15171A" />
+    <meta name="color-scheme" content="dark" />
+    <title>HomeHub</title>
+
+    <!--
+      Icon pack (client/public/icons — its README documents how each size was cut from the
+      artwork). Served at /icons/ by Vite in dev and from wwwroot in production, since
+      `npm run build` copies public/ verbatim.
+
+      No `rel="icon" type="image/svg+xml"` here, deliberately: the pack's svg/favicon.svg is an
+      <image> element with no href, so it draws nothing — and a browser prefers a declared SVG over
+      every PNG beside it, which would leave the tab blank. The .ico covers 16/32/48 and the 96px
+      PNG covers the rest. A real single-colour vector would still be worth having; it would also
+      give Safari a pinned-tab mask, which raster artwork cannot.
+    -->
+    <link rel="manifest" href="/icons/manifest.webmanifest" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/icons/png/favicon-96.png" />
+
+    <!-- iOS / iPadOS home screen. A phone is a first-class surface here, not an afterthought: the
+         pantry scan screen is phone-only by design, so this really does get added to home screens. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/png/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="167x167" href="/icons/png/apple-touch-icon-167.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/png/apple-touch-icon-152.png" />
+    <meta name="apple-mobile-web-app-title" content="HomeHub" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Both spellings: the unprefixed one is the standard, the Apple one is what iOS still reads. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+
+    <!-- Windows tiles -->
+    <meta name="msapplication-config" content="/icons/browserconfig.xml" />
+    <meta name="msapplication-TileColor" content="#141210" />
+
+    <!-- Link previews, for when the panel's address gets passed to a phone. -->
+    <meta property="og:title" content="HomeHub" />
+    <meta
+      property="og:description"
+      content="The household panel — calendar, meals, care, climate, weather and lists in one place."
+    />
+    <meta property="og:image" content="/icons/png/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

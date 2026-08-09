@@ -1,0 +1,11 @@
+# This repo is developed on Windows (core.autocrlf=true) and deployed to Ubuntu. Anything that a
+# Linux shell or systemd has to parse must keep LF endings — a CRLF shell script fails on Linux with
+# a "bad interpreter: /usr/bin/env bash^M" error that names the shebang line rather than the real
+# cause, and a systemd unit with CRLF silently mis-parses its values.
+*.sh        text eol=lf
+*.service   text eol=lf
+
+# The server-side environment file template is read by systemd's EnvironmentFile parser, which
+# treats a trailing CR as part of the value — a connection string would arrive subtly wrong.
+*.env       text eol=lf
+*.env.example text eol=lf

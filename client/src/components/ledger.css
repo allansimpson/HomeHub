@@ -1,0 +1,5124 @@
+/*
+ * Meridian Ledger component styles. Ruled rows, no cards, no radius, no shadows.
+ * Hairlines and fine deco detail use device px (--hairline-px etc.) so they stay crisp;
+ * everything else scales in rem. Class prefix: ml-.
+ */
+
+/* ---------- App layout ---------- */
+.app-root {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.app-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+}
+.ml-transition {
+  height: 100%;
+}
+
+/* ---------- Route motion (View Transitions API — restrained appliance, not phone) ----------
+ * Only the routed screen area animates; the surrounding chrome (bottom nav, banners) updates
+ * instantly beneath it so the active tab responds without a blur. Direction comes from the
+ * `data-vt` attribute App sets before each transition. ml-slideup below is still used by the
+ * on-screen keyboard's slide-in. */
+@keyframes ml-slideup {
+  from {
+    opacity: 0;
+    transform: translateY(1.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Lift the screen content into its own transition so the chrome (root) can snap. */
+.app-viewport {
+  view-transition-name: screen;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none; /* nav + banners update instantly under the animating screen */
+}
+::view-transition-old(screen),
+::view-transition-new(screen) {
+  animation-duration: 240ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+/* Default (tab ↔ tab): soft cross-fade. */
+::view-transition-old(screen) { animation-name: ml-vt-fade-out; }
+::view-transition-new(screen) { animation-name: ml-vt-fade-in; }
+/* Drill-in: the new screen rises as the old fades. */
+html[data-vt='slideup']::view-transition-new(screen) { animation-name: ml-vt-up-in; }
+html[data-vt='slideup']::view-transition-old(screen) { animation-name: ml-vt-fade-out; }
+/* Back out: the new screen settles down. */
+html[data-vt='slidedown']::view-transition-new(screen) { animation-name: ml-vt-down-in; }
+html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-fade-out; }
+
+@keyframes ml-vt-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ml-vt-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes ml-vt-up-in {
+  from { opacity: 0; transform: translateY(1.25rem); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ml-vt-down-in {
+  from { opacity: 0; transform: translateY(-1.25rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(screen),
+  ::view-transition-new(screen) {
+    animation: none;
+  }
+}
+
+:root {
+  --rule-brass-px: 4px; /* double-rule brass bar (device px at 4K) */
+  --rule-gap-px: 6px; /* gap inside the double-rule motif */
+  /* Calendar marks at rest — quieter than brass, warmer than muted text (spec 14). */
+  --mark-quiet: #8a7f68;
+}
+
+/* ---------- Screen shell ---------- */
+.ml-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-screen);
+  overflow: hidden;
+}
+/* Positioning context for the global account avatar — starts BELOW any full-width banner. */
+.ml-shell__body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ml-shell__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /*
+   * The screen scrolls when the room runs out. A backstop, not the usual path.
+   *
+   * Type no longer shrinks to fit when a phone's software keyboard takes half the viewport
+   * (`app/remScale.ts`) — which is the whole point, because a screen that shrinks is unreadable at
+   * exactly the moment somebody is reading it. The consequence is that a screen can now be *taller*
+   * than the room it has. Most already answer that themselves: their body is a `ScrollArea`, or an
+   * `overflow-y` region of their own, which gives up height and scrolls its content. A form laid out
+   * as plain rows had nowhere for the overflow to go, and `.ml-shell`'s `overflow: hidden` cut the
+   * bottom fields off. Unreadable is bad; unreachable is worse.
+   *
+   * Engages only when the content genuinely does not fit — a screen with a scroll region inside it
+   * never overflows here, because that region absorbs the squeeze first. `--fixed` below opts the
+   * Dashboard out, as it always did.
+   */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.ml-shell__content::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Global account avatar (spec 13) ----------
+ *
+ * One mark in this corner, not two. CONFIG.md draws a config gear inboard of the avatar, but the
+ * avatar already opens `/settings` — a second control to the same route is a duplicate, and on a
+ * wall panel it is a duplicate that costs 52px of header clearance on every screen. */
+.ml-avatar {
+  position: absolute;
+  top: 1.25rem; /* 20px */
+  right: 1.25rem;
+  z-index: 5;
+  width: 3rem; /* 48px */
+  height: 3rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: var(--control-border) solid var(--brass-dim); /* signed out: hairline ring */
+  color: var(--text-muted);
+  font-size: 1.1875rem;
+}
+.ml-avatar--in {
+  border: max(2px, 0.125rem) solid var(--live-accent); /* signed in: 2px verdigris ring */
+  background: var(--bg-profile-selected);
+  color: var(--brass-bright);
+}
+
+/* ---------- The wants-you badge ----------
+ *
+ * One absolutely positioned child of the avatar, which is already positioned and so needs no
+ * change. It counts *wants you* only — see `NotificationsProvider.wantsYouCount` for why the number
+ * is deliberately not the total.
+ *
+ * The offset is load-bearing: at -4px the badge clipped the initial. Do not tuck it back in.
+ * The circle is one of the three sanctioned exceptions to the radius:none rule, alongside the
+ * avatar itself and the state dots. */
+.ml-avatar__badge {
+  position: absolute;
+  right: -0.5rem; /* 8px — outside the ring, clear of the initial */
+  bottom: -0.4375rem; /* 7px */
+  width: 1.125rem; /* 18px */
+  height: 1.125rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--danger);
+  color: var(--bg-screen);
+  font-size: 0.6875rem; /* 11px */
+  line-height: 1;
+  letter-spacing: 0; /* a count is a number, not a letterspaced label */
+  /* Reads as a cut-out of the ring rather than a sticker on it. A border would eat into the 18px
+     and shrink the numerals; the ring is drawn outside the box instead. */
+  box-shadow: 0 0 0 2px var(--bg-screen);
+  /* Not a target of its own: the whole 48px avatar is the hit area and the badge routes nowhere. */
+  pointer-events: none;
+  /* Absent at zero, not greyed or hollow — terracotta is the loudest colour in the palette and a
+     mark that is always lit stops meaning anything. 120ms both ways; no pulse, no scale, no
+     bounce. Meridian Ledger does not animate chrome. */
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.ml-avatar__badge--on {
+  opacity: 1;
+}
+/* Ten or more, rendered `9+`. The circle holds its size and never becomes a pill; the two glyphs
+   give up the millimetre instead. */
+.ml-avatar__badge--capped {
+  font-size: 0.625rem; /* 10px */
+}
+
+/*
+ * Night.
+ *
+ * The spec names `data-ambient='night'`; this panel has no such state. `data-ambient` is the
+ * daylight boost (`bright` / `normal`, from the ambient sensor) and night is a separate axis —
+ * `data-nightdim`, set by `useIdleReset` after 10 PM. Written against the attribute that exists, so
+ * the rule actually fires.
+ */
+:root[data-nightdim='on'] .ml-avatar__badge {
+  background: #8A6A3C; /* night brass — terracotta is too loud in a dark room */
+}
+/* Dashboard content never scrolls; it is the idle display. */
+.ml-shell__content--fixed {
+  overflow: hidden;
+}
+
+/* ---------- Double rule (under every screen header) ---------- */
+.ml-doublerule {
+  margin: 1.125rem var(--gutter) 0; /* 18px top */
+}
+.ml-doublerule__brass {
+  height: var(--rule-brass-px);
+  background: var(--brass);
+}
+.ml-doublerule__gap {
+  height: var(--rule-gap-px);
+}
+.ml-doublerule__hair {
+  height: var(--hairline-px);
+  background: var(--rule-major);
+}
+
+/* ---------- Headers ---------- */
+.ml-header {
+  /* Right padding clears the global account avatar pinned at top:20/right:20 — spec 13. It is
+     `--gutter-avatar` rather than a literal 88px because the gutter narrows on a phone and a fixed
+     88px would then be the widest margin on the screen, on the one screen with least room for it.
+     CONFIG.md's 132px assumed a second corner control beside it; there is only the one. */
+  padding: 1.75rem var(--gutter-avatar) 0 var(--gutter); /* 28px 88px 0 34px at full width */
+  flex: 0 0 auto;
+}
+/* No avatar on this screen (e.g. the Config index) — reclaim the reserved clearance. */
+.ml-shell__body--noavatar .ml-header {
+  padding-right: var(--gutter);
+}
+.ml-header--drillin {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  /* Match the Marcellus title's line box so headers never change height between views. */
+  min-height: 2rem; /* 32px */
+}
+.ml-dash-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2rem; /* 32px — same header height as every other view */
+}
+.ml-dash-header__clock {
+  font-size: 2rem; /* 32px — matches the other view headers */
+  line-height: 1;
+  color: var(--text-primary);
+}
+/* Sans and muted against the Marcellus numerals, so the meridiem qualifies the time rather than
+   competing with it — the same relationship `.ml-next__ampm` has on the NEXT rows. */
+.ml-dash-header__ampm {
+  font-family: var(--font-sans);
+  font-size: 0.8125rem; /* 13px */
+  letter-spacing: 0.1em;
+  margin-left: 0.3125rem;
+  color: var(--text-muted);
+}
+.ml-dash-header__right {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1875rem;
+}
+.ml-dash-header__date {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.3em;
+  color: var(--brass);
+}
+/* Active-profile switcher badge (top-right of the dashboard header). */
+.ml-profilebadge {
+  width: 2rem; /* 32px */
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+  font-size: 1.1875rem; /* 19px */
+  line-height: 1;
+  margin-bottom: 0.15rem;
+}
+.ml-profilebadge:active {
+  background: var(--bg-active);
+  border-color: var(--brass);
+}
+.ml-dash-header__conditions {
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  color: var(--text-muted);
+}
+
+/*
+ * Where the conditions above are for.
+ *
+ * A step quieter than the conditions and set in mixed case against their caps, because it is the
+ * least changing thing in the header and should read as a caption on the weather rather than as
+ * another reading. It is worth saying at all for one reason: a panel showing somebody else's forecast
+ * looks exactly like a panel showing theirs, and this is the only line that can catch that.
+ */
+.ml-dash-header__place {
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  color: var(--text-disabled);
+}
+
+.ml-drillin-header__title {
+  font-size: 2rem; /* 32px screen title */
+  line-height: 1;
+  color: var(--text-primary);
+  /* A chat title is whatever somebody said, and the header has the account avatar's clearance on its
+     right — so it has to be able to stop rather than push the status off the edge. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/*
+ * The title as a control (Assist's rename).
+ *
+ * A brass underline and nothing else — no button chrome, no pencil, no chevron. The title is still
+ * the title: it is set in the same Marcellus at the same size in the same place, and the rule under
+ * it is the smallest mark that says it can be touched. Anything more would make every screen with a
+ * plain title look like it was missing something.
+ */
+.ml-drillin-header__title--action {
+  padding: 0;
+  text-align: left;
+  border-bottom: var(--hairline-px) solid var(--brass-dim);
+  /* The underline sits closer to the text than the 32px line box would put it. */
+  line-height: 1.1;
+}
+.ml-drillin-header__status {
+  margin-left: auto;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.ml-drillin-header__status--live {
+  color: var(--live-text);
+}
+
+/* ---------- Back button (44×44) ---------- */
+.ml-backbtn {
+  width: 2.75rem; /* 44px */
+  height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim); /* 1px #5C5342 */
+  color: var(--brass-bright); /* ◂ glyph #C8A877 */
+  font-size: 1.0625rem; /* 17px */
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.ml-backbtn:active {
+  background: var(--bg-active);
+}
+
+/* ---------- Ledger hairlines (inset) ----------
+ * Row separators are inset to the gutter so they align with the header's double rule instead of
+ * running edge to edge. Drawn as a ::before rule rather than border-top, because a border spans
+ * the full box width (padding sits inside it). Rows already pad to var(--gutter), so the rule
+ * lines up exactly with their content.
+ */
+.ml-row,
+.ml-todorow,
+.ml-task,
+.ml-dayrow,
+.ml-week__row,
+.ml-climatezone {
+  position: relative;
+  border-top: none;
+}
+.ml-row::before,
+.ml-todorow::before,
+.ml-task::before,
+.ml-dayrow::before,
+.ml-week__row::before,
+.ml-climatezone::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--gutter);
+  right: var(--gutter);
+  height: var(--hairline-px);
+  background: var(--rule-minor);
+}
+.ml-row--major::before {
+  background: var(--rule-major);
+}
+.ml-climatezone--expanded::before {
+  background: var(--bg-zone-expand-rule);
+}
+/* Rows that sit flush inside their section — no rule at all (dashboard NEXT + TASKS DUE). */
+.ml-row--flush::before {
+  content: none;
+}
+/* Leading row of a group carries no rule (nothing hangs under a label / search field). */
+.ml-config-index .ml-row:first-child::before,
+.ml-listrows > .ml-row:first-child::before {
+  content: none;
+}
+/* …and close each group with a rule under its final row. */
+
+
+/* ---------- Section label row ---------- */
+.ml-section {
+  display: flex;
+  align-items: center;
+  padding: 1rem var(--gutter) 0.625rem; /* 16px top */
+}
+.ml-section__tick {
+  width: 0.875rem; /* 14px */
+  height: 0.1875rem; /* 3px */
+  background: var(--brass);
+  margin-right: 0.75rem;
+  flex: 0 0 auto;
+}
+.ml-section__label {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--brass);
+  font-weight: 400;
+}
+.ml-section__status {
+  margin-left: auto;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-section__status--live {
+  color: var(--live-text);
+}
+/* Collapsible section header (persistent open/closed state) */
+.ml-section--toggle {
+  width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+.ml-section--toggle .ml-section__label { flex: 1 1 auto; }
+.ml-section--toggle .ml-section__status { margin-left: 0; margin-right: 0.625rem; }
+.ml-section__chevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+.ml-section--toggle:not(.ml-section--open) .ml-section__chevron { transform: rotate(-90deg); }
+
+/* ---------- Ledger row ---------- */
+.ml-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem var(--gutter); /* ~14px vertical */
+  /* LedgerRow renders a <button> when tappable; form controls size to fit-content, so without
+     these a tappable row would shrink to its content instead of spanning full width. */
+  width: 100%;
+  text-align: left;
+}
+.ml-row--tappable:active {
+  background: var(--bg-active);
+}
+.ml-row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-row__title {
+  font-size: 1rem; /* 16px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ml-row__sub {
+  font-size: 0.8125rem; /* 13px */
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.ml-row__right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-secondary);
+}
+
+/* ---------- Bottom nav ---------- */
+/* Own plane (#101215) + 2px brass top rule, 8 items.
+ *
+ * **Spaced by content, not by equal cells** — a deliberate departure from BOTTOM_NAV.md, made by
+ * the product owner. The original rule was `flex:1 1 0` on every item, which put the icons on a
+ * perfectly regular pitch but left the *whitespace* uneven, because the labels range from CARE at
+ * ~30 mock px to CALENDAR at ~60. Measured on the rendered bar, the gaps between labels varied
+ * 31–78 device px — a 2.5× spread the eye reads as ragged even though every centre was on the grid.
+ *
+ * `space-evenly` distributes the slack into identical gaps: one before the first item, one after
+ * the last, and one between each pair. That is why the side padding is now 0 — leaving it in would
+ * make the two outer gaps wider than the inner ones, which is the exact fault this is fixing. The
+ * trade, accepted knowingly: icon centres no longer sit on a regular pitch.
+ *
+ * **ASSIST's return spends most of the remaining slack.** Eight content-sized cells leave far less
+ * to distribute than seven did, so the gaps are tighter — that is the cost of the eighth tab and it
+ * was accepted. See `.ml-nav__item::after` for the one thing that had to change with it.
+ */
+.ml-nav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-evenly;
+  padding: 1rem 0 1.375rem; /* 16px 0 22px — see above for why the sides are 0 */
+  background: var(--bg-nav);
+  border-top: var(--rule-brass-px) solid var(--brass);
+}
+.ml-nav__item {
+  /* Sized to its own content rather than to a share of the bar. */
+  flex: 0 0 auto;
+  /* Uniform padding is what makes the *label* gaps uniform, and it is the whole trick here. With
+     every item padded by the same P and `space-evenly` distributing an equal gap G between cells,
+     the whitespace between any two adjacent labels is P + G + P — constant, whatever the words are.
+     A `min-width` floor breaks exactly that: it widens the short cells past their content, so the
+     labels inside them drift apart again. That was the earlier attempt, and it is why the spread
+     only fell to 2.0× instead of 1.0×. */
+  padding: 0 0.625rem;
+  /* Ceiling on how much a long word may claim.
+     Content-sizing alone let CLIMATE and WEATHER — the two widest labels, and adjacent — inflate
+     their cells, which pushed their normal-width icons 114px apart against 78px elsewhere. Capping
+     the cell trades a little label-gap evenness for icon-pitch evenness and lands both within about
+     1.15×. The labels still fit inside the cap; only their padding is squeezed, so nothing
+     truncates.
+
+     77px (NAV.md), up from 52px at ten tabs: eight cells on the 32.75rem track have 4.09rem each
+     to spend, and the cap is a ceiling rather than a target — only CALENDAR reaches it. `WEATHER`
+     is the widest label that does not and the one to check on the panel. */
+  max-width: 4.8125rem;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem; /* 6px */
+  color: var(--text-disabled); /* #5F584B */
+}
+/* The 44px touch minimum, without letting it touch the layout.
+   A content-sized cell can be smaller than a fingertip, so rather than widen the cell — which would
+   put the gaps back — the hit area is grown past it with an overlay. Adjacent targets must meet
+   exactly and never overlap: an overlap hands a tap in the gap to whichever item painted last. */
+.ml-nav__item::after {
+  content: '';
+  position: absolute;
+  /* **Horizontal growth is 0 as of the eighth tab, and that is deliberate.**
+     It was -0.34375rem (11 device px at the 1080 render width) — half the 23px `space-evenly` gap
+     measured at seven tabs. ASSIST consumes most of that slack, so the same 11px would now cross
+     into the neighbour on both sides: the exact fault the value was measured to avoid.
+
+     Nothing is lost, because the cell no longer needs the help. Every item is a column around a
+     25px icon inside 0.625rem of padding either side, so *whatever* its label reads it is at least
+     45 mock px wide against the 44px minimum — a floor the old three-letter `CAT` label did not
+     have. Vertical growth stays: 25px icon + 6px gap + ~11px label is 42px, and −0.5rem takes it
+     to 58px.
+
+     If the real panel shows the cells feel tight, re-measure the gap there and grow this back to
+     half of it — do not guess it back. */
+  inset: -0.5rem 0;
+}
+/* Active tab = bright-brass icon + label only (no underline tick / diamond). */
+.ml-nav__item--active {
+  color: var(--brass-bright); /* #C8A877 */
+}
+/* 9px at 0.28em (NAV.md). The 0.12em squeeze was a fallback spent to survive nine and ten tabs —
+   the consolidation to eight reverses it, along with the `CAL` shortening. If anything clips on the
+   real panel, drop to 0.24em first, then the icon to 24px; do not re-shorten CALENDAR. */
+.ml-nav__label {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* Hard fault on a Care subject: a 7px terracotta dot at the top-right of the icon box. In addition
+   to the notification-drawer row, never instead of it (NAV.md). */
+.ml-nav__iconbox {
+  position: relative;
+  display: inline-flex;
+}
+.ml-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ml-nav__fault {
+  position: absolute;
+  top: -0.0625rem;
+  right: -0.1875rem;
+  width: 0.4375rem; /* 7px */
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+/*
+ * ---------- Bottom nav on a phone ----------
+ *
+ * The one place in the app that **gains** margin as the screen narrows, while `--gutter` gives it up
+ * everywhere else (tokens.css). The reason is that the bar's contents are already at the edges: eight
+ * content-sized cells across the full width, distributed by `space-evenly` with no side padding, so
+ * whatever slack exists is spread into nine equal gaps. Narrow the screen far enough and the slack
+ * goes negative — the cells no longer fit, `flex: 0 0 auto` refuses to shrink them, and the outer
+ * icons run off both edges. That is the bleed, and it is a *content-width* problem, so the fix has to
+ * be content width.
+ *
+ * The levers are used in the order `navConfig.ts` sanctions — tracking first, then the cell padding.
+ * `CALENDAR` and `WEATHER` are the two labels to check on a real device; neither is shortened, which
+ * that file asks for explicitly.
+ *
+ * Eight labels at 0.16em and 0.3125rem of padding come to roughly 27rem of the 33.75rem the viewport
+ * is worth, so `space-evenly` has real slack again and the gaps are gaps rather than an overflow.
+ */
+@media (max-width: 540px) {
+  .ml-nav {
+    /* A floor, not a gutter. It is the only margin in the app that does not narrow with the others,
+       because it is not spending width on nothing — it is what stops the first and last icons from
+       sitting against the glass, and on a rounded phone screen, under it. */
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+  .ml-nav__item {
+    padding: 0 0.3125rem;
+    /* Last-resort containment. With the figures above nothing shrinks, but a substituted font with
+       wider metrics would otherwise put us straight back to icons off the edge; this makes the cells
+       give way together instead, which is a bar that looks tight rather than a bar that is broken. */
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .ml-nav__label {
+    letter-spacing: 0.16em;
+  }
+}
+
+/* ---------- Stepper (− / +) ---------- */
+.ml-stepper {
+  width: 3.375rem; /* 54px */
+  height: 3.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+}
+.ml-stepper:active {
+  background: var(--bg-active);
+}
+.ml-stepper:disabled {
+  color: var(--text-disabled);
+  border-color: var(--border-inactive);
+}
+
+/* ---------- Chip / tab ---------- */
+.ml-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.625rem 1rem;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-disabled);
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.ml-chip--active {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-chip--live.ml-chip--active {
+  border-color: var(--live-dim);
+  color: var(--live-text);
+  background: transparent;
+}
+
+/* ---------- Toggle (square-thumb) ---------- */
+.ml-toggle {
+  width: 3.625rem; /* 58px */
+  height: 1.875rem; /* 30px */
+  border: var(--control-border) solid var(--border-inactive);
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1875rem;
+  flex: 0 0 auto;
+}
+.ml-toggle__thumb {
+  width: 1.375rem; /* 22px */
+  height: 1.375rem;
+  background: var(--border-inactive);
+  transition: transform 140ms ease, background 140ms ease;
+}
+.ml-toggle--on {
+  border-color: var(--brass);
+  background: var(--bg-active);
+}
+.ml-toggle--on .ml-toggle__thumb {
+  background: var(--brass-bright);
+  transform: translateX(1.75rem);
+}
+/* Verdigris ON style for app-level "smart" switches (Today / All) — spec §4. */
+.ml-toggle--live.ml-toggle--on {
+  border-color: var(--live-dim);
+  background: var(--live-fill-b);
+}
+.ml-toggle--live.ml-toggle--on .ml-toggle__thumb {
+  background: var(--live-text);
+}
+
+/* ---------- Alert banner (amber; severe adds hazard stripe) ---------- */
+.ml-alert {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem var(--gutter);
+  background: var(--alert);
+  color: var(--alert-ink);
+}
+.ml-alert__glyph {
+  width: 2rem; /* 32px */
+  height: 2rem;
+  border: var(--control-border) solid var(--alert-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.ml-alert__title {
+  font-size: 0.875rem; /* 14px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.ml-alert__detail {
+  font-size: 0.8125rem;
+  margin-top: 0.15rem;
+}
+.ml-alert__stripe {
+  height: 0.5rem; /* 8px */
+  background: repeating-linear-gradient(-45deg, #d08a2e 0 10px, #171207 10px 20px);
+}
+
+/* ---------- Reconnecting bar (global; Stage 9a) ---------- */
+.ml-reconnect {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem var(--gutter);
+  background: #1e1a12; /* dim amber-tinted */
+  border-bottom: var(--hairline-px) solid var(--alert);
+  flex: 0 0 auto;
+}
+.ml-reconnect__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--alert);
+  flex: 0 0 auto;
+}
+.ml-reconnect__text {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #a08a5c; /* muted brass */
+}
+
+/* Pending write-queue bar (Stage 9b). */
+.ml-queuebar {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem var(--gutter);
+  background: var(--bg-active);
+  border-bottom: var(--hairline-px) solid var(--brass-dim);
+  flex: 0 0 auto;
+}
+.ml-queuebar__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--brass);
+  flex: 0 0 auto;
+}
+.ml-queuebar__text {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+/* Sync-conflict strip. */
+.ml-conflict {
+  padding: 0.625rem var(--gutter) 0.75rem;
+  background: var(--alert);
+  color: var(--alert-ink);
+  flex: 0 0 auto;
+}
+.ml-conflict__title {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+}
+.ml-conflict__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+.ml-conflict__label {
+  font-size: 0.875rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-conflict__actions {
+  display: flex;
+  gap: 1rem;
+  flex: 0 0 auto;
+}
+.ml-conflict__actions .ml-linkbtn {
+  color: var(--alert-ink);
+}
+
+/* Stale live values grey to disabled once offline past the staleness threshold. */
+.ml-stale,
+.ml-stale * {
+  color: var(--text-disabled) !important;
+  transition: color 400ms ease;
+}
+
+/* ---------- Mic-live banner (verdigris; global) ---------- */
+.ml-miclive {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* dot + text sit centred on the banner */
+  gap: 0.75rem; /* 12px */
+  padding: 0.8125rem 1.5rem; /* 13px 24px */
+  background: var(--live-fill-a);
+  border-bottom: 0.125rem solid var(--live-accent);
+  color: var(--live-text);
+}
+.ml-miclive__dot {
+  width: 0.625rem; /* 10px */
+  height: 0.625rem;
+  border-radius: 50%; /* glowing round indicator */
+  background: var(--live-text);
+  box-shadow: 0 0 0.75rem var(--live-accent);
+  flex: 0 0 auto;
+}
+.ml-miclive__text {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  /* Tracking adds a trailing space after the last glyph; pull it back so the text reads centred. */
+  margin-right: -0.34em;
+}
+
+/* ---------- Offline chip ---------- */
+.ml-offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ml-offline__dot {
+  width: 0.5rem; /* 8px */
+  height: 0.5rem;
+  background: var(--alert);
+  flex: 0 0 auto;
+}
+.ml-offline__text {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #a08a5c; /* muted brass */
+}
+
+/* ---------- Scroll area (drill-in lists) ---------- */
+.ml-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.ml-scroll__inner {
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none; /* no native scrollbar */
+}
+.ml-scroll__inner::-webkit-scrollbar {
+  display: none;
+}
+/* Bottom fade-out gradient into the background (hidden once scrolled to the end). */
+.ml-scroll::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3rem;
+  background: linear-gradient(to bottom, transparent, var(--bg-screen));
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 200ms ease;
+}
+.ml-scroll--end::after {
+  opacity: 0;
+}
+/* 3px brass position tick riding a hairline track at the right edge (spec 11). */
+.ml-scroll__track {
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  right: 0.125rem;
+  width: 0.1875rem; /* 3px */
+  background: var(--rule-minor);
+  pointer-events: none;
+}
+.ml-scroll__tick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 1.5rem;
+  background: var(--brass);
+}
+.ml-scroll__caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.625rem;
+  text-align: center;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass);
+  pointer-events: none;
+}
+/* 2-line clamp utility for long titles in scrolling lists (spec 11). */
+.ml-clamp2 {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* ---------- Lock / PIN screen (spec 06) ---------- */
+.ml-lock {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.25rem var(--gutter) 1.5rem;
+}
+.ml-lock__labelrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.375rem;
+}
+.ml-lock__who {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.26em;
+  color: var(--brass);
+}
+.ml-lock__hint {
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-lock__tiles {
+  display: flex;
+  gap: 1.125rem; /* 18px */
+}
+.ml-lock__tile {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem 0;
+  border: var(--control-border) solid var(--rule-major);
+  color: var(--text-disabled);
+}
+.ml-lock__tile--selected {
+  border: 0.125rem solid var(--brass); /* 2px */
+  background: var(--bg-profile-selected);
+  color: var(--brass-bright);
+}
+.ml-lock__tile:active {
+  background: var(--bg-active);
+}
+.ml-lock__tile-initial {
+  font-size: 2rem; /* 32px */
+  line-height: 1;
+  color: inherit;
+}
+.ml-lock__tile-name {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: inherit;
+}
+
+/* Entry block (pins + keypad), centered in the space between tiles and footer. */
+.ml-lock__entry {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rem;
+}
+.ml-lock__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ml-lock__footer-note {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.28em;
+  color: var(--text-disabled);
+}
+.ml-lock__settings {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* ---------- PIN pad (shared: Lock screen + Settings set-PIN) ---------- */
+.ml-pinpad {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  width: 100%;
+}
+.ml-pinpad__dots {
+  display: flex;
+  gap: 0.875rem; /* 14px */
+}
+.ml-pinpad__dot {
+  width: 0.875rem; /* 14px */
+  height: 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.ml-pinpad__dot--filled {
+  background: var(--brass);
+  border-color: var(--brass);
+}
+.ml-pinpad__keys {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem; /* 12px */
+  width: 100%;
+  /* Pin the key cell to the spec's 128×78: 3×128 + 2×12 gap = 25.5rem, centred. */
+  max-width: 25.5rem;
+  margin-inline: auto;
+}
+.ml-pinpad__key {
+  min-height: 4.875rem; /* 78px */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 1.875rem; /* 30px Marcellus */
+  color: var(--text-primary);
+}
+.ml-pinpad__key:active {
+  background: var(--brass);
+  color: var(--bg-screen);
+  border-color: var(--brass);
+}
+.ml-pinpad__key--fn {
+  border: none;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+.ml-pinpad__key--fn:active {
+  background: transparent;
+  color: var(--brass);
+}
+
+/* Wrong-PIN shake. */
+@keyframes ml-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-0.5rem); }
+  40% { transform: translateX(0.5rem); }
+  60% { transform: translateX(-0.375rem); }
+  80% { transform: translateX(0.375rem); }
+}
+.ml-lock--shake {
+  animation: ml-shake 400ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-lock--shake {
+    animation: none;
+  }
+}
+
+/* ---------- Dashboard: THE HOUSE room reading ---------- */
+.ml-house__reading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem; /* 14px */
+  flex: 0 0 auto;
+}
+.ml-house__humidity {
+  font-size: 0.75rem; /* 12px */
+  color: var(--text-muted);
+}
+.ml-house__temp {
+  font-size: 2rem; /* 32px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+/* ---------- Section label live (verdigris) variants ---------- */
+.ml-section__tick--live {
+  background: var(--live-text);
+}
+.ml-section__label--live {
+  color: var(--live-text);
+}
+
+/* ---------- Sensor History screen ---------- */
+.ml-sensor__chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.625rem; /* 10px */
+  padding: 1rem var(--gutter) 0.5rem;
+}
+.ml-sensor__current {
+  display: flex;
+  align-items: baseline;
+  gap: 1.25rem;
+  padding: 1rem var(--gutter) 1.25rem;
+}
+.ml-sensor__temp {
+  font-size: 5.125rem; /* 82px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-sensor__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.ml-sensor__now {
+  font-size: 0.8125rem; /* 13px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-sensor__today {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+/* Temperature chart: 12 bars, brass vertical gradient, shared baseline. */
+.ml-tempchart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem; /* 8px */
+  height: 13.75rem; /* 220px */
+  padding: 0.5rem var(--gutter) 0;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+  margin: 0 0 0.25rem;
+}
+.ml-tempchart__col {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ml-tempchart__value {
+  font-size: 0.6875rem; /* 11px */
+  color: var(--brass-bright);
+  line-height: 1.4;
+}
+.ml-tempchart__track {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+.ml-tempchart__bar {
+  width: 100%;
+  background: linear-gradient(to top, var(--brass-gradient-end), var(--brass-bright));
+}
+.ml-tempchart__time {
+  font-size: 0.625rem; /* 10px */
+  color: var(--text-disabled);
+  margin-top: 0.25rem;
+}
+
+/* Humidity meter rows. */
+.ml-hmeters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 0.75rem var(--gutter) 1.5rem;
+}
+.ml-hmeter {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+.ml-hmeter__label {
+  min-width: 4rem; /* 64px */
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-hmeter__track {
+  flex: 1 1 auto;
+  height: 0.5rem; /* 8px */
+  background: var(--rule-minor);
+}
+.ml-hmeter__fill {
+  height: 100%;
+  background: var(--live-dim);
+}
+.ml-hmeter__fill--current {
+  background: var(--live-accent);
+}
+.ml-hmeter__value {
+  min-width: 2.5rem;
+  text-align: right;
+  font-size: 0.9375rem; /* 15px */
+  color: var(--live-text);
+}
+
+/* ---------- Dashboard NEXT rows ---------- */
+.ml-next {
+  gap: 1rem;
+}
+.ml-next__time {
+  flex: 0 0 auto;
+  min-width: 5.5rem;
+  font-size: 1.75rem; /* 28px secondary */
+  color: var(--text-muted);
+  line-height: 1;
+}
+.ml-next--hero .ml-next__time {
+  font-size: 3rem; /* 48px hero */
+  color: var(--brass-bright);
+}
+.ml-next__ampm {
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  margin-left: 0.25rem;
+  color: var(--text-muted);
+}
+
+/* ---------- Calendar screen ---------- */
+.ml-cal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 2rem; /* 32px — same header height as every other view */
+}
+.ml-cal-header__month {
+  font-size: 2rem; /* 32px — matches the other screen titles */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-cal-header__year {
+  font-size: 1.375rem; /* 22px */
+  line-height: 1;
+  color: var(--text-muted);
+}
+.ml-cal-header__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+/* Header controls sized to the 30px header row (they scale up 4× on the 4K panel). */
+.ml-cal-header .ml-iconbtn {
+  width: 1.875rem;
+  height: 1.875rem;
+}
+.ml-iconbtn {
+  width: 2.75rem;
+  height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-secondary);
+}
+.ml-iconbtn:active {
+  background: var(--bg-active);
+}
+.ml-iconbtn--accent {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-calgrid {
+  /* Breathing room between the header's double rule and the month grid. */
+  padding: 1.75rem var(--gutter) 0.25rem;
+  flex: 0 0 auto;
+}
+.ml-calgrid__dow,
+.ml-calgrid__cells {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.ml-calgrid__dowlabel {
+  text-align: center;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+  padding-bottom: 0.375rem;
+}
+.ml-calcell {
+  aspect-ratio: 1.15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  color: var(--text-primary);
+}
+.ml-calcell__num {
+  font-size: 1.125rem; /* 18px */
+  line-height: 1;
+}
+.ml-calcell--adjacent {
+  color: #3f4348;
+}
+.ml-calcell--today {
+  background: var(--brass);
+}
+.ml-calcell--today .ml-calcell__num {
+  color: var(--bg-screen);
+}
+.ml-calcell--selected {
+  border: var(--control-border) solid var(--brass-dim);
+}
+/* ---------- Calendar marks (spec 14) ----------
+ * One icon per line item, in the month grid and in the agenda. The symbols carry no stroke-width of
+ * their own (see IconSprite) so it is set here: 1.7 at 13px, where a thinner line closes the
+ * birthday candle up, and 1.4 everywhere else. */
+.ml-mark {
+  stroke-width: 1.4;
+  color: var(--brass);
+}
+.ml-mark--grid {
+  stroke-width: 1.7;
+}
+/* A mark read off the title is a good guess, never a fact — grey says so. */
+.ml-mark--inferred {
+  color: var(--text-muted);
+}
+/* Terracotta is otherwise the destructive accent; spec 14 gives it to the medical cross alone. */
+.ml-mark--medical {
+  color: var(--danger);
+}
+
+/* Month-grid mark row: at most one icon, then a rule for the day's remaining events. */
+.ml-calcell__marks {
+  height: 0.875rem; /* 14px, held whether or not the day carries a mark */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1875rem; /* 3px */
+}
+.ml-calcell__rule {
+  width: 0.375rem; /* 6px */
+  height: 0.125rem;
+  background: var(--brass-gradient-end);
+}
+/* Today's cell is solid brass, so its mark and rule invert to brass ink to read against it. */
+.ml-calcell--today .ml-mark,
+.ml-calcell--today .ml-calcell__marks {
+  color: #2a2118;
+}
+.ml-calcell--today .ml-calcell__rule {
+  background: #2a2118;
+}
+.ml-cal-empty {
+  padding: 1.5rem var(--gutter);
+  font-size: 0.875rem;
+  color: var(--text-disabled);
+}
+/* Agenda rows — 16px columns, wide enough that the mark slot reads as its own column (spec 14). */
+.ml-agenda {
+  gap: 1rem;
+}
+.ml-agenda__time {
+  flex: 0 0 auto;
+  min-width: 6rem; /* 96px */
+  font-size: 1.75rem; /* 28px */
+  color: var(--brass-bright);
+  line-height: 1;
+}
+.ml-agenda__ampm {
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  margin-left: 0.25rem;
+  color: var(--text-muted);
+}
+/* Mark slot: the row's first child, a fixed 26px box so every title starts on the same line. */
+.ml-agenda__mark {
+  flex: 0 0 auto;
+  width: 1.625rem; /* 26px */
+  height: 1.625rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* An event on an unmarked calendar: present, but silent. */
+.ml-agenda__nomark {
+  width: 0.4375rem; /* 7px */
+  height: 0.4375rem;
+  border: var(--control-border) solid var(--text-disabled);
+  transform: rotate(45deg);
+}
+.ml-agenda__allday {
+  font-size: 1.5rem; /* 24px */
+  white-space: nowrap;
+}
+.ml-agenda__meta {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 0.125rem;
+}
+.ml-agenda__chip {
+  flex: 0 0 auto;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: var(--control-border) solid var(--border-inactive);
+  padding: 0.3125rem 0.5rem;
+}
+.ml-agenda__owners {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.375rem;
+}
+.ml-ownerchip {
+  width: 1.375rem; /* 22px */
+  height: 1.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  font-size: 0.6875rem;
+  color: var(--brass);
+}
+
+/* ---------- Dashboard TASKS DUE rows (spec 01) ---------- */
+.ml-taskdue {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem; /* 10px */
+}
+.ml-taskdue__when {
+  flex: 0 0 3.75rem; /* 60px fixed urgency column */
+  font-size: 0.6875rem; /* ~10px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-taskdue__when--overdue {
+  color: var(--alert);
+}
+.ml-taskdue__when--today {
+  color: var(--brass-bright);
+}
+.ml-taskdue__dot {
+  flex: 0 0 auto;
+  width: 0.375rem; /* 6px */
+  height: 0.375rem;
+  background: var(--text-muted); /* square — no radius (deco) */
+}
+.ml-taskdue__dot--overdue {
+  background: var(--alert);
+}
+.ml-taskdue__dot--today {
+  background: var(--brass-bright);
+}
+
+/* ---------- Event editor ---------- */
+.ml-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.ml-editor-header__title {
+  font-size: 1.625rem; /* 26px */
+  color: var(--text-primary);
+  text-align: center;
+  flex: 1 1 auto;
+}
+.ml-editor-header__cancel {
+  padding: 0.625rem 1.25rem;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+.ml-editor-header__save {
+  padding: 0.625rem 1.5rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+  flex: 0 0 auto;
+}
+.ml-editor-header__save:disabled {
+  border-color: var(--border-inactive);
+  background: transparent;
+  color: var(--text-disabled);
+}
+.ml-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 0.75rem var(--gutter); /* 12px 34px */
+}
+.ml-editor::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Event editor field rows (CALENDAR_NEW_EVENT.md §3) ---------- */
+.ml-evt__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0; /* 16px */
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-evt__row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.625rem;
+}
+.ml-evt__label {
+  flex: 0 0 auto;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+/* Title value: Marcellus with a brass caret riding its right edge. */
+.ml-evt__titlewrap {
+  display: flex;
+  align-items: center;
+  gap: 0.1875rem;
+}
+.ml-evt__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 1.625rem; /* 26px */
+  color: var(--text-primary);
+}
+.ml-evt__caret {
+  flex: 0 0 auto;
+  width: 0.125rem; /* 2px */
+  height: 1.5rem; /* 24px */
+  background: var(--brass-bright);
+}
+/* Stepper clusters — value min-width keeps DATE/BEGINS/ENDS buttons vertically aligned. */
+.ml-evt__ctrl {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem; /* 16px */
+}
+.ml-evt__stepbtn {
+  flex: 0 0 auto;
+  width: 2.5rem; /* 40px */
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+  font-size: 1rem; /* 16px */
+  line-height: 1;
+}
+.ml-evt__stepbtn--pm {
+  font-size: 1.1875rem; /* 19px for − / + */
+}
+.ml-evt__value {
+  min-width: 9.375rem; /* 150px */
+  text-align: center;
+  background: none;
+  border: none;
+  font-size: 1.5rem; /* 24px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-evt__ampm {
+  font-size: 0.875rem; /* 14px */
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+.ml-evt__chips {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap; /* the calendar list is as long as the account makes it */
+}
+.ml-evt__chips .ml-chip {
+  flex: 1 1 0;
+}
+/* MARK field: the mark box plus the mark's name, both opening the picker. */
+.ml-evt__mark {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.ml-evt__markname {
+  font-size: 1rem; /* 16px */
+  color: var(--text-secondary);
+  text-align: right;
+}
+/* A fact the editor states rather than a field it edits (the calendar of a saved event). */
+.ml-evt__stated {
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+.ml-evt__where {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: right;
+  font-size: 1rem; /* 16px */
+  color: var(--text-secondary);
+}
+/* Note: open text block — no box, just the row's closing hairline. */
+.ml-evt__note {
+  width: 100%;
+  min-height: 6.875rem; /* 110px */
+  resize: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 1rem; /* 16px */
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.ml-evt__where::placeholder,
+.ml-evt__note::placeholder,
+.ml-evt__title::placeholder {
+  color: var(--text-disabled);
+}
+/* These fields are deliberately boxless (the row's hairline is the only rule), so the browser's
+   default focus ring would draw a box around the text. Touch-only kiosk — the caret is the cue. */
+.ml-evt__title:focus,
+.ml-evt__where:focus,
+.ml-evt__note:focus,
+.ml-settings__searchfield:focus {
+  outline: none;
+}
+.ml-titleinput {
+  width: 100%;
+  padding: 0.25rem var(--gutter) 1rem;
+  font-size: 1.75rem; /* 28px Marcellus */
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  caret-color: var(--brass-bright);
+}
+.ml-fieldinput {
+  width: 100%;
+  padding: 0.75rem var(--gutter);
+  font-size: 1rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  caret-color: var(--brass-bright);
+}
+.ml-fieldinput::placeholder,
+.ml-titleinput::placeholder {
+  color: var(--text-disabled);
+}
+.ml-datestep {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem var(--gutter) 1rem;
+}
+.ml-datestep__label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.ml-datestep__date {
+  font-size: 2rem; /* 32px */
+  color: var(--text-primary);
+  text-align: center;
+}
+.ml-datestep__hint {
+  font-size: 0.625rem; /* ~9px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Inline month-grid picker for the DATE field */
+.ml-datepicker {
+  margin: 0 var(--gutter) 1rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-nav);
+}
+.ml-datepicker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.75rem;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+}
+.ml-datepicker__month {
+  font-size: 1.1875rem;
+  color: var(--brass-bright);
+}
+.ml-datepicker__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.125rem;
+  padding: 0.5rem;
+}
+.ml-datepicker__dow {
+  text-align: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+  padding-bottom: 0.25rem;
+}
+.ml-datepicker__day {
+  aspect-ratio: 1.1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  font-size: 1.0625rem;
+  color: var(--text-secondary);
+}
+.ml-datepicker__day--sel {
+  background: var(--brass);
+  color: var(--bg-screen);
+}
+.ml-timecols {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0 var(--gutter);
+}
+.ml-timecol {
+  flex: 1 1 0;
+}
+.ml-timestep {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0 1rem;
+}
+.ml-timestep__time {
+  font-size: 1.875rem; /* 30px */
+  color: var(--text-primary);
+}
+.ml-timestep__ampm {
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+.ml-whochips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+  padding: 0.5rem var(--gutter) 1rem;
+}
+.ml-editor__delete {
+  display: block;
+  margin: 1.5rem 0 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--danger); /* terracotta destructive accent (spec §4) */
+}
+.ml-editor__delete--confirm {
+  /* .ml-editor already pads to the gutter, so 100% here matches the field-row hairlines exactly. */
+  width: 100%;
+  padding: 0.75rem;
+  text-align: center;
+  background: var(--danger); /* terracotta — same destructive accent as the idle state */
+  color: var(--bg-screen);
+}
+
+/* ---------- Assistant screen ---------- */
+
+/* The push-to-talk emblem. It used to open the deleted Idle state; the Listening view is the only
+   thing that draws it now (`.ml-emblem--listening`), and the caption below it is shared with the
+   overlay's opening state. */
+.ml-emblem {
+  padding: 3.25rem 0 2.125rem; /* 52px 0 34px */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* The push-to-talk emblem is round — one of the few circular elements, like the avatars. */
+.ml-emblem__ring {
+  width: 10.625rem; /* 170px */
+  height: 10.625rem;
+  border: var(--control-border) solid var(--brass-dim);
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ml-emblem__core {
+  width: 8.375rem; /* 134px */
+  height: 8.375rem;
+  border: 0.125rem solid var(--brass);
+  border-radius: 50%;
+  background: var(--bg-profile-selected);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  color: var(--brass-bright);
+}
+.ml-emblem__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-emblem__caption {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+  margin-top: 1.25rem; /* 20px */
+  margin-bottom: 1rem;
+}
+
+/* Transcript */
+.ml-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem; /* 18px */
+  padding: 1rem var(--gutter) 1.5rem;
+}
+/*
+ * A turn, and how you tell whose it is.
+ *
+ * The two used to differ by the colour of a 3px rule and one step of text brightness — brass against
+ * brass-dim, primary against secondary. Both are real distinctions and both are *fine* distinctions:
+ * on a wall panel across a room, and on a phone where the rem scaling has already taken a third off
+ * every measurement, a scrolling transcript read as one continuous column of text. You could work out
+ * who said what; you could not see it.
+ *
+ * **The two speakers now face opposite margins.** The member's turn is set flush right with its rule
+ * on the right; the agent's stays flush left with its rule on the left. That is the strongest signal
+ * available and the cheapest — it survives being glanced at from across a room, it needs no colour at
+ * all, and the two rules can never line up into a single column the way two left-hand rules did.
+ *
+ * No bubbles, no radius, no tails. The member's side does carry a flat tile fill, one step off the
+ * screen — but the block still runs the full width between its margin and its rule rather than
+ * shrinking to hug its text, which is the difference between a band on tinted ground and a balloon.
+ * The mirrored margin is still the gesture doing the work; the fill only makes the band's extent
+ * legible when a turn is one short line. This is a ledger, and a chat app's speech balloons are
+ * still the wrong language for it.
+ */
+.ml-turn {
+  border-left: 0.1875rem solid var(--rule-major);
+  padding-left: 0.875rem;
+}
+/*
+ * The member's turn — mirrored.
+ *
+ * The rule moves to the right edge with the text, so the mark that identifies a speaker is always on
+ * the side that speaker's words are set against. `margin-left` keeps a long message off the opposite
+ * margin, so even a wrapped turn reads as a block hanging from the right rather than as full-width
+ * text that happens to be ragged-left.
+ *
+ * `--bg-tile` is the token already spoken for here (see `tokens.css`) and it carries a daylight-boost
+ * value, so the fill lifts with the rest of the ramp in a bright room instead of flattening into the
+ * screen. The padding replaces the base rule's left-only figure: a filled block needs air on all four
+ * sides, and the right figure is kept identical so the text keeps its distance from its own rule.
+ */
+.ml-turn--user {
+  border-left: none;
+  border-right: 0.1875rem solid var(--brass);
+  padding: 0.625rem 0.875rem 0.6875rem;
+  margin-left: 2.5rem;
+  text-align: right;
+  background: var(--bg-tile);
+}
+.ml-turn--assistant {
+  border-left-color: var(--brass-dim);
+}
+.ml-turn__label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.375rem;
+  /* Not part of what was said. The text of a turn opts back into selection (see `.ml-turn__text`);
+     the label stays out of it, so a copied passage is the words rather than the words with
+     "BARNABY 5:12" wrapped around them. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+/*
+ * The label row, mirrored with everything else.
+ *
+ * `row-reverse` rather than a reordered DOM: the name has to come first in the markup for a screen
+ * reader — "Eleanor, 5:12" is the sentence, in that order — and this is purely which end of the row
+ * each item is drawn at. The time keeps its `margin-left: auto` and lands on the far left, because in
+ * a reversed row the auto margin absorbs the slack from the other side.
+ */
+.ml-turn--user .ml-turn__label {
+  flex-direction: row-reverse;
+}
+/* The agent's name in brass, the member's left muted. The reply is the thing being read; naming its
+   author in the accent is what makes a long transcript scannable by speaker. */
+.ml-turn--assistant .ml-turn__label {
+  color: var(--brass-meta);
+}
+/*
+ * The reading size of the whole product.
+ *
+ * Raised from the design's 15px. Everything else in HomeHub is glanced at from across a room — a
+ * temperature, a name, a time — and 15px carries that fine because you already know what you are
+ * looking at. A reply is the one thing here that has to be *read*, sentence by sentence, often at
+ * arm's length on a phone where the rem scaling has already taken a third off every measurement.
+ */
+.ml-turn__text {
+  font-size: 1.125rem; /* 18px */
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  /* A message can contain a string with no break opportunity in it at all — a pasted URL, a file
+     path, a token. Without this it sets as one line as wide as it needs to be, which on a fixed
+     transcript column means the end of it is drawn past the edge of the panel and is unreadable and
+     unreachable. `break-word` only intervenes when a word would otherwise overflow, so ordinary
+     prose keeps wrapping at its spaces. */
+  overflow-wrap: break-word;
+  /*
+   * Selectable, against the appliance-wide `user-select: none` on <body>.
+   *
+   * That rule is right for chrome — a stray drag across a wall panel should not leave half the
+   * dashboard highlighted — and wrong for exactly one thing on the screen, which is the text of a
+   * conversation. A reply containing an address, a set of instructions or a link is routinely
+   * something the household wants to take somewhere else, and a transcript nobody can copy out of
+   * makes the panel a dead end. The turn's *label* is deliberately left unselectable below, so a
+   * copied passage is the words rather than the words with "BARNABY 5:12" wrapped around them.
+   */
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ml-turn--user .ml-turn__text {
+  color: var(--text-primary);
+}
+/*
+ * A link inside a reply.
+ *
+ * Brass and underlined, because on a panel with no hover state the only thing that can announce a
+ * link is how it is set. `anywhere` rather than the block's `break-word`: a URL is the case where
+ * breaking mid-string is not a last resort but the intended behaviour, and `anywhere` also lets the
+ * line break *before* an over-wide address instead of leaving a ragged half-empty line above it.
+ */
+.ml-turn__link {
+  color: var(--brass);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  overflow-wrap: anywhere;
+}
+/*
+ * The agent's working, above its answer.
+ *
+ * Everything here is doing one job: making it impossible to mistake for the reply. Smaller, dimmer,
+ * behind its own rule and its own label — because reasoning contradicts itself and abandons
+ * conclusions, and a household that read it as the answer would act on things the agent decided not
+ * to say. Capped in height and scrollable within itself: a reasoning trace routinely runs several
+ * times longer than the reply it produces, and letting it push the actual answer off the screen would
+ * invert the whole point of showing it.
+ */
+.ml-turn__thinking {
+  max-height: 12rem;
+  overflow-y: auto;
+  margin-bottom: 0.625rem;
+  padding-left: 0.75rem;
+  border-left: var(--control-border) solid var(--rule-minor);
+  font-size: 0.9375rem; /* 15px — a step under the reply's reading size */
+  line-height: 1.5;
+  color: var(--text-disabled);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  /* Selectable for the same reason the reply is: the working is most useful when it can be taken
+     somewhere else and looked at. */
+  -webkit-user-select: text;
+  user-select: text;
+}
+.ml-turn__thinkinglabel {
+  margin-bottom: 0.25rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* The LOCAL / CLOUD / AGENT indicator lived here. `CLOUD` went with HomeHub's direct providers, and
+   `AGENT` had degraded into a boxed copy of the agent's own name sitting beside it — see `Turn` in
+   `ChatScreen` for why a duplicate is not a privacy affordance. */
+/* Listening state (spec 09b) */
+.ml-listening {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem var(--gutter);
+  gap: 1rem;
+}
+.ml-listening__hearing {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-listening__partial {
+  align-self: stretch;
+  border-left: 0.1875rem solid var(--live-accent);
+  padding-left: 0.875rem;
+  font-size: 1.125rem; /* 18px */
+  line-height: 1.5;
+  color: var(--live-text);
+  min-height: 3rem;
+}
+.ml-waveform {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  height: 2.5rem;
+  margin-top: 1rem;
+}
+.ml-waveform__bar {
+  width: 0.25rem; /* 4px */
+  height: var(--h, 20px);
+  background: var(--live-accent);
+  animation: ml-wave 900ms ease-in-out infinite;
+}
+@keyframes ml-wave {
+  0%, 100% { transform: scaleY(0.5); background: var(--live-dim); }
+  50% { transform: scaleY(1); background: var(--live-text); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-waveform__bar { animation: none; }
+}
+/* Listening reuses the 170/134 emblem in verdigris, with a solid square stop glyph (spec §4). */
+.ml-emblem--listening .ml-emblem__ring {
+  border-color: var(--live-dim);
+}
+.ml-emblem--listening .ml-emblem__core {
+  border-color: var(--live-accent);
+  background: var(--live-fill-b);
+  color: var(--live-text);
+}
+.ml-emblem--listening .ml-emblem__label {
+  color: var(--live-text);
+}
+.ml-listening__stopglyph {
+  width: 1.625rem; /* 26px */
+  height: 1.625rem;
+  background: var(--live-text);
+}
+
+/* Input bar */
+
+/* Text field: bordered box holding the input plus a brass caret pinned at its right edge. */
+
+
+/* The destructive-confirm modal that used to live here went with the overlay it belonged to. Its
+   replacement is Assist's delete confirm (ASSIST.md · 1g), in assist.css. */
+
+/* Assistant · Speaking sub-state (THE_ATTENDANT.md · 4) */
+.ml-speaking-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--brass-bright);
+}
+.ml-speaking-status__sq {
+  width: 0.5rem;
+  height: 0.5rem;
+  background: var(--brass);
+}
+.ml-speaking {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-left: 1rem;
+  margin-top: -0.25rem;
+}
+.ml-speaking__wave {
+  display: flex;
+  align-items: center;
+  gap: 0.1875rem;
+  height: 1.125rem;
+}
+.ml-speaking__bar {
+  width: 0.1875rem; /* 3px */
+  height: var(--h, 10px);
+  background: var(--brass);
+  animation: ml-wave-brass 900ms ease-in-out infinite;
+}
+@keyframes ml-wave-brass {
+  0%, 100% { transform: scaleY(0.5); background: var(--brass-dim); }
+  50% { transform: scaleY(1); background: var(--brass-bright); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-speaking__bar { animation: none; }
+}
+.ml-speaking__label {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-speaking__stop {
+  padding: 0.3125rem 0.75rem;
+  border: var(--control-border) solid var(--rule-major);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* Assistant · shared input bar — field + attach + 60×60 mic/send circle */
+
+
+/* ---------- Climate screen ---------- */
+.ml-climatezone--expanded {
+  background: var(--bg-screen);
+}
+.ml-climatezone__row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem var(--gutter);
+}
+.ml-climatezone__row:active {
+  background: var(--bg-active);
+}
+.ml-climatezone__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+.ml-climatezone__name {
+  font-size: 1rem; /* 16px */
+  color: var(--text-secondary);
+}
+.ml-climatezone__now {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.ml-modechip {
+  flex: 0 0 auto;
+  padding: 0.4375rem 0.75rem;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.22em;
+  color: var(--text-disabled);
+  white-space: nowrap;
+}
+.ml-modechip--on {
+  border-color: var(--live-dim);
+  color: var(--live-text);
+}
+.ml-climatezone__set {
+  flex: 0 0 auto;
+  min-width: 3.5rem; /* 56px */
+  text-align: right;
+  font-size: 1.875rem; /* 30px */
+  color: var(--brass-bright);
+}
+.ml-climatezone__set--off {
+  color: var(--text-disabled);
+}
+/* Expanded panel */
+.ml-climatezone__panel {
+  padding: 0.5rem var(--gutter) 1.5rem;
+}
+/* Fixed-width block: − and + are pinned to the ends so they never shift as the set point changes
+   width ("—" vs "72°" vs "100°"); the numeral flexes and centres between them. */
+.ml-climate__setpoint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  width: 21rem;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0.5rem 0 1.25rem;
+}
+.ml-climate__setpoint .ml-stepper {
+  flex: 0 0 auto;
+  width: 4.75rem; /* 76px */
+  height: 4.75rem;
+}
+.ml-climate__setval {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.ml-climate__setval .serif {
+  font-size: 4.3125rem; /* 69px */
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.ml-climate__setcaption {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+  margin-top: 0.5rem;
+}
+.ml-climate__modes {
+  display: flex;
+  gap: 0.5rem;
+}
+.ml-climate__modes .ml-chip {
+  flex: 1 1 0;
+  padding: 0.75rem 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+}
+.ml-climate__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+.ml-climate__fan {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.ml-climate__status {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.ml-climate__status--live {
+  color: var(--live-text);
+}
+/* Bottom action pair */
+.ml-climate__actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.75rem var(--gutter) 1rem;
+}
+.ml-climate__action {
+  flex: 1 1 0;
+  padding: 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-climate__action--accent {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-climate__action:active {
+  background: var(--bg-active);
+}
+/* Dashboard climate strip */
+.ml-climatestrip {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.ml-climatestrip__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.ml-climatestrip__label {
+  font-size: 0.75rem;
+  color: var(--brass);
+}
+.ml-climatestrip__status {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.ml-climatestrip__steppers {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* ---------- To-Do screen ---------- */
+/* Revamped TODO (spec 03): profile/SYNCED header, underline list tabs, grouped body, collapsible
+   completed, and a list-targeted add bar. */
+.ml-todo__profile {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-left: auto;
+  background: transparent;
+  cursor: pointer;
+}
+.ml-todo__profilecol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+}
+.ml-todo__profilename {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+/* TODO top-level tab header: title left, sync state right. Identity is the global avatar. */
+.ml-todo__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2rem; /* 32px — same header height as every other view */
+}
+.ml-todo__title {
+  font-size: 2rem; /* 32px */
+  line-height: 1; /* tight line box so the header doesn't run taller than the title */
+  color: var(--text-primary);
+}
+.ml-todo__sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-todo__syncdot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--live-text);
+}
+.ml-todo__sync--off,
+.ml-todo__sync--off .ml-todo__syncdot { color: var(--text-muted); background-color: var(--text-muted); }
+.ml-todo__avatar {
+  width: 2.25rem; /* 36px */
+  height: 2.25rem;
+  border-radius: 50%;
+  border: var(--control-border) solid var(--brass);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.0625rem;
+  color: var(--brass-bright);
+}
+/* Overflowing list tabs: a wrapper with left/right fades that appear only on the scrollable side,
+   keeping the row visually within the content width. */
+.ml-todo__tabswrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.ml-todo__tabswrap::before,
+.ml-todo__tabswrap::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3rem;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  pointer-events: none;
+}
+.ml-todo__tabswrap::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-screen), transparent);
+}
+.ml-todo__tabswrap::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-screen), transparent);
+}
+.ml-todo__tabswrap--start::before { opacity: 1; }
+.ml-todo__tabswrap--end::after { opacity: 1; }
+.ml-todo__listtabs {
+  display: flex;
+  gap: 1.625rem; /* 26px */
+  padding: 1.75rem var(--gutter) 0; /* breathing room below the header's double rule */
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-x;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 0 0 auto;
+  /* Gutter-inset bottom rule, matching the ledger hairlines. Painted as a background rather than a
+     border (which would span the full width) or a ::after (which would scroll with the tabs). */
+  background-image: linear-gradient(var(--rule-minor), var(--rule-minor));
+  background-repeat: no-repeat;
+  background-position: var(--gutter) 100%;
+  background-size: calc(100% - 2 * var(--gutter)) var(--hairline-px);
+}
+.ml-todo__listtabs::-webkit-scrollbar { display: none; }
+.ml-todo__listtab {
+  flex: 0 0 auto;
+  background: transparent;
+  padding: 0 0 0.625rem;
+  font-size: 0.875rem; /* 14px */
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  border-bottom: 0.125rem solid transparent;
+  cursor: pointer;
+}
+.ml-todo__listtab--active {
+  color: var(--brass-bright);
+  border-bottom-color: var(--brass-bright);
+}
+.ml-todo__group { display: flex; flex-direction: column; }
+.ml-todo__grouphead {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 1rem var(--gutter) 0.375rem;
+}
+.ml-todo__grouplabel {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-todo__groupcount { font-size: 0.75rem; color: var(--text-muted); }
+.ml-todorow {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.75rem var(--gutter);
+}
+.ml-todorow--done { opacity: 0.45; }
+.ml-todorow__check {
+  flex: 0 0 auto;
+  width: 1.75rem; /* 28px */
+  height: 1.75rem;
+  border: var(--control-border) solid var(--rule-major);
+  background: transparent;
+  color: var(--brass-bright);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.ml-todorow--done .ml-todorow__check {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: var(--bg-screen);
+}
+.ml-todorow__main { flex: 1 1 auto; min-width: 0; }
+.ml-todorow__title {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: text; /* the title reads as editable text, not a control */
+  font-family: inherit;
+  font-size: 1rem; /* 16px */
+  font-weight: 300;
+  color: var(--text-primary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; /* wrap to 2 lines then clamp (spec 11) */
+  line-clamp: 2;
+}
+.ml-todorow--done .ml-todorow__title {
+  text-decoration: line-through;
+  color: var(--text-secondary);
+}
+/* Inline title editor — sits in the row where the title was, no boxed chrome. */
+.ml-todorow__edit {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: var(--hairline-px) solid var(--brass-dim);
+  padding: 0 0 0.1rem;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--text-primary);
+  caret-color: var(--brass-bright);
+}
+.ml-todorow__meta { display: flex; align-items: center; gap: 0.625rem; margin-top: 0.2rem; }
+.ml-todorow__due { font-size: 0.75rem; letter-spacing: 0.06em; color: var(--text-muted); }
+.ml-todorow__due--overdue { color: var(--alert); }
+.ml-todorow__due--today { color: var(--brass-bright); }
+.ml-todorow__due--soon { color: var(--brass); }
+.ml-todorow__listtag {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: var(--hairline-px) solid var(--rule-major);
+  padding: 0.1rem 0.4rem;
+}
+.ml-todorow__star { flex: 0 0 auto; font-size: 1.1875rem; color: var(--text-disabled); background: none; border: none; padding: 0.25rem 0.5rem; }
+.ml-todorow__star--on { color: var(--brass-bright); }
+.ml-todo__completed { display: flex; flex-direction: column; }
+/* Header row: chevron+label+count on the left, the muted CLEAR affordance on the right (§3). */
+.ml-todo__completedhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.125rem var(--gutter) 0.375rem;
+}
+.ml-todo__completedtoggle {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.ml-todo__completedchev { font-size: 0.875rem; color: var(--text-muted); }
+.ml-todo__completedlabel {
+  font-size: 0.75rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-todo__completedcount { font-size: 0.75rem; letter-spacing: 0.14em; color: var(--text-muted); }
+/* CLEAR: muted (not terracotta) — clearing done items is routine, not destructive of active data. */
+.ml-todo__clear {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: transparent;
+  border: none;
+  padding: 0.25rem 0;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.ml-todo__clear span {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+/* Armed confirm (terracotta), the inset-confirm pattern shared with the Attendant manage view. */
+.ml-todo__clearconfirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.25rem var(--gutter) 0.375rem;
+}
+.ml-todo__clearcancel,
+.ml-todo__cleargo {
+  background: transparent;
+  border: var(--hairline-px) solid var(--rule-major);
+  padding: 0.4rem 0.75rem;
+  font-family: inherit;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ml-todo__clearcancel { color: var(--text-muted); }
+.ml-todo__cleargo {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--bg-danger-soft);
+}
+.ml-todo__addbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.5rem var(--gutter) 0.875rem;
+  padding: 0.75rem 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+}
+.ml-todo__addplus {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: var(--hairline-px) solid var(--rule-major);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+.ml-todo__addfield {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  color: var(--text-primary);
+  caret-color: var(--brass-bright);
+}
+.ml-todo__addfield::placeholder { color: var(--text-disabled); }
+.ml-todo__addtarget {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Tappable TO <list> ▾ chip + its list picker (spec 03 §36-37) */
+.ml-todo__addtargetwrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.ml-todo__addtarget--btn {
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--brass);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.ml-todo__targetmenu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.5rem);
+  min-width: 9rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-nav);
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-todo__targetopt {
+  padding: 0.75rem 0.875rem;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+.ml-todo__targetopt:last-child {
+  border-bottom: none;
+}
+.ml-todo__targetopt--active {
+  color: var(--brass-bright);
+  background: var(--bg-active);
+}
+.ml-todo__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 4rem var(--gutter);
+  color: var(--text-muted);
+  text-align: center;
+}
+.ml-todo__emptyhint {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  max-width: 18rem;
+}
+.ml-todo__chooselists {
+  margin-top: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  font-size: 0.8125rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* --- legacy owner-axis To-Do styles (retained; superseded by the list-axis TODO above) --- */
+.ml-todo__tabs {
+  display: flex;
+  gap: 0.625rem;
+  padding: 1rem var(--gutter) 0.75rem;
+  flex: 0 0 auto;
+}
+.ml-todo__tabs .ml-chip {
+  flex: 1 1 0;
+  padding: 0.625rem 0.5rem;
+}
+.ml-task {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.9375rem var(--gutter);
+}
+.ml-task--done {
+  opacity: 0.45;
+}
+.ml-task__check {
+  width: 1.875rem; /* 30px */
+  height: 1.875rem;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--bg-screen);
+}
+.ml-task--done .ml-task__check {
+  background: var(--brass);
+  border-color: var(--brass);
+}
+.ml-task__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-task__title {
+  font-size: 1rem; /* 16px */
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ml-task--done .ml-task__title {
+  text-decoration: line-through;
+}
+.ml-task__meta {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+.ml-task__owner {
+  width: 1.5rem; /* 24px */
+  height: 1.5rem;
+  flex: 0 0 auto;
+}
+.ml-task__delete {
+  flex: 0 0 auto;
+  font-size: 1.1875rem;
+  color: var(--text-disabled);
+  padding: 0 0.25rem;
+}
+.ml-task__delete:active {
+  color: var(--alert);
+}
+/* Inline new-task entry */
+.ml-todo__add {
+  border-top: var(--hairline-px) solid var(--rule-major);
+  padding-bottom: 0.5rem;
+}
+.ml-todo__addinput {
+  border-top: none;
+  font-size: 1.0625rem;
+}
+.ml-todo__addowners {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.25rem var(--gutter) 0.5rem;
+}
+.ml-todo__addactions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1.5rem;
+  padding: 0.25rem var(--gutter) 0.5rem;
+}
+/* Full-width New Task button */
+.ml-todo__new {
+  flex: 0 0 auto;
+  margin: 0.5rem var(--gutter) 1rem;
+  padding: 1rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  font-size: 0.8125rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+.ml-todo__new:active {
+  background: var(--brass);
+  color: var(--bg-screen);
+}
+
+/* ---------- Weather screen ---------- */
+.ml-tonight-note {
+  color: var(--alert);
+}
+.ml-weather {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* NOW · HOURLY · RADAR segment control */
+.ml-weather__segments {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.875rem var(--gutter) 0.5rem;
+}
+.ml-weather__seg {
+  flex: 1 1 0;
+  padding: 0.75rem 0.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: transparent;
+  color: var(--text-disabled);
+  font-size: 0.875rem;
+  letter-spacing: 0.2em;
+  cursor: pointer;
+}
+.ml-weather__seg--active {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+/* Day Detail header stepper */
+/* The standard header reserves 88px on the right for the account avatar; this header has no
+   right-aligned content, so restore a symmetric gutter and the stepper centres on screen. */
+.ml-weather__dayhead {
+  padding-right: var(--gutter);
+}
+/* Fixed-width stepper: the arrows are pinned to the ends so they never move as the day name
+   changes length (widest case "WEDNESDAY 00"); the name flexes and centres between them. */
+.ml-weather__daystep {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 20rem;
+  margin: 0 auto;
+}
+.ml-weather__dayarrow {
+  /* Sized to the title's line box so the HOURLY header matches NOW / RADAR exactly. */
+  flex: 0 0 auto;
+  width: 1.875rem;
+  height: 1.875rem;
+  border: var(--control-border) solid var(--rule-major);
+  background: transparent;
+  color: var(--brass-bright);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.ml-weather__dayarrow:disabled { opacity: 0.3; }
+.ml-weather__dayname {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: 1.625rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
+  text-align: center;
+}
+.ml-week__hint {
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: none;
+  color: var(--text-muted);
+}
+.ml-week__row--tap {
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.ml-week__chev { flex: 0 0 auto; color: var(--text-disabled); font-size: 1.0625rem; margin-left: 0.5rem; }
+
+/* Day Detail body */
+.ml-daydetail__summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  padding: 1rem var(--gutter) 0.5rem;
+}
+.ml-daydetail__temp { font-size: 3rem; color: var(--text-primary); }
+.ml-daydetail__peak {
+  font-size: 0.875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-daydetail__peak--severe { color: var(--alert); }
+.ml-daydetail__hilo { margin-left: auto; font-size: 0.875rem; color: var(--text-muted); }
+.ml-daychart {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.375rem;
+  height: 9rem;
+  padding: 1.25rem var(--gutter) 0.5rem;
+}
+.ml-daychart__col {
+  flex: 1 1 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+}
+.ml-daychart__val { font-size: 0.625rem; color: var(--text-secondary); margin-bottom: 0.25rem; }
+.ml-daychart__bar {
+  width: 100%;
+  background: linear-gradient(var(--brass-bright), #6b5636);
+}
+.ml-dayrows { display: flex; flex-direction: column; }
+.ml-dayrow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem var(--gutter);
+}
+.ml-dayrow__hour { flex: 0 0 4.5rem; font-size: 1.0625rem; color: var(--text-primary); }
+.ml-dayrow__cond {
+  flex: 1 1 auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-dayrow__pop {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  color: var(--live-text);
+  min-width: 3.5rem;
+}
+.ml-dayrow__popdot { width: 0.375rem; height: 0.375rem; border-radius: 50%; }
+.ml-dayrow__popdot--high { background: var(--alert); }
+.ml-dayrow__popdot--mid { background: var(--brass-bright); }
+.ml-dayrow__popdot--low { background: var(--live-accent); }
+.ml-dayrow__wind { flex: 0 0 auto; font-size: 0.875rem; color: var(--text-muted); min-width: 4rem; text-align: right; }
+
+/* Radar */
+.ml-radar { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 0.5rem var(--gutter) 0.875rem; }
+.ml-radar__map {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  border: var(--control-border) solid var(--border-inactive);
+  overflow: hidden;
+}
+.ml-radar__tilelabel {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.875rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-radar__legend {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.625rem;
+  background: rgba(20, 23, 26, 0.7);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.ml-radar__legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.ml-radar__key { width: 0.75rem; height: 0.75rem; }
+.ml-radar__key--light { background: var(--live-accent); }
+.ml-radar__key--mod { background: var(--brass-bright); }
+.ml-radar__key--heavy { background: var(--alert); }
+.ml-radar__map { background: var(--bg-screen); }
+.ml-radar__tilelabel, .ml-radar__legend, .ml-radar__marker { z-index: 2; }
+.ml-radar__tiles { position: absolute; z-index: 1; }
+.ml-radar__basetile { position: absolute; width: 256px; height: 256px; }
+.ml-radar__tile { position: absolute; width: 256px; height: 256px; }
+.ml-radar__attrib {
+  position: absolute; bottom: 0.4rem; right: 0.6rem; z-index: 2;
+  font-size: 0.5625rem; letter-spacing: 0.06em; color: var(--text-disabled);
+}
+.ml-radar__err {
+  position: absolute; inset: auto 0 42% 0; text-align: center; z-index: 2;
+  font-size: 0.8125rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted);
+}
+.ml-radar__marker {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 0.875rem; height: 0.875rem; border-radius: 50%;
+  border: 0.1875rem solid var(--text-primary); background: var(--bg-screen);
+}
+.ml-radar__range { flex: 1 1 auto; accent-color: var(--brass); cursor: pointer; }
+.ml-radar__pauseglyph {
+  width: 0.5rem; height: 0.875rem;
+  border-left: 0.1875rem solid var(--brass-bright);
+  border-right: 0.1875rem solid var(--brass-bright);
+}
+.ml-radar__scrubber { flex: 0 0 auto; display: flex; align-items: center; gap: 0.875rem; padding-top: 0.75rem; }
+.ml-radar__play {
+  flex: 0 0 auto; width: 3rem; height: 3rem;
+  border: var(--control-border) solid var(--brass); background: var(--bg-active);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.ml-radar__playglyph {
+  width: 0; height: 0;
+  border-top: 0.4375rem solid transparent;
+  border-bottom: 0.4375rem solid transparent;
+  border-left: 0.6875rem solid var(--brass-bright);
+}
+.ml-radar__track {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+.ml-radar__now { color: var(--brass-bright); }
+.ml-weather__current {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.25rem var(--gutter) 1rem;
+}
+.ml-weather__temp {
+  font-size: 7.4375rem; /* 119px */
+  line-height: 0.9;
+  color: var(--text-primary);
+}
+.ml-weather__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.ml-weather__cond {
+  font-size: 0.875rem; /* 14px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-weather__hilo {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+.ml-weather__wind {
+  font-size: 0.8125rem; /* 13px */
+  color: var(--text-muted);
+}
+/* Hourly strip (5 columns). */
+.ml-weather__hourly {
+  display: flex;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  padding: 0.25rem var(--gutter) 0.75rem;
+}
+.ml-weather__hour {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ml-weather__hourlabel {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+.ml-weather__hourdash {
+  width: 0.625rem;
+  height: 0.125rem;
+  background: var(--brass);
+}
+.ml-weather__hourtemp {
+  font-size: 1.375rem; /* 22px */
+  color: var(--text-primary);
+}
+/* Week-ahead rows. */
+.ml-week {
+  display: flex;
+  flex-direction: column;
+}
+.ml-week__row {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem var(--gutter);
+}
+.ml-week__day {
+  min-width: 6.875rem; /* 110px */
+  font-size: 1rem; /* 16px */
+  color: var(--text-secondary);
+}
+.ml-week__cond {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-week__cond--severe {
+  color: var(--alert);
+}
+.ml-week__temps {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+.ml-week__hi {
+  font-size: 1.5rem; /* 24px */
+  color: var(--brass-bright);
+}
+.ml-week__lo {
+  font-size: 1.125rem; /* 18px */
+  color: var(--text-disabled);
+}
+
+/* ---------- Settings screen ---------- */
+.ml-settings__offline {
+  padding: 0.75rem var(--gutter);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  color: var(--alert);
+}
+/* CONFIG identity header (spec 07): avatar + name + synced badge + sign-out */
+.ml-identity {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem; /* 18px */
+  padding: 1.5rem var(--gutter); /* 24px 34px */
+}
+.ml-identity__avatar {
+  flex: 0 0 auto;
+  width: 4rem; /* 64px */
+  height: 4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: max(1px, 0.09375rem) solid var(--live-accent); /* verdigris ring = signed in */
+  border-radius: 50%; /* avatars are the one round element (spec) */
+  background: var(--bg-profile-selected); /* subtle dark fill */
+  font-size: 1.75rem;
+  color: var(--brass-bright); /* brass initial */
+}
+.ml-identity__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-identity__name {
+  font-size: 1.625rem; /* 26px */
+  color: var(--text-primary);
+}
+.ml-identity__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-identity__statusdot {
+  width: 0.375rem; /* 6px */
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--live-accent);
+}
+.ml-identity__signout {
+  flex: 0 0 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5625rem; /* 9px */
+  padding: 0.6875rem 1rem; /* 11px 16px */
+  background: none;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--danger); /* terracotta — the destructive accent */
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+/* Category rows on the CONFIG index: 19px vertical, hairline-separated. */
+.ml-config-index .ml-row {
+  padding-block: 1.1875rem; /* 19px */
+}
+.ml-config-index .ml-row:first-child {
+  border-top: none; /* no double line directly under the identity row */
+}
+/* CONFIG index row leading icon — 22px brass */
+.ml-configlink__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 1rem; /* 16px */
+  color: var(--brass-bright);
+}
+.ml-configlink__title {
+  font-size: 1.0625rem; /* 17px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+}
+/* CONFIG index row right side: optional brass meta + dim drill chevron */
+.ml-configlink__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.ml-configlink__meta {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-configlink__chevron {
+  font-size: 1.0625rem; /* 17px */
+  line-height: 1;
+  color: var(--text-disabled);
+}
+/* To-Do Lists screen (ACCOUNT_TODO_LISTS.md) */
+.ml-settings__intro {
+  padding: 0.875rem var(--gutter) 0.25rem; /* 14px 34px 4px */
+  font-size: 0.875rem; /* 14px */
+  font-weight: 300;
+  color: var(--text-muted);
+}
+/*
+ * A coordinate field, in the right-hand slot of a settings row.
+ *
+ * Set in the serif at the size the panel uses for readings, because that is what it is: the household
+ * is checking a number against one they read off a map, digit by digit, and the sans at label size
+ * makes `-93.2650` and `-93.2560` look alike. Right-aligned so the decimal points line up between the
+ * two rows, which is what makes a transposed pair visible at a glance.
+ *
+ * `type="text"` with `inputMode="decimal"` rather than `type="number"`: a number input silently
+ * refuses a leading minus mid-edit in some engines, drops a trailing decimal point while you are
+ * typing past it, and grows spinner arrows nobody wants on a touch panel. The value is parsed and
+ * range-checked in the handler either way, so the input type is buying nothing but trouble.
+ */
+.ml-settings__coord {
+  width: 8rem;
+  padding: 0.375rem 0.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: var(--bg-tile);
+  font-family: var(--font-serif);
+  font-size: 1.0625rem;
+  text-align: right;
+  color: var(--text-primary);
+}
+.ml-settings__coord:focus {
+  outline: none;
+  border-color: var(--brass);
+}
+/* Sync-state / view-description sub-label under a row title */
+.ml-listrow__state {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+/* Smart-Views descriptions are set in caps; list sync-state stays sentence case (spec §3 / §5). */
+.ml-listrow__state--caps {
+  text-transform: uppercase;
+}
+/* Footer summary above the nav, hairline-topped */
+.ml-settings__footcount {
+  border-top: var(--hairline-px) solid var(--rule-major);
+  padding: 0.9375rem var(--gutter); /* 15px 34px */
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* A standing fact about the data, not a summary of this screen — sits under the footer count. */
+.ml-settings__footnote {
+  padding: 0 var(--gutter) 0.9375rem;
+  font-size: 0.6875rem; /* 11px */
+  line-height: 1.6;
+  color: var(--text-disabled);
+}
+
+/* ---------- Calendar mark controls (spec 14) ---------- */
+/* The mark box: one control on the left of a calendar row, and the picker's preview. */
+.ml-markbox {
+  flex: 0 0 auto;
+  width: 2.375rem; /* 38px */
+  height: 2.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid var(--brass-dim);
+  color: var(--brass-bright);
+}
+.ml-markbox--empty {
+  border-style: dashed;
+  border-color: var(--border-inactive);
+  color: var(--text-disabled);
+  font-size: 0.9375rem;
+}
+.ml-markbox:active {
+  background: var(--bg-active);
+}
+.ml-markbox--preview {
+  width: 2.625rem; /* 42px */
+  height: 2.625rem;
+  border-color: var(--brass);
+}
+/* An unmarked calendar row states its own absence, so it sits back from the marked ones. */
+.ml-row:has(.ml-markbox--empty) {
+  opacity: 0.55;
+}
+
+.ml-markpreview {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 0.5rem var(--gutter);
+  padding: 0.8125rem 1rem; /* 13px 16px */
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-profile-selected);
+}
+.ml-markpreview__label {
+  color: var(--text-muted);
+}
+.ml-markpreview__sample {
+  margin-top: 0.25rem;
+  font-size: 1rem; /* 16px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+}
+
+.ml-markgrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+  padding: 0.25rem var(--gutter) 0.75rem;
+}
+.ml-markgrid--locked {
+  grid-template-columns: repeat(4, 1fr);
+}
+.ml-markcell {
+  height: 4rem; /* 64px */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--mark-quiet);
+}
+.ml-markcell--selected {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-markcell__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.375rem;
+}
+.ml-markcell__caption {
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+/* The four the provider decides: dashed and inert, present only so an override makes sense. */
+.ml-markcell--locked {
+  height: 4.375rem; /* 70px */
+  gap: 0.375rem;
+  border-style: dashed;
+  background: #191b1f;
+}
+.ml-markcell__sub {
+  font-size: 0.5rem; /* 8px */
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+/* A mark in a picker cell takes the cell's colour rather than the brass it draws in the agenda. */
+.ml-mark--pick {
+  color: inherit;
+}
+
+/* The OAuth callback to register with a provider. Set in the mono face and allowed to wrap at any
+   character: it is a string to be copied exactly, not read, and a silently truncated URI would be
+   worse than an ugly one. */
+.ml-settings__callback {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem; /* 6px */
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  padding: 0.75rem var(--gutter) 0.9375rem; /* 12px 34px 15px */
+}
+.ml-settings__callback-label {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-settings__callback-uri {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8125rem; /* 13px */
+  line-height: 1.4;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  -webkit-user-select: all;
+  user-select: all; /* one tap selects the whole string on a touch panel */
+}
+
+/* Row groups under a section label / search box: separators sit BETWEEN rows, so the leading
+   row carries no top border (nothing hangs directly under the label or the search field). */
+.ml-listrows > .ml-row:first-child {
+  border-top: none;
+}
+/* Search field: bordered box with a leading magnifier */
+.ml-settings__searchbox {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* 12px */
+  margin: 0.25rem var(--gutter);
+  padding: 0.8125rem 1rem; /* 13px 16px */
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+}
+.ml-settings__searchfield {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.9375rem; /* 15px */
+  font-weight: 300;
+}
+.ml-settings__searchfield::placeholder {
+  color: var(--text-disabled);
+}
+/* Household member ring avatar (spec 07 household) */
+.ml-memberavatar {
+  flex: 0 0 auto;
+  width: 2.25rem; /* 36px */
+  height: 2.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.875rem;
+  border: max(1px, 0.0625rem) solid var(--brass-dim);
+  border-radius: 50%;
+  font-size: 0.8125rem;
+  color: var(--brass);
+}
+.ml-memberavatar--owner {
+  border-color: var(--live-accent);
+  color: var(--live-text);
+}
+/* Per-member role + age-band chips (A1), stacked under the name inside the row's main column.
+   Two groups on one line at panel width, wrapping to two lines on a narrower viewport. */
+.ml-memberfacets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1rem;
+  margin-top: 0.4375rem;
+}
+.ml-memberfacets__group {
+  display: flex;
+  gap: 0.375rem;
+}
+.ml-memberfacets .ml-chip {
+  padding: 0.375rem 0.5625rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+}
+/* Immutable "ALWAYS ON" mic indicator (verdigris, privacy-forward). */
+.ml-alwayson {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+/* Threshold stepper cluster: − value + */
+.ml-threshold {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+/* Daylight-boost mode chips (auto / on / off). */
+.ml-daylight {
+  display: flex;
+  gap: 0.375rem;
+}
+.ml-daylight .ml-chip {
+  padding: 0.4375rem 0.625rem;
+  font-size: 0.625rem;
+}
+/* The night window: two wall-clock times and the dash between them. Native time inputs, because
+   every device this runs on already has a control for a time that honours 12/24-hour locale, and
+   reimplementing one to match the section's typography would be a worse control that looked right. */
+.ml-nightwindow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ml-nightwindow__time {
+  border: var(--control-border) solid var(--brass-dim);
+  background: transparent;
+  padding: 0.4375rem 0.5rem;
+  font-family: var(--font-serif);
+  font-size: 1rem;
+  color: var(--brass-bright);
+}
+/* Chromium draws a clock glyph inside the field; it is chrome from another design language, and the
+   field is already unmistakably a time. */
+.ml-nightwindow__time::-webkit-calendar-picker-indicator {
+  display: none;
+}
+.ml-nightwindow__sep {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+.ml-threshold__value {
+  min-width: 4.375rem; /* 70px */
+  text-align: center;
+  font-size: 1.625rem; /* 26px */
+  color: var(--brass-bright);
+}
+/* Inline rename input + link-style row actions. */
+.ml-input {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+  background: var(--bg-active);
+  border: var(--control-border) solid var(--brass-dim);
+  padding: 0.25rem 0.5rem;
+  width: 100%;
+}
+.ml-linkname {
+  font-size: 1rem;
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+}
+.ml-rowactions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.ml-linkbtn {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-linkbtn:active {
+  color: var(--brass-bright);
+}
+.ml-linkbtn--danger {
+  font-size: 1.1875rem;
+  letter-spacing: 0;
+  color: var(--text-disabled);
+}
+.ml-linkadd {
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+
+/* ---------- Empty state (placeholder screens) ---------- */
+.ml-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--text-disabled);
+  padding: var(--gutter);
+  text-align: center;
+}
+.ml-empty__label {
+  font-size: 0.8125rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+.ml-empty__hint {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  max-width: 22rem;
+}
+
+/* ---------- On-screen keyboard (KEYBOARD.md) ---------- */
+/* Docked at the bottom over any text-entry screen; covers the bottom nav while up. */
+.ml-kb {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  animation: ml-slideup 160ms ease;
+}
+/* Entry context above the keys: CANCEL · label · SAVE, then the live value + caret. */
+.ml-kb__context {
+  background: var(--bg-screen);
+  border-top: var(--hairline-px) solid var(--rule-major);
+  padding: 0.75rem var(--gutter) 1rem;
+}
+.ml-kb__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.ml-kb__cancel,
+.ml-kb__save {
+  font-family: inherit;
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  background: transparent;
+}
+.ml-kb__cancel { border: var(--control-border) solid var(--border-inactive); color: var(--text-muted); }
+.ml-kb__save { border: var(--control-border) solid var(--brass); background: var(--bg-active); color: var(--brass-bright); }
+.ml-kb__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  font-size: 0.6875rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-kb__field {
+  margin-top: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+/* The tappable/draggable caret surface. The real input sits behind this panel while the keyboard
+   is up, so this echo is what the user aims at — it has to behave like the text, not like a label.
+   touch-action:none keeps a horizontal drag as a caret drag rather than a scroll. */
+.ml-kb__echo {
+  flex: 1 1 auto;
+  min-width: 0;
+  touch-action: none;
+  cursor: text;
+  /* Selection is suppressed here on purpose: the caret is drawn, not native, and letting the
+     browser paint its own selection over per-character spans would double up the highlight. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Per-character box for hit-testing. Inline so wrapping and spacing stay identical to plain text. */
+.ml-kb__char {
+  display: inline;
+  white-space: pre-wrap;
+}
+/* Caret nudge — the always-works fallback when a fingertip can't hit a 12px glyph gap. */
+.ml-kb__nudge {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.375rem;
+}
+.ml-kb__nudge button {
+  width: 2.75rem;  /* 44px — full touch target */
+  height: 2.75rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  border: var(--control-border) solid var(--border-inactive);
+  background: transparent;
+  cursor: pointer;
+}
+.ml-kb__nudge button:active {
+  color: var(--brass-bright);
+  border-color: var(--brass);
+  background: var(--bg-active);
+}
+.ml-kb__value {
+  display: block;
+  font-size: 1.75rem; /* Marcellus 26px */
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1.95rem;
+}
+.ml-kb__caret {
+  display: inline-block;
+  width: 0.125rem; /* 2px */
+  height: 1.625rem; /* 26px */
+  background: var(--brass-bright);
+  margin: 0 0.03em;
+  animation: ml-kbcaret 1s steps(1) infinite;
+}
+@keyframes ml-kbcaret { 50% { opacity: 0; } }
+/* The key panel — same plane as the bottom nav, 2px brass top border. */
+.ml-kb__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem; /* 7px */
+  background: var(--bg-nav);
+  border-top: var(--hairline-px) solid var(--brass);
+  padding: 1rem 0.75rem 1.25rem;
+}
+.ml-kb__row { display: flex; gap: 0.4375rem; }
+.ml-kb__row--inset { padding: 0 1.375rem; } /* stagger the a–l row like a real QWERTY */
+.ml-kb__key {
+  flex: 1 1 0;
+  height: 3.5rem; /* 56px */
+  border: var(--control-border) solid var(--border-inactive);
+  background: #1A1C1F;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 1.3125rem; /* 21px */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.ml-kb__key:active,
+.ml-kb__key--active {
+  background: var(--bg-active);
+  border-color: var(--brass);
+  color: var(--brass-bright);
+}
+.ml-kb__key--brass { color: var(--brass-bright); }
+.ml-kb__key--switch { color: var(--text-muted); font-size: 0.875rem; letter-spacing: 0.08em; }
+.ml-kb__key--space { color: var(--text-muted); font-size: 0.8125rem; letter-spacing: 0.14em; }
+.ml-kb__key--return {
+  background: var(--bg-active);
+  border-color: var(--brass);
+  color: var(--brass-bright);
+  font-size: 0.8125rem;
+  letter-spacing: 0.08em;
+}
+
+/* ============================================================================
+   Baby + Litter (BABY_SECTION.md / LITTER_SECTION.md)
+   Ledger rows and hairlines, no cards and no shadows — the same system as every
+   other section. Measurements are mock px on the 540×960 canvas, divided by 16.
+   ============================================================================ */
+
+/* ---------- Sync line (shared by both sections) ---------- */
+/* Dot + status under the double rule. The five integration states are told apart by wording as well
+   as colour, because "HA is down" and "the integration isn't there" need different fixes. */
+.ml-syncline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem var(--gutter);
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-syncline__dot {
+  width: 0.375rem;
+  height: 0.375rem;
+  background: currentColor;
+}
+.ml-syncline__text {
+  flex: 1 1 auto;
+}
+.ml-syncline--live { color: var(--live-text); }
+.ml-syncline--warn { color: var(--brass-bright); }
+.ml-syncline--bad { color: var(--danger); }
+.ml-syncline--muted { color: var(--text-disabled); }
+.ml-syncline__meta { color: var(--text-muted); }
+
+/* ---------- Hold to confirm ---------- */
+/* The fill sweeps across for the hold duration; releasing early resets it and nothing fires. */
+.ml-hold {
+  position: relative;
+  overflow: hidden;
+  min-height: 6rem; /* 96px — a wall-panel tap target, never smaller */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem;
+  background: #1a1c1f;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-secondary);
+  text-align: center;
+  touch-action: none; /* the hold must not turn into a scroll gesture */
+}
+.ml-hold__fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  background: var(--bg-active);
+  pointer-events: none;
+}
+.ml-hold--destructive .ml-hold__fill {
+  background: var(--bg-danger-fill);
+}
+.ml-hold__body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+}
+.ml-hold__label {
+  font-size: 0.875rem; /* 14px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.ml-hold__meta {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-hold--holding {
+  border-color: var(--brass);
+  color: var(--brass-bright);
+}
+.ml-hold--destructive {
+  border-color: var(--danger);
+  background: var(--bg-danger-soft);
+  color: var(--danger);
+}
+.ml-hold:disabled {
+  color: var(--text-disabled);
+  border-color: var(--rule-major);
+  background: transparent;
+}
+.ml-hold:disabled .ml-hold__meta {
+  color: var(--text-disabled);
+}
+/* The slim variant: a 6px track under the label instead of a sweep across the block. Used where the
+   button is a full-width band whose own layout must not change while it is held. */
+.ml-hold__track {
+  align-self: stretch;
+  height: 0.375rem; /* 6px */
+  background: #22262a;
+  border: var(--control-border) solid #2f3236;
+}
+.ml-hold__trackfill {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--brass-bright);
+}
+
+/* ---------- Baby ---------- */
+.ml-babygrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem; /* 10px */
+  padding: 0.625rem var(--gutter) 1rem;
+}
+.ml-baby__detail {
+  padding: 0 var(--gutter) 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+/* A failed baby write is shown, not queued. There is no retry and no undo upstream, so the only
+   honest response is to say it did not land. */
+.ml-baby__error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 var(--gutter) 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-danger-soft);
+  border-left: var(--hairline-px) solid var(--danger);
+  color: var(--danger);
+}
+.ml-baby__errortext {
+  flex: 1 1 auto;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+}
+
+/* Running nursing timer. Save and discard are separate controls because upstream they are separate
+   things: cancel saves no interval, complete writes the session to history. */
+.ml-nursing {
+  margin: 0 var(--gutter) 1rem;
+  padding: 1rem;
+  border: var(--control-border) solid var(--live-dim);
+}
+.ml-nursing__status {
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-nursing__clock {
+  font-size: 3.75rem; /* 60px */
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+.ml-nursing__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.ml-nursing__finish {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+}
+
+/* ---------- Litter ---------- */
+/* The whole tab root is one column so the footer can be pushed to the bottom by `margin-top:auto`
+   rather than floating up under a short log. When the content does outgrow the panel it scrolls and
+   the log truncates — the footer is the last thing that should move. */
+.ml-litter__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* The status band. One rendering per fault class: the tone and the right-hand time label change,
+   the structure does not. */
+.ml-litter__status {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem var(--gutter) 0.875rem;
+}
+.ml-litter__eyebrow {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* pylitterbot's own status text, verbatim — the household reads the same words in the Whisker app. */
+.ml-litter__statustext {
+  font-size: 2.0625rem; /* 33px */
+  line-height: 1.15;
+  margin: 0.125rem 0 0.25rem;
+}
+.ml-litter__statusclass {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-litter__statustime {
+  text-align: right;
+  flex: 0 0 auto;
+}
+.ml-litter__statusago {
+  font-size: 1.5rem; /* 24px */
+  margin-top: 0.125rem;
+}
+.ml-litter__status--live .ml-litter__statustext { color: var(--live-text); }
+.ml-litter__status--warn .ml-litter__statustext,
+.ml-litter__status--warn .ml-litter__statusago { color: var(--brass-bright); }
+.ml-litter__status--bad .ml-litter__statustext,
+.ml-litter__status--bad .ml-litter__statusago { color: var(--danger); }
+.ml-litter__status--muted .ml-litter__statustext { color: var(--text-muted); }
+.ml-litter__status--live .ml-litter__statusago { color: var(--brass); }
+
+/* Plain-language notes: why a control is missing, what a pause does. Left rule carries the tone. */
+.ml-litter__note {
+  margin: 0 var(--gutter) 0.875rem;
+  padding: 0.625rem 0.875rem;
+  border-left: var(--hairline-px) solid var(--rule-major);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.ml-litter__note--live { border-left-color: var(--live-dim); }
+.ml-litter__note--warn { border-left-color: var(--brass-dim); }
+.ml-litter__note--bad {
+  border-left-color: var(--danger);
+  background: var(--bg-danger-soft);
+}
+
+/* Ledger rows that state their own limits. The sub-caption is doing real work here — it is where
+   "the robot does not say which cat" lives. */
+.ml-litter__rows {
+  padding: 0 var(--gutter) 0.875rem;
+}
+.ml-litter__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.75rem 0;
+  border-top: var(--control-border) solid var(--rule-minor);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  text-align: left;
+}
+.ml-litter__row--tap .ml-litter__rowval {
+  color: var(--brass-bright);
+}
+.ml-litter__rowsub {
+  margin-top: 0.1875rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-litter__rowtime {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+.ml-litter__rowval {
+  flex: 0 0 auto;
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+.ml-litter__rowval--live { color: var(--live-text); }
+.ml-litter__rowval--bad { color: var(--danger); }
+.ml-litter__rowval--brass { color: var(--brass-bright); }
+.ml-litter__rowval--muted { color: var(--text-disabled); }
+/* The unit rides the figure at a smaller size — `6.5 LB`, one value, not two. */
+.ml-litter__rowunit {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* The event log — what the box has been doing, in sentences.
+
+   HA reports where the robot *is*, never how it got there, so every row is a status transition read
+   back out of the recorder. The times are absolute and belong to whichever day the sub-head names,
+   which is how a seventeen-hour-old reading ends up over rows headed YESTERDAY. */
+.ml-litter__log {
+  padding: 0 var(--gutter) 0.5rem;
+}
+.ml-litter__logday {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.25rem 0 0.1875rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-litter__logrow {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+.ml-litter__logtime {
+  flex: 0 0 auto;
+  min-width: 5.75rem; /* 92px — the times share a left edge whatever their width */
+  font-size: 1.1875rem; /* 19px */
+  color: var(--text-muted);
+}
+.ml-litter__logtext {
+  flex: 1 1 auto;
+  font-size: 0.875rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+/* The tag carries the outcome, and its colour is the whole point of it being a separate slot. */
+.ml-litter__logtag {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-litter__logtag--live { color: var(--live-text); }
+.ml-litter__logtag--accent { color: var(--live-accent); }
+.ml-litter__logtag--warn { color: var(--brass-bright); }
+.ml-litter__logtag--bad { color: var(--danger); }
+.ml-litter__logtag--muted { color: var(--text-disabled); }
+/* An empty window says so in a sentence — never a zero-count row and never a skeleton. */
+.ml-litter__logempty {
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  font-weight: var(--body-weight);
+  color: var(--text-muted);
+}
+
+.ml-litter__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  /* Pushed to the bottom of the column: the footer is the one band whose position must not depend on
+     how much the log happened to return. */
+  margin: auto var(--gutter) 0;
+  padding: 0.75rem 0 1rem;
+  border-top: var(--control-border) solid var(--rule-minor);
+}
+.ml-litter__footnote {
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+/* Settings carries two notes rather than a note and a link, so they stack left-aligned. */
+.ml-litter__footer--stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+}
+
+/* The cat's name — panel-local, so it edits in place with no round-trip to wait for. */
+.ml-litter__catedit {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  background: none;
+  border: none;
+  text-align: right;
+}
+.ml-litter__catname {
+  font-size: 1.625rem; /* 26px */
+  color: var(--text-primary);
+}
+.ml-litter__catinput {
+  flex: 0 0 auto;
+  width: 9rem;
+  padding: 0.375rem 0.5rem;
+  background: var(--bg-screen);
+  border: var(--control-border) solid var(--brass-dim);
+  font-family: var(--font-serif);
+  font-size: 1.625rem;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+/* Drawer-full threshold stepper. Sits on the same row rhythm as the cat's name — both are panel-kept
+   settings the robot has no say in — so it borrows the brass hairline frame rather than inventing a
+   third control shape for one number. */
+.ml-litter__pct {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-litter__pctstep {
+  width: 2.75rem; /* 44px — the panel's minimum touch target */
+  min-height: 2.75rem;
+  color: var(--brass-bright);
+  font-size: 1.1875rem;
+  line-height: 1;
+}
+.ml-litter__pctstep:disabled {
+  color: var(--text-disabled);
+}
+.ml-litter__pctstep:active:not(:disabled) {
+  background: var(--bg-active);
+}
+.ml-litter__pctval {
+  min-width: 4.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-left: var(--control-border) solid var(--brass-dim);
+  border-right: var(--control-border) solid var(--brass-dim);
+  font-size: 1.375rem;
+  color: var(--text-primary);
+}
+
+/* The single clean-cycle control — the only command this hardware accepts.
+
+   Three treatments and never a fourth: available (below), blocked (a state row, not a dimmed
+   button), and — offline — absent entirely. */
+.ml-cleancycle {
+  padding: 0 var(--gutter) 1rem;
+}
+/* Available. A full-width bordered block, not a tile: RESET DRAWER / ADD LITTER / SLEEP MODE have no
+   entity on this hardware and are deleted rather than greyed, so there is no grid to sit in. */
+.ml-cleancycle__block {
+  width: 100%;
+  min-height: 0;
+  padding: 0.9375rem 1.125rem 0.875rem; /* 15/18/14 */
+}
+.ml-cleancycle__block .ml-hold__body {
+  width: 100%;
+  align-items: stretch;
+  gap: 0.6875rem; /* 11px */
+}
+.ml-cleancycle__block .ml-hold__label {
+  letter-spacing: normal;
+  text-transform: none;
+}
+.ml-cleancycle__row {
+  display: flex;
+  align-items: center;
+  gap: 0.8125rem; /* 13px */
+  color: var(--brass-bright);
+}
+.ml-cleancycle__title {
+  font-size: 0.875rem; /* 14px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.ml-cleancycle__hold {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-cleancycle__block:disabled .ml-cleancycle__row,
+.ml-cleancycle__block:disabled .ml-cleancycle__hold {
+  color: var(--text-disabled);
+}
+/* Blocked. Same geometry, ghost grey, and the label replaced by the *reason it cannot run* — never
+   still reading "run a clean cycle". It is a div with no handler, so a wall panel at cat height has
+   nothing here for a stray touch to find. */
+.ml-cleancycle__blocked {
+  display: flex;
+  align-items: center;
+  gap: 0.8125rem;
+  padding: 0.9375rem 1.125rem 0.875rem;
+  border: var(--control-border) solid #2f3236;
+  background: #17191c;
+  color: var(--text-disabled);
+}
+.ml-cleancycle__reason {
+  font-size: 0.875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.ml-cleancycle__state {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+/* Only the available treatment is captioned: the sentence describes a command that can be issued
+   right now, and under a blocked block it would describe one that cannot. */
+.ml-cleancycle__caption {
+  margin-top: 0.5rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.7;
+  text-wrap: pretty;
+  color: var(--text-disabled);
+}
+
+/* Mid-cycle progress. A band, not a card — no box, no border around it, so it reads as part of the
+   status rather than as a panel of its own. */
+.ml-cycling {
+  padding: 0.875rem var(--gutter) 0.75rem;
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+.ml-cycling__track {
+  height: 0.5625rem; /* 9px, same as the gauges */
+  border: var(--control-border) solid #2f3236;
+  background: #22262a;
+  overflow: hidden;
+}
+/* Barber-pole, and deliberately no percentage anywhere: the fill is estimated from elapsed time,
+   not reported by Home Assistant. It never reaches 100% — the next snapshot replaces this view.
+
+   Two motions, doing different jobs. The width grows once a second from the elapsed-time estimate,
+   eased over a full second so it reads as continuous rather than stepping. The stripes travel
+   independently, which is what says "the globe is turning" during the stretches where the estimate
+   itself barely moves — a bar that only grew would look stalled between ticks. */
+.ml-cycling__bar {
+  display: block;
+  height: 100%;
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--brass) 0 0.4375rem,
+    #8f7245 0.4375rem 0.875rem
+  );
+  /* One tile = the gradient period projected onto the x axis (0.875rem × √2), so the loop is seamless. */
+  background-size: 1.2374rem 1.2374rem;
+  transition: width 1s linear;
+  animation: ml-barber 900ms linear infinite;
+}
+@keyframes ml-barber {
+  to { background-position: 1.2374rem 0; }
+}
+/* Motion here is decorative — the step list carries the same information in words. */
+@media (prefers-reduced-motion: reduce) {
+  .ml-cycling__bar {
+    animation: none;
+    transition: none;
+  }
+}
+.ml-cycling__head {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.5625rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The sequence — what the robot is doing, in sentences rather than protocol keys. */
+.ml-sequence {
+  padding: 0 var(--gutter) 1rem;
+}
+.ml-sequence__row {
+  display: flex;
+  align-items: center;
+  gap: 0.9375rem; /* 15px */
+  padding: 0.5625rem 0;
+  border-top: var(--control-border) solid var(--rule-minor);
+}
+.ml-sequence__num {
+  flex: 0 0 auto;
+  width: 1.375rem; /* 22px square cell */
+  height: 1.375rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--control-border) solid #2f3236;
+  font-size: 0.6875rem;
+  color: var(--text-disabled);
+}
+.ml-sequence__label {
+  flex: 1 1 auto;
+  font-size: 0.9375rem; /* 15px, sentence case */
+  color: var(--text-muted);
+}
+.ml-sequence__tag {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-sequence__row--done .ml-sequence__num { border-color: #4d422c; color: var(--live-text); }
+.ml-sequence__row--done .ml-sequence__label { color: var(--text-secondary); }
+.ml-sequence__row--done .ml-sequence__tag { color: var(--live-text); }
+.ml-sequence__row--now .ml-sequence__num { border-color: #4d422c; color: #e8c98d; }
+.ml-sequence__row--now .ml-sequence__label { color: var(--text-primary); }
+.ml-sequence__row--now .ml-sequence__tag { color: #e8c98d; }
+
+/* The physical instruction — the moment the panel earns its place on the wall. */
+.ml-needshuman {
+  margin: 0 var(--gutter) 0.875rem;
+  padding: 0.875rem 1rem;
+  background: var(--bg-danger-soft);
+  border-left: var(--hairline-px) solid var(--danger);
+  font-size: 1.0625rem; /* 17px — read from across the room */
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* Range tabs on History. */
+.ml-range {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem var(--gutter);
+}
+
+/* Share of the window per fault class — one stacked bar, no axis. */
+.ml-share {
+  padding: 0.5rem var(--gutter) 1rem;
+}
+.ml-share__bar {
+  display: flex;
+  height: 0.875rem; /* 14px */
+  border: var(--control-border) solid var(--rule-major);
+  overflow: hidden;
+}
+.ml-share__seg {
+  display: block;
+  height: 100%;
+}
+.ml-share__seg--stable { background: var(--live-accent); }
+.ml-share__seg--catpresent { background: var(--live-dim); }
+.ml-share__seg--transient { background: var(--brass-dim); }
+.ml-share__seg--recoverable { background: var(--brass); }
+.ml-share__seg--needshuman { background: var(--danger); }
+.ml-share__seg--offline { background: var(--text-disabled); }
+.ml-share__seg--unknown { background: var(--rule-major); }
+.ml-share__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1rem;
+  margin-top: 0.625rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-share__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.ml-share__dot {
+  width: 0.375rem;
+  height: 0.375rem;
+}
+
+/* Drawer level, day by day. A day the recorder has nothing for is a gap, never a zero bar. */
+.ml-daybars {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  height: 5rem;
+  padding: 0.5rem var(--gutter) 0;
+}
+.ml-daybars__col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  height: 100%;
+}
+.ml-daybars__track {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: var(--control-border) solid var(--rule-major);
+}
+.ml-daybars__bar {
+  width: 100%;
+  background: #3a352c;
+}
+.ml-daybars__bar--today {
+  background: var(--brass);
+}
+/* A day the recorder holds nothing for: a hatched stub at the baseline, the same treatment an
+   unknown gauge gets. Never a bar at zero — that would invent an empty drawer. */
+.ml-daybars__bar--unknown {
+  height: 0.25rem;
+  background-image: repeating-linear-gradient(
+    135deg,
+    #22262a 0,
+    #22262a 0.1875rem,
+    #2b2f33 0.1875rem,
+    #2b2f33 0.375rem
+  );
+}
+.ml-daybars__label {
+  font-size: 0.5625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+/* Pet weight: shape on the left, the figure that matters on the right. */
+.ml-weight {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.75rem var(--gutter) 0.25rem;
+}
+.ml-spark {
+  flex: 1 1 auto;
+  height: 2.5rem;
+  color: var(--live-accent);
+}
+.ml-spark--empty {
+  display: flex;
+  align-items: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-weight__now {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+.ml-weight__now .serif {
+  font-size: 2.4375rem;
+  color: var(--text-primary);
+}
+.ml-weight__unit {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Settings — one segmented control per select entity. */
+.ml-setting {
+  padding: 0.875rem var(--gutter);
+  border-top: var(--control-border) solid var(--rule-minor);
+}
+.ml-setting__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.ml-setting__label {
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+.ml-setting__current {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-setting__hint {
+  margin: 0.1875rem 0 0.625rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+/* Cells are laid out from the entity's own option list, so the count varies by robot. */
+.ml-segmented {
+  display: flex;
+  gap: 0.375rem;
+}
+.ml-segmented__cell {
+  flex: 1 1 0;
+  min-height: 3.25rem; /* 52px */
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.ml-segmented__cell--active {
+  background: var(--bg-active);
+  border-color: var(--brass);
+  color: #e8c98d;
+}
+.ml-segmented__cell:disabled {
+  color: var(--text-disabled);
+  border-color: var(--rule-major);
+}
+.ml-litter__controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+  padding: 0.625rem var(--gutter) 1rem;
+}
+.ml-litter__lock {
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Levels. The waste drawer counts up toward full and litter counts down toward empty; the label
+   says which, so the bar never has to. Unknown is its own state — an unread level is never 0%. */
+.ml-gauge {
+  padding: 0.5rem var(--gutter) 0.75rem;
+}
+.ml-gauge__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.375rem;
+}
+.ml-gauge__label {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+/* The judgement in words, beside the number: "room to spare", "unknown since the fault".
+
+   Colour lives here and not on the figure. A number that changes colour reads as an alarm about the
+   *reading*; the word beside it is what actually carries the judgement, so the ink stays ink. */
+.ml-gauge__note {
+  flex: 1 1 auto;
+  text-align: right;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-gauge__note--live { color: var(--live-text); }
+.ml-gauge__note--warn { color: var(--brass-bright); }
+.ml-gauge__note--bad { color: var(--danger); }
+/* Held and unknown are both statements about the reading rather than about the drawer, so neither
+   gets a judgement colour. */
+.ml-gauge__note--held,
+.ml-gauge__note--unknown { color: var(--text-muted); }
+.ml-gauge__value {
+  flex: 0 0 auto;
+  /* A fixed slot so the two gauges' digits share a right edge, whatever they read. */
+  min-width: 4.625rem; /* 74px */
+  text-align: right;
+  font-size: 1.75rem; /* 28px */
+  color: var(--text-primary);
+}
+.ml-gauge__value--unknown { color: var(--text-disabled); }
+/* A held reading is real but pre-dates the current motion: dimmed fill, timestamp in the note slot. */
+.ml-gauge__fill--held { background: #4d5f57; }
+.ml-gauge__track {
+  height: 0.5625rem; /* 9px — square caps, no gradient */
+  border: var(--control-border) solid var(--rule-major);
+}
+/* Unknown is hatched, never a bar at zero. Reading a null litter level as 0% would trip the
+   empty-globe alert on every cloud hiccup, so the two must never look alike. */
+.ml-gauge__track--unknown {
+  background-image: repeating-linear-gradient(
+    135deg,
+    #22262a 0,
+    #22262a 0.25rem,
+    #2b2f33 0.25rem,
+    #2b2f33 0.5rem
+  );
+}
+.ml-gauge__fill {
+  display: block;
+  height: 100%;
+}
+.ml-gauge__fill--live { background: var(--live-accent); }
+.ml-gauge__fill--warn { background: var(--brass); }
+.ml-gauge__fill--bad { background: var(--danger); }
+
+/* Auto-recovery band — replaces LEVELS while a fault is active, because a household watching the
+   box try to fix itself needs to see it happening and needs a way to stop it. */
+.ml-recovery {
+  margin: 0.5rem var(--gutter) 1rem;
+  padding: 1rem;
+  background: #1a1c1f;
+  border-left: var(--hairline-px) solid var(--brass);
+}
+.ml-recovery--human {
+  background: var(--bg-danger-soft);
+  border-left-color: var(--danger);
+}
+.ml-recovery {
+  background: #1b1810;
+  border: var(--control-border) solid var(--brass);
+  border-left-width: var(--hairline-px);
+}
+.ml-recovery__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+/* The live countdown to the next attempt — the single most reassuring number on the screen. */
+.ml-recovery__countdown {
+  font-size: 2.5625rem; /* 41px */
+  line-height: 1.1;
+  color: var(--brass-bright);
+}
+.ml-recovery__attempt {
+  text-align: right;
+}
+.ml-recovery__attemptval {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  justify-content: flex-end;
+}
+.ml-recovery__attemptval .serif {
+  font-size: 1.875rem;
+  color: var(--text-primary);
+}
+.ml-recovery__of {
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-recovery__track {
+  height: 0.375rem;
+  margin: 0.75rem 0 0.5rem;
+  background: var(--rule-major);
+}
+.ml-recovery__bar {
+  display: block;
+  height: 100%;
+  background: var(--brass);
+}
+.ml-recovery__stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Why the loop is deliberately waiting, in a plain sentence — not a status code. */
+.ml-recovery__hold {
+  margin-top: 0.75rem;
+  padding-top: 0.625rem;
+  border-top: var(--control-border) solid var(--brass-dim);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* ============================================================================
+   Notifications (NOTIFICATIONS.md) — one queue, three renderings.
+   ============================================================================ */
+
+/* The invisible strip that opens the drawer. Thin, full width, above everything, and it only
+   claims the pointer once a downward drag is unambiguous — otherwise it would eat header taps. */
+.ml-pulltab {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.5rem;
+  z-index: 60;
+  touch-action: none;
+}
+
+/* ---------- Live cards ---------- */
+/* Above the bottom nav, never over the header: the clock, date and weather stay legible while
+   something is arriving. */
+.ml-cards {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 7.125rem; /* 114px — clear of the nav */
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+.ml-cards > * {
+  pointer-events: auto;
+}
+/* Opaque, full-bleed, with its own hairline: a transparent caption floating over the dashboard's
+   climate footer collides with it. */
+.ml-cards__caption {
+  width: 100%;
+  padding: 0.5rem var(--gutter);
+  background: var(--bg-screen);
+  border-top: var(--control-border) solid var(--rule-minor);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.ml-card {
+  position: relative;
+  width: calc(100% - var(--gutter) * 2);
+  padding: 0.75rem 1rem 0.875rem 1.125rem;
+  /* Every card face is fully opaque. Stepping an element's opacity composites its own background
+     and the dashboard reads straight through the card — depth here is border and ink only. */
+  background: #1a1c1f;
+  border: var(--control-border) solid var(--rule-major);
+  touch-action: none;
+  text-align: left;
+}
+.ml-card__rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--rule-major);
+}
+.ml-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+.ml-card__source {
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-card__time {
+  font-size: 0.6875rem;
+  color: var(--text-disabled);
+}
+.ml-card__headline {
+  margin-top: 0.1875rem;
+  font-size: 1.0625rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+/* Drains over the card's lifetime. Only on the front card, and only where the card will actually
+   time out — under a *wants you* card, which waits, a draining bar would be a lie. */
+.ml-card__timeout {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: currentColor;
+  animation: ml-card-timeout 12s linear forwards;
+}
+@keyframes ml-card-timeout {
+  from { width: 100%; }
+  to { width: 0; }
+}
+
+/* Accent by severity: terracotta wants you, the rest are worth knowing. */
+.ml-card--terracotta { border-color: var(--danger); color: var(--danger); }
+.ml-card--terracotta .ml-card__rail { background: var(--danger); }
+.ml-card--verdigris { border-color: var(--live-dim); color: var(--live-text); }
+.ml-card--verdigris .ml-card__rail { background: var(--live-accent); }
+.ml-card--brass { border-color: var(--brass-dim); color: var(--brass); }
+.ml-card--brass .ml-card__rail { background: var(--brass); }
+.ml-card--brass-bright { border-color: var(--brass); color: var(--brass-bright); }
+.ml-card--brass-bright .ml-card__rail { background: var(--brass-bright); }
+
+/* Recession: narrower, and stepped in border and ink — never in opacity. */
+.ml-card--d1 {
+  width: calc((100% - var(--gutter) * 2) * 0.93);
+  border-color: #33373b;
+  color: var(--text-muted);
+}
+.ml-card--d1 .ml-card__rail { background: #4a4438; }
+.ml-card--d1 .ml-card__headline { color: var(--text-muted); }
+.ml-card--d2 {
+  width: calc((100% - var(--gutter) * 2) * 0.86);
+  border-color: var(--rule-major);
+  color: var(--text-disabled);
+}
+.ml-card--d2 .ml-card__rail { background: #34322c; }
+.ml-card--d2 .ml-card__headline { color: var(--text-disabled); }
+
+/* ---------- Drawer ---------- */
+.ml-drawerwrap {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+.ml-drawer__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(9, 10, 11, 0.74);
+}
+/* A sheet, not a screen — and no fixed height. It wraps its content, because a tail of empty
+   graphite between the last row and the handle reads as a broken screen. */
+.ml-drawer {
+  position: relative;
+  background: var(--bg-screen);
+  border-bottom: var(--rule-brass-px) solid var(--brass);
+  padding: 1.25rem 0 0;
+  max-height: 88vh;
+  overflow-y: auto;
+  touch-action: none;
+}
+.ml-drawer__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 var(--gutter);
+}
+.ml-drawer__title {
+  font-size: 1.8125rem; /* 29px */
+  color: var(--text-primary);
+}
+.ml-drawer__rule {
+  margin: 0.75rem var(--gutter) 0;
+  border-top: var(--rule-brass-px) solid var(--brass);
+}
+.ml-drawer__empty {
+  padding: 1.5rem var(--gutter);
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+/* Grouped by severity, not by time: the question is "is anything waiting for me". */
+.ml-drawer__group {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 1rem var(--gutter) 0.5rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-drawer__grouplabel { color: var(--brass); }
+.ml-drawer__groupcount { color: var(--text-muted); }
+.ml-drawer__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem 0 1.125rem;
+}
+.ml-drawer__handle {
+  width: 4.875rem; /* 78px */
+  height: 4px;
+  background: var(--text-disabled);
+}
+.ml-drawer__hint {
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+/* ---------- The shared notification row ---------- */
+.ml-notirow {
+  position: relative;
+  display: flex;
+  width: 100%;
+  padding: 0.875rem var(--gutter);
+  border-top: var(--control-border) solid var(--rule-minor);
+  text-align: left;
+}
+.ml-notirow__rail {
+  position: absolute;
+  left: var(--gutter);
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 3px;
+}
+.ml-notirow__body {
+  flex: 1 1 auto;
+  padding-left: 1.0625rem;
+}
+.ml-notirow__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.ml-notirow__source {
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-notirow__time {
+  font-size: 0.6875rem;
+  color: var(--text-disabled);
+}
+.ml-notirow__headline {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 1.0625rem;
+  font-weight: 300;
+  color: var(--text-primary);
+}
+.ml-notirow__meta {
+  display: block;
+  margin-top: 0.1875rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-notirow--terracotta .ml-notirow__rail { background: var(--danger); }
+.ml-notirow--terracotta .ml-notirow__source { color: var(--danger); }
+.ml-notirow--verdigris .ml-notirow__rail { background: var(--live-accent); }
+.ml-notirow--verdigris .ml-notirow__source { color: var(--live-text); }
+.ml-notirow--brass .ml-notirow__rail { background: var(--brass); }
+.ml-notirow--brass .ml-notirow__source { color: var(--brass); }
+.ml-notirow--brass-bright .ml-notirow__rail { background: var(--brass-bright); }
+.ml-notirow--brass-bright .ml-notirow__source { color: var(--brass-bright); }
+
+/* ---------- Inbox: tabs, source chips, clear bar ---------- */
+.ml-tabs {
+  display: flex;
+  padding: 0 var(--gutter);
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+.ml-tabs__tab {
+  flex: 1 1 0;
+  padding: 0.75rem 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 2px solid transparent;
+}
+.ml-tabs__tab--active {
+  color: var(--brass-bright);
+  border-bottom-color: var(--brass);
+}
+
+/* This is the settings surface itself — there is no screen behind it, which is why the design has
+   no "WHAT NOTIFIES" link: it would point at content a few hundred pixels above itself. */
+.ml-sourcechips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.25rem var(--gutter) 1rem;
+}
+.ml-sourcechip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  border: var(--control-border) solid var(--rule-major);
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-sourcechip__dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  background: var(--text-disabled);
+}
+.ml-sourcechip--on {
+  border-color: var(--live-dim);
+  color: var(--text-secondary);
+}
+.ml-sourcechip--on .ml-sourcechip__dot {
+  background: var(--live-text);
+}
+
+.ml-clearbar {
+  padding: 0 var(--gutter) 1rem;
+}
+.ml-clearbar__btn {
+  width: 100%;
+  min-height: 3.75rem; /* 60px */
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+/* The MOVED marker (CONFIG.md) lived here. It was a one-release notice on the four rows whose own
+   tabs the consolidation removed, and the release has been — see `ConfigLink` for why it is gone
+   rather than kept. */
+
+/*
+ * A row of chips in a `LedgerRow`'s right-hand slot — the Assist retention windows in the Privacy
+ * view, and the OPENS ON agent picker in a member's page.
+ *
+ * Wraps, because the second use put a variable number of chips here: three or four fixed windows fit
+ * a phone's right-hand slot, and "Barnaby · Geist · one more" does not reliably.
+ */
+.ml-retention {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

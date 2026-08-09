@@ -1,0 +1,130 @@
+# ---- Claude design / build / audit packages (root) ----
+CentralHome_ClaudeCode_BuildPackage/
+CentralHome_ClaudeCode_BuildPackage.zip
+HomeHub_ClaudeDesign/
+HomeHub_ClaudeDesign.zip
+HomeHub_Audit/
+# Extracted design-handoff bundles (the .zips are ignored below; keep their unpacked folders out too).
+HomeHub_*/
+*.zip
+# Extracted doc bundle — the authoritative copies of these live at the repo root.
+homehub-docs/
+
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+.vs/
+publish/
+artifacts/
+project.lock.json
+*.nupkg
+
+# ---- EF / local db ----
+*.mdf
+*.ldf
+
+# ---- Azurite (local storage emulator state, churns constantly) ----
+__azurite_db_*.json
+__azurite_db_*__.json
+__blobstorage__/
+__queuestorage__/
+__tablestorage__/
+
+# ---- Secrets (never commit) ----
+appsettings.*.Local.json
+secrets.json
+*.env
+.env
+.env.*
+
+# Local scratch notes — has held pasted secrets (keys/connection strings); keep out of git.
+NOTES.md
+
+# The working to-do list. Personal, churns constantly, and belongs to whoever is at the keyboard
+# rather than to the repository — it was tracked from Stage 1 to the docs cleanup, which is long
+# enough that it needs a rule and not just a deletion, or the next `git add -A` puts it straight
+# back. What is actually planned lives in PROJECT.md; what is in flight lives in the branch.
+TODO.md
+
+# ---- Python (voice bridge) ----
+__pycache__/
+*.pyc
+voice-bridge/.venv/
+voice-bridge/.env
+voice-bridge/models/
+voice-bridge/voices/
+# …but the template is safe to track (the .env.* rule above would otherwise catch it):
+!voice-bridge/.env.example
+
+# ---- Node / client ----
+node_modules/
+client/dist/
+client/.vite/
+client/coverage/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# ---- Build output served by API ----
+# The whole directory, not a list of the things `npm run build` happens to put in it. It was
+# `assets/` + `index.html` until the icon pack arrived and added `icons/` and `favicon.ico` — and
+# enumerating build output is how a copied artefact ends up committed, which is the same trap the
+# dev-CA rule below already documents. Nothing in here is source: `vite build` writes it with
+# `emptyOutDir`, so every build replaces it wholesale. The sources live in `client/`.
+src/HomeHub.Api/wwwroot/
+
+# ---- Test / coverage ----
+[Tt]est[Rr]esults/
+coverage/
+*.trx
+
+# ---- Logs ----
+*.log
+logs/
+
+# ---- Cached recipe images (Stage M2, meals-planning.md D5) ----
+# Downloaded at import so a recipe card doesn't depend on someone else's CDN. Machine-local cache,
+# content-addressed and re-fetchable, so it is not source. Deliberately NOT under wwwroot — that
+# directory is the SPA build output and every deploy replaces it wholesale.
+recipe-images/
+
+# ---- Local development TLS (scripts/make-dev-certs.sh) ----
+# A private CA key that can sign for any hostname, plus the server key it signs. Both are secrets in
+# the plain sense — anyone holding the CA key can mint a certificate the household's phones will
+# trust without warning, because those phones have been told to trust this CA. Machine-local and
+# regenerable in one command, so nothing is lost by never committing them.
+certs/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+*.code-workspace
+
+# The dev CA, copied into public/ so a phone can download it from the dev server itself
+# (deploy/dev-https.md §3). Public by nature — it is meant to be handed to devices — but
+# machine-specific, so it is not source.
+#
+# Matched by name anywhere rather than at one path: `npm run build` copies everything in
+# `client/public/` into `src/HomeHub.Api/wwwroot/`, so pinning the rule to the source location left
+# the built copy untracked-and-committable. Delete it from `public/` once the household's devices
+# are set up — otherwise every production build ships a development CA to a public URL.
+homehub-dev-ca.crt
+
+# /design-sync — staged converter scripts, build output, and machine-local state.
+.ds-sync/
+ds-bundle/
+client/dist-ds/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+
+# The scratch-notes rule above ignores NOTES.md *anywhere*, which silently swallowed the sync's
+# own handoff notes — the one file a future re-sync most needs. It is generated from this repo and
+# the design project, never pasted into, so the secrets concern that rule guards against does not
+# apply. Unignored by path so the blanket rule keeps protecting every other NOTES.md.
+!.design-sync/NOTES.md

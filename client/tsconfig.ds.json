@@ -1,0 +1,26 @@
+/*
+ * Declaration-only emit for the /design-sync converter.
+ *
+ * `client` is a private app, so nothing here ever emits types. The converter reads the props the
+ * design agent codes against out of a .d.ts tree — with none, every component's contract collapses
+ * to `[key: string]: unknown` and the agent has no idea what any component accepts.
+ *
+ * Emits types alone (never JS) into dist-ds/, which package.json's `types` field points at.
+ * `allowImportingTsExtensions` is off because it forbids emit; the rest mirrors tsconfig.app.json.
+ */
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": false,
+    "declarationMap": false,
+    "rootDir": "src",
+    "outDir": "dist-ds",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.ds.tsbuildinfo",
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["src"]
+}

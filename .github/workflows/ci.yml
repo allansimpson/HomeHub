@@ -1,0 +1,120 @@
+# HomeHub CI.
+#
+# AUDIT F1: `.github/workflows/` existed and was empty, so 833 server tests and 199 client tests
+# ran only when someone remembered to run them.
+#
+# Two independent jobs rather than one, because they share nothing — the client build writes into
+# `src/HomeHub.Api/wwwroot/` for packaging, but neither test suite needs the other's output, and a
+# broken lint rule should not hide a failing server test behind it. The advisory scans are a third
+# job, deliberately non-blocking: a new CVE published overnight is information, not a reason a
+# green branch suddenly cannot merge.
+
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first. The point of CI here is the answer for the
+# tip of the branch; a queue of superseded runs is just latency.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server — build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore HomeHub.slnx
+
+      # No `--no-restore` chain shortcut: restore, build and test are separate steps so the
+      # workflow log says which one failed without reading the output.
+      - name: Build
+        # Warnings are errors in HomeHub.Api (Directory.Build.props), so this step is also the
+        # analyzer gate. Nothing extra needed to enforce it.
+        run: dotnet build HomeHub.slnx --no-restore -c Release
+
+      - name: Test
+        run: dotnet test HomeHub.slnx --no-build -c Release --verbosity normal
+
+  client:
+    name: Client — lint, test & build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # react-router 8 requires >= 22.22.0. Pinned to the major rather than `latest` so a Node
+          # release does not change what CI tested without anyone choosing it.
+          node-version: '24.x'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      # `ci` not `install`: it installs exactly the lockfile and fails if package.json has drifted
+      # from it, which is the check we want on a PR that edits dependencies.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # Runs `tsc -b` before `vite build`, so this is the typecheck as well as the bundle. It is
+      # last because a type error is easier to read than the same mistake surfacing as a test
+      # failure, but slower to produce than lint.
+      - name: Build
+        run: npm run build
+
+  advisories:
+    name: Advisories (non-blocking)
+    runs-on: ubuntu-latest
+    # Report, never gate. A CVE disclosed against a transitive dependency is not a defect in the
+    # commit that happens to be pushed that morning, and a red X that means "the world changed"
+    # trains people to ignore red Xs.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.x'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: NuGet — vulnerable packages
+        run: |
+          dotnet restore HomeHub.slnx
+          dotnet list HomeHub.slnx package --vulnerable --include-transitive
+
+      - name: npm — audit
+        working-directory: client
+        # `--omit=dev` because a dev-only advisory cannot reach the household: nothing in
+        # devDependencies is served to the panel. Dev tooling is still worth knowing about, so the
+        # full audit runs after it and neither can fail the step.
+        run: |
+          npm ci
+          npm audit --omit=dev || true
+          npm audit || true

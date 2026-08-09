@@ -1,0 +1,136 @@
+@import './theme/tokens.css';
+@import './fonts/fonts.css';
+
+/* ---- Reset ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  /* No border-radius, no shadows anywhere — machine-age deco. */
+  border-radius: 0;
+}
+
+/*
+ * 4K rem scaling. The mock canvas is 540×960 (33.75rem × 60rem at 1rem = 16px).
+ * font-size tracks the viewport so 1rem scales with the panel; min() with the height
+ * factor keeps non-16:9 panels from overflowing (flexible sections absorb the slack).
+ * At 2160×3840, 1rem = 64 device px (an exact 4×).
+ *
+ * This is the starting value. `app/remScale.ts` takes over the moment the app boots and writes the
+ * same figure as an inline style, so that on a phone the software keyboard — which shortens the
+ * layout viewport, and therefore `100vh`, by design — cannot shrink the type on the rest of the
+ * screen. That module documents the whole of it.
+ */
+html {
+  font-size: min(calc(100vw / 33.75), calc(100vh / 60));
+  height: 100%;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  height: 100%;
+  background: var(--bg-screen);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-weight: var(--body-weight);
+  /* Touch appliance: no text selection, no tap highlight, no overscroll bounce. */
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+  overflow: hidden;
+}
+
+#root {
+  height: 100%;
+}
+
+/* Numerals, clocks, temperatures, titles. */
+.serif {
+  font-family: var(--font-serif);
+  font-weight: 400;
+}
+
+/* Letterspaced caps labels. */
+.label {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.26em;
+}
+
+/* Form controls don't inherit type by default — without this they fall back to the browser's
+   font at weight 400, so placeholders read as solid entered text rather than light hints. */
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-weight: var(--body-weight);
+  /* Selection is re-enabled inside text fields, against the appliance-wide `user-select: none`
+     on <body>. That rule stops a stray drag from selecting UI chrome, but it inherits into
+     inputs, where Chromium reads it as "this text is not selectable" and therefore refuses the
+     drag gesture that repositions the caret. Dragging into existing text is the only way to fix
+     a typo mid-string with the on-screen keyboard, so text fields must opt back in. */
+  -webkit-user-select: text;
+  user-select: text;
+  /* Let the caret-drag be a caret-drag: `manipulation` (inherited intent from buttons) would let
+     the browser claim the gesture for panning instead. */
+  touch-action: auto;
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  /* Touch targets are generous; disable the 300ms tap delay. */
+  touch-action: manipulation;
+}
+
+/* Touch appliance: never draw the browser's focus-outline box on any control — there is no
+   keyboard tab-navigation, and focus is shown through each control's own styling. This removes
+   the white/blue box that would otherwise appear on the "Add a task" field, the inline task
+   editor, and every other input/button when focused. */
+:focus,
+:focus-visible {
+  outline: none;
+}
+
+svg {
+  display: block;
+}
+
+/*
+ * Night dimming — the panel dims to ~40% after 10 PM (a setting).
+ * Applied by toggling data-nightdim on <html>.
+ */
+:root[data-nightdim='on'] #root {
+  filter: brightness(0.4);
+  transition: filter 600ms ease;
+}
+
+/*
+ * The same dim, applied again to the screen's transition snapshots.
+ *
+ * `.app-viewport` carries `view-transition-name: screen` (ledger.css), which **hoists it out of
+ * `#root`** for the duration of a route change: its content is painted by
+ * `::view-transition-old/new(screen)`, which live in the transition tree under the document element,
+ * not inside the filtered subtree. Ancestor filters are not baked into a named descendant's
+ * snapshot, so without this the screen jumps to full brightness for the ~240ms of the animation and
+ * drops back — a flash on every navigation, at exactly the hour the dimming exists to avoid one.
+ *
+ * The chrome does not need it: the nav and banners are captured in the `root` snapshot, which does
+ * include `#root` and its filter, and they stay dim throughout.
+ *
+ * No transition on the filter here — the pseudo-elements exist only while the animation runs, and
+ * easing this one would make the dim itself fade in over the top of it.
+ */
+:root[data-nightdim='on']::view-transition-old(screen),
+:root[data-nightdim='on']::view-transition-new(screen) {
+  filter: brightness(0.4);
+}

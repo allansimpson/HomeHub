@@ -1,0 +1,40 @@
+/*
+ * Self-hosted fonts — no CDN at boot (LAN kiosk requirement).
+ * Both families are SIL Open Font License 1.1; latin subset (sufficient for current copy).
+ * font-display: block — on a LAN kiosk a brief wait beats a flash of fallback.
+ *
+ *  - Marcellus (400 only): numerals, clocks, temperatures, month names, screen titles.
+ *  - Josefin Sans (300 body / 400 labels / 600 alert titles): everything else.
+ */
+
+@font-face {
+  font-family: 'Marcellus';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./Marcellus-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Josefin Sans';
+  font-style: normal;
+  font-weight: 300;
+  font-display: block;
+  src: url('./JosefinSans-Light.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Josefin Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./JosefinSans-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Josefin Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url('./JosefinSans-SemiBold.woff2') format('woff2');
+}

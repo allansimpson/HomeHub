@@ -1,0 +1,43 @@
+[Unit]
+Description=Central Home App (HomeHub.Api)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Type=exec, not notify. `notify` requires the app to call sd_notify (via Host.UseSystemd), which
+# this app does not do — systemd would wait for a readiness message that never arrives and then
+# declare the start a timeout failure, even though Kestrel is serving happily.
+Type=exec
+
+User=homehub
+Group=homehub
+
+# `current` is a symlink to the live release under releases/. Deploys flip the symlink and restart,
+# so a restart is the only moment the running code changes — and rollback is the same flip backwards.
+WorkingDirectory=/opt/homehub/current
+ExecStart=/opt/homehub/current/HomeHub.Api
+
+# Connection string and any real-service credentials. Root-owned, 640, readable by this group only.
+EnvironmentFile=/etc/homehub/homehub.env
+
+Restart=always
+RestartSec=3
+
+# --- Hardening ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# ProtectSystem=strict makes the whole filesystem read-only, including /opt/homehub — which is
+# correct: a release is an immutable artifact. Everything the app writes at runtime is state, and
+# state lives here (recipe image cache, pre-rendered TTS phrases, the Data Protection key ring),
+# pointed at by Meals__ImagePath, Voice__Tts__CacheDirectory and DataProtection__KeyPath in the env
+# file. ProtectHome=true above is why the key ring cannot use its default location — see AUDIT A2.
+ReadWritePaths=/var/lib/homehub
+
+[Install]
+WantedBy=multi-user.target

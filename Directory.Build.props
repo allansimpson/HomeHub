@@ -1,0 +1,27 @@
+<Project>
+  <!-- Shared settings for every .NET project in the HomeHub solution. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Globalization must stay ON: Microsoft.Data.SqlClient (EF Core SqlServer) refuses to
+         open a connection in invariant mode. On Linux (the Pi) this needs libicu installed. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- Analyzers on, at Recommended. The rules this project does not want are turned off
+         individually in .editorconfig, each with a reason, rather than by lowering the mode —
+         lowering the mode also drops the correctness rules, and those are the ones worth having.
+         `Recommended` is what caught the culture-dependent `ToString()` in the barcode check digit
+         and the two SemaphoreSlim fields nobody was disposing. -->
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Recommended</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+
+    <!-- Warnings are errors in HomeHub.Api (see the override in tests/), because a warning nobody
+         has to act on becomes background noise within a week — which is precisely what happened to
+         the two that were sitting in the test project when this was turned on. Errors do not
+         accumulate. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

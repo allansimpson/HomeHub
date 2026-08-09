@@ -1,0 +1,265 @@
+/*
+ * The Dashboard, reworked (screens/DASHBOARD.md).
+ *
+ * 540 × 960, never scrolls. Everything from NEEDS YOU down lives in one flex column with
+ * `min-height: 0`; the house block and the Attendant sit in a `margin-top: auto` wrapper so they
+ * pin to the bottom however much the exception block holds — the same technique the old climate
+ * strip already used.
+ */
+
+.ml-dash {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.ml-dash__foot {
+  margin-top: auto;
+}
+
+/* ---------- NEEDS YOU ----------
+ * Exception-only, and the one place a Care fault, an overdue task and an empty pantry jar sit side
+ * by side. The section tag in the left margin is what keeps them from becoming a soup. */
+.ml-needs__count--bad { color: var(--danger); }
+.ml-needs__count--warn { color: var(--alert); }
+
+.ml-needs__row {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem; /* 14px */
+  width: 100%;
+  padding: 0.5625rem var(--gutter); /* 9px */
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-needs__row:active {
+  background: var(--bg-active);
+}
+.ml-needs__dot {
+  flex: 0 0 auto;
+  width: 0.375rem; /* 6px */
+  height: 0.375rem;
+  border-radius: 50%;
+}
+/* Terracotta is a hard fault or something already late; amber is low, out, or soon. Nothing else
+   earns either colour on this screen. */
+.ml-needs__row--bad .ml-needs__dot { background: var(--danger); }
+.ml-needs__row--bad .ml-needs__right { color: var(--danger); }
+.ml-needs__row--warn .ml-needs__dot { background: var(--alert); }
+.ml-needs__row--warn .ml-needs__right { color: var(--alert); }
+
+/* Fixed width so the problems all start on one vertical line, whatever the tag says. */
+.ml-needs__tag {
+  flex: 0 0 auto;
+  width: 3.875rem; /* 62px */
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.18em;
+  color: var(--text-disabled);
+}
+.ml-needs__problem {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem; /* 16px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ml-needs__right {
+  flex: 0 0 auto;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.16em;
+}
+/* The quiet state: one line, no dot, no tag. Calmer, not emptier. */
+.ml-needs__well {
+  padding: 0.5625rem var(--gutter);
+  font-size: 1rem;
+  font-weight: var(--body-weight);
+  color: var(--live-text);
+}
+.ml-needs__more {
+  display: block;
+  width: 100%;
+  padding: 0.5625rem var(--gutter);
+  text-align: left;
+  background: none;
+  border: none;
+  font-size: 0.875rem;
+  color: var(--brass-bright);
+}
+
+/* ---------- TONIGHT ---------- */
+.ml-tonightblock {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.125rem var(--gutter) 0.75rem;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+}
+.ml-tonightblock__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.ml-tonightblock__meal {
+  font-size: 1.3125rem; /* 21px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+}
+.ml-tonightblock__meta {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-tonightblock__link {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+
+/* ---------- CARE: Conrad's three numbers ---------- */
+.ml-careline {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.375rem; /* 22px */
+  padding: 0.1875rem var(--gutter) 0;
+}
+.ml-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+.ml-stat__label {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-stat__value {
+  font-size: 1.625rem; /* 26px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-stat__unit {
+  margin-left: 0.25rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem; /* 14px */
+  color: var(--text-muted);
+}
+.ml-careline__link {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+
+/* ---------- THE HOUSE ----------
+ * Promoted from a one-line strip to a block. The per-room list it replaced was cut because it
+ * duplicated this six inches below it — Climate is still a tab for the detail. */
+.ml-house {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem; /* 8px */
+  padding: 0.75rem var(--gutter) 0.8125rem;
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-house__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ml-house__glyph {
+  display: inline-flex;
+  color: var(--brass);
+}
+.ml-house__label {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-house__state {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ml-house__state--well { color: var(--live-text); }
+.ml-house__state--check { color: var(--alert); }
+
+.ml-house__body {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem; /* 18px */
+}
+.ml-house__reading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.ml-house__temp {
+  flex: 0 0 auto;
+  font-size: 3rem; /* 48px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-house__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.ml-house__doing {
+  font-size: 1rem; /* 16px */
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+/* The other rooms and the front door, rolled up. `WATCHING` used to be a heading over one lock
+   row; it lives here now, which is all it ever needed. */
+.ml-house__rollup {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ml-house__steppers {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.5rem;
+}
+.ml-house__chev {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8125rem;
+  color: var(--brass-bright);
+}
+
+/* The Attendant's invitation (`.ml-attendblock*`) lived here — a bordered tile stacked under the
+   house block, with four static bars on its right. It came out with the block when ASSIST returned
+   to the bar (NAV.md): the tab is the invitation now, and the wake word is still the other one. */

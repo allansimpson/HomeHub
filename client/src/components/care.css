@@ -1,0 +1,297 @@
+/*
+ * Care (`/care`) — its own file, following the precedent meals.css and pantry.css set: a
+ * self-contained section keeps its rules findable rather than adding another 300 lines to the end
+ * of ledger.css.
+ *
+ * One tab, two subjects. Everything under `.ml-care__` belongs to the shared frame — the switcher,
+ * the body, the footer — and is identical whichever subject is showing. What differs between Conrad
+ * and Mika lives in `.ml-caretile*` (the log grid), `.ml-fault`, `.ml-steps` and `.ml-command*`;
+ * the rest of Mika's bands keep the `.ml-litter__*` rules they have always had.
+ */
+
+/* ---------- The switcher: the header line ---------- */
+.ml-care__switcher {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9375rem; /* 15px */
+  min-height: 2rem;
+}
+.ml-care__name {
+  font-size: 1.9375rem; /* 31px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-care__namemeta {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-care__divider {
+  align-self: center;
+  width: var(--hairline-px);
+  height: 0.9375rem; /* 15px */
+  background: var(--rule-major);
+}
+/* A mark, never a second name — the line holds one name however many subjects there are. */
+.ml-care__mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem; /* 7px */
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+  background: none;
+  border: none;
+  padding: 0;
+}
+.ml-care__mark--fault {
+  color: var(--danger);
+}
+.ml-care__markdot {
+  width: 0.4375rem; /* 7px */
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+/* ---------- The body ----------
+ * `min-height: 100%` is what lets each subject's footer sit on `margin-top: auto` and pin to the
+ * bottom however short its content is. */
+.ml-care__body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  min-width: 0;
+}
+/* 0.34em here rather than app-wide: the consolidation is not a restyle, so the tracking change is
+   scoped to the screens it was drawn for. */
+.ml-care__body .ml-section__label {
+  letter-spacing: 0.34em;
+}
+/* An amber status is an instruction, not a reading — `HOLD TO CONFIRM — NO UNDO`. */
+.ml-care__warnstatus {
+  color: var(--alert);
+}
+.ml-care__nostatus {
+  color: var(--text-disabled);
+}
+
+/* Right-hand values across both subjects: Marcellus numeral, small sans unit. */
+.ml-care__value {
+  font-size: 1.5rem; /* 24px */
+  color: var(--text-primary);
+}
+.ml-care__value--none {
+  color: var(--text-disabled);
+}
+.ml-care__unit {
+  margin-left: 0.25rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem; /* 13px */
+  color: var(--text-muted);
+}
+
+.ml-care__footer {
+  margin-top: auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6875rem var(--gutter) 0.5625rem; /* 11px … 9px */
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-care__footnote {
+  max-width: 20rem; /* 320px */
+  font-size: 0.6875rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-care__footnote--fault {
+  color: var(--danger);
+}
+.ml-care__footlink {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+
+/* ---------- Conrad's log tiles ----------
+ *
+ * Two up, because a tile has to hold a 26px glyph, a letterspaced name and a meta line and still be
+ * a comfortable target on a wall panel. `HoldButton` underneath: the hold is the affordance that
+ * says something irreversible is about to happen, and these writes cannot be undone upstream.
+ */
+.ml-caretiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem; /* 10px */
+  padding: 0 var(--gutter);
+}
+.ml-caretile {
+  min-height: 6.125rem; /* 98px */
+  padding: 0.9375rem 0.9375rem 0.8125rem; /* 15px 15px 13px */
+  background: var(--bg-tile);
+  border: var(--control-border) solid var(--border-inactive);
+  text-align: left;
+}
+.ml-caretile .ml-hold__body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.ml-caretile .ml-hold__label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  align-items: flex-start;
+}
+.ml-caretile__glyph {
+  display: inline-flex;
+  color: var(--brass-bright);
+}
+.ml-caretile__name {
+  font-size: 0.875rem; /* 14px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.ml-caretile .ml-hold__meta {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Brass when the meta is a suggestion worth acting on, ghost when there is nothing to repeat. */
+.ml-caretile--suggestion .ml-hold__meta {
+  color: var(--brass-bright);
+}
+.ml-caretile--none .ml-hold__meta {
+  color: var(--text-disabled);
+}
+.ml-caretile .ml-hold__track {
+  height: 0.3125rem; /* 5px */
+  background: var(--bg-holdtrack);
+  border: var(--control-border) solid var(--border-holdtrack);
+}
+.ml-caretile:disabled {
+  opacity: 0.55;
+}
+
+/* ---------- Mika's fault banner ----------
+ * The fault owns the top of the view: the code big enough to read from the doorway, the plain
+ * state beside it, and how long plus how many attempts underneath. */
+.ml-fault {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.125rem; /* 18px */
+  margin: 0.9375rem var(--gutter) 0; /* 15px */
+  padding: 1.125rem 1.25rem; /* 18px 20px */
+  background: var(--bg-fault);
+  border: var(--control-border) solid var(--border-fault);
+}
+.ml-fault__code {
+  flex: 0 0 auto;
+  font-size: 2.5625rem; /* 41px */
+  line-height: 0.95;
+  color: var(--danger);
+}
+.ml-fault__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+}
+.ml-fault__title {
+  font-size: 1.3125rem; /* 21px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+}
+.ml-fault__meta {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-fault-meta);
+}
+
+/* ---------- GO AND DO THIS ---------- */
+.ml-steps {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--gutter);
+}
+.ml-steps__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem; /* 14px */
+  padding: 0.4375rem 0; /* 7px */
+}
+.ml-steps__num {
+  flex: 0 0 auto;
+  min-width: 1.375rem; /* 22px */
+  font-size: 1.125rem; /* 18px */
+  color: var(--brass);
+}
+.ml-steps__text {
+  font-size: 0.9375rem; /* 15px */
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+
+/* ---------- YOUR CALL: the two commands ---------- */
+.ml-commands {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+  padding: 0 var(--gutter);
+}
+.ml-command {
+  padding: 0.9375rem 1rem 0.8125rem;
+  background: var(--bg-brass-soft);
+  border: var(--control-border) solid var(--brass-dim);
+  text-align: left;
+}
+.ml-command .ml-hold__label,
+.ml-command__label {
+  font-size: 0.9375rem; /* 15px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.ml-command .ml-hold__meta,
+.ml-command__meta {
+  display: block;
+  margin-top: 0.4375rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+.ml-command .ml-hold__track {
+  height: 0.3125rem;
+  background: var(--bg-holdtrack);
+  border: var(--control-border) solid var(--border-holdtrack);
+}
+/* Blocked, not greyed: the label stays legible and the meta says *why*. It has no press handler at
+   all, so there is nothing for a stray touch on a wall panel at cat height to find. */
+.ml-command--blocked {
+  background: var(--bg-disabled);
+  border-color: var(--border-holdtrack);
+}
+.ml-command--blocked .ml-command__label {
+  color: var(--text-disabled);
+}
+.ml-command--blocked .ml-command__meta {
+  color: var(--text-faintest);
+}

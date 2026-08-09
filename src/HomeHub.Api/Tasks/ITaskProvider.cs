@@ -1,0 +1,42 @@
+namespace HomeHub.Api.Tasks;
+
+/// <summary>
+/// The task seam: per-profile task lists with add / complete / delete. UI/logic depend on this,
+/// not on Microsoft Graph. <see cref="SqlTaskProvider"/> is the local store (default, works
+/// offline); <see cref="MicrosoftTodoProvider"/> round-trips to Microsoft To Do when configured.
+/// A null profile id means "everyone" — the aggregate across linked/known profiles.
+/// </summary>
+public interface ITaskProvider
+{
+    string Source { get; }
+
+    Task<IReadOnlyList<TaskItem>> ListAsync(int? profileId, CancellationToken ct);
+    Task<TaskItem?> GetAsync(int id, CancellationToken ct);
+    Task<TaskItem> CreateAsync(TaskCreateInput input, CancellationToken ct);
+
+    /// <summary>Complete/uncomplete a task. When <paramref name="baseVersion"/> is given and doesn't
+    /// match, throws <see cref="Data.ConcurrencyConflictException"/> (409).</summary>
+    Task<TaskItem?> SetCompletedAsync(int id, bool completed, int? baseVersion, CancellationToken ct);
+
+    /// <summary>Set/clear a task's ★ importance flag (same optimistic-concurrency check).</summary>
+    Task<TaskItem?> SetImportantAsync(int id, bool important, int? baseVersion, CancellationToken ct);
+
+    /// <summary>Rename a task (inline edit on the TODO screen), same optimistic-concurrency check.</summary>
+    Task<TaskItem?> SetTitleAsync(int id, string title, int? baseVersion, CancellationToken ct);
+
+    /// <summary>Delete a task, with the same optional optimistic-concurrency check.</summary>
+    Task<bool> DeleteAsync(int id, int? baseVersion, CancellationToken ct);
+}
+
+/// <summary>
+/// Optional capability for providers whose tasks come from selectable lists (Microsoft To Do).
+/// The controller exposes the choose-lists endpoints only when the active provider implements this.
+/// </summary>
+public interface IListSyncProvider
+{
+    /// <summary>The profile's available lists with their current selected state.</summary>
+    Task<IReadOnlyList<SyncListDto>> GetListsAsync(int profileId, CancellationToken ct);
+
+    /// <summary>Replace the profile's synced-list selection (empty = sync all).</summary>
+    Task SetSelectedListsAsync(int profileId, IReadOnlyList<string> selectedGraphListIds, CancellationToken ct);
+}

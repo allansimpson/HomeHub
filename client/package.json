@@ -1,0 +1,32 @@
+{
+  "name": "client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "//types": "Design-system entry types for /design-sync (npm run build:ds-types). Not published — this package is private.",
+  "types": "dist-ds/designsync/ds-entry.d.ts",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:ds-types": "tsc -p tsconfig.ds.json",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,573 @@
+/*
+ * Climate (`/climate`) — its own file, following meals.css, pantry.css and care.css: a self-contained
+ * section keeps its rules findable rather than adding another 600 lines to the end of ledger.css.
+ *
+ * Two vocabularies live here and they must not blur into each other:
+ *
+ *   `.ml-cband*`    the deviation graphic at rest — target at centre, probe where it actually is
+ *   `.ml-cslider*`  the same 7px rail under a thumb, on an absolute 64–80° scale
+ *
+ * They are the same strip of screen and deliberately not the same component: at rest the band is a
+ * *reading* and its scale is relative to the target; mid-gesture it is a *choice* and its scale is
+ * the range you may choose from. Sharing one set of rules would have forced one scale on both.
+ *
+ * Every px below is on the 540×960 reference canvas, converted at 1rem = 16px. Hairlines stay in
+ * device px (`--hairline-px`) so they do not scale into fat lines at 4K. No new tokens.
+ */
+
+/* ---------- Tone helpers ----------
+ * The status line's colour carries as much as its words: verdigris means the loop has it, brass
+ * means it is working on it, amber means it cannot, terracotta means something is missing. One class
+ * per tone so `climateCopy.ts` can name a colour without knowing a hex.
+ */
+.ml-ctone--live { color: var(--live-text); }
+.ml-ctone--brass { color: var(--brass-bright); }
+.ml-ctone--bright { color: #E8C893; }         /* the armed readout only — brighter than brass-bright */
+.ml-ctone--alert { color: var(--alert); }
+.ml-ctone--danger { color: var(--danger); }
+.ml-ctone--muted { color: var(--text-muted); }
+.ml-ctone--disabled { color: var(--text-disabled); }
+.ml-ctone--brassmeta { color: var(--brass-meta); }
+.ml-ctone--primary { color: var(--text-primary); }
+
+/* ---------- Frame ---------- */
+.ml-climate__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem; /* 6px */
+  align-items: flex-start;
+}
+.ml-climate__title {
+  font-size: 1.9375rem; /* 31px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-climate__loopline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem; /* 10px */
+}
+.ml-climate__loopstate {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ml-climate__loopclause {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* The body owns the gutter and pins the footer; the rows never scroll away from it — six rows and
+   two controls fit the panel, and a Climate screen you have to scroll is one you cannot glance at. */
+.ml-climate {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Six rows and two controls fit the panel. A Climate screen you have to scroll to see the freezer
+     on is one you cannot glance at, which is most of what this screen is for. */
+  overflow: hidden;
+  padding: 0 var(--gutter);
+}
+.ml-climate__rows {
+  display: flex;
+  flex-direction: column;
+}
+.ml-climate__footer {
+  margin-top: auto;
+  display: flex;
+  gap: 0.625rem; /* 10px */
+  padding-bottom: 1rem; /* 16px */
+}
+.ml-climate__control {
+  flex: 1;
+  border: var(--hairline-px) solid var(--border-inactive);
+  background: none;
+  padding: 0.875rem 0; /* 14px */
+  min-height: 2.75rem; /* 44px */
+  text-align: center;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: var(--body-weight);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+/* Paused reads as the live state of a control you are being invited to undo, not as a warning. */
+.ml-climate__control--live {
+  border-color: var(--brass-dim);
+  background: var(--bg-brass-soft);
+  color: var(--brass-bright);
+}
+/* HoldButton brings its own block layout; this only re-states the footer's proportions. */
+.ml-climate__control--hold {
+  flex: 1;
+  min-height: 2.75rem;
+}
+.ml-climate__control--hold .ml-hold__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+}
+
+/* ---------- The automated row ---------- */
+.ml-czone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem; /* 10px */
+  padding: 1.125rem 0; /* 18px */
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+/*
+ * Pressed: the row lifts out of the list and takes 14px of the gutter with it, so the rail can run
+ * wider than the text does. Nothing else on the screen moves — the list must not reflow under a
+ * thumb that is already mid-gesture.
+ */
+.ml-czone--pressed {
+  gap: 0.75rem; /* 12px */
+  margin: 0 -0.875rem; /* -14px */
+  padding: 1.375rem 0.875rem; /* 22px 14px */
+  background: var(--bg-brass-soft);
+  border-top: var(--hairline-px) solid var(--brass-dim);
+  border-bottom: var(--hairline-px) solid var(--brass-dim);
+}
+.ml-czone__head,
+.ml-czone__foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.875rem; /* 14px */
+}
+.ml-czone__name {
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem; /* 17px */
+  font-weight: var(--body-weight);
+  color: var(--text-primary);
+  text-align: left;
+}
+.ml-czone__reading {
+  font-size: 1.9375rem; /* 31px */
+  line-height: 1;
+}
+.ml-czone__status,
+.ml-czone__hint,
+.ml-czone__hold {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.ml-czone__status { flex: 1; min-width: 0; }
+.ml-czone__hint,
+.ml-czone__hold { white-space: nowrap; }
+/* UNDO is a word inside a sentence, not a button beside it — but it still has to be reachable, so
+   the hit area is grown with padding rather than by moving it out of the line. */
+.ml-czone__undo {
+  border: none;
+  background: none;
+  padding: 0.5rem 0;
+  margin: -0.5rem 0;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--brass-bright);
+}
+
+/*
+ * 3a. The `HOLD` label is *replaced* by this, never joined by it: a row that carried both would be
+ * offering the same number twice, once as a statement and once as a control.
+ */
+.ml-czone__keep {
+  border: var(--hairline-px) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+  padding: 0.5625rem 1rem; /* 9px 16px */
+  min-height: 2.75rem; /* 44px */
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: var(--body-weight);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+  white-space: nowrap;
+}
+
+/*
+ * The hit area: 44px tall and the full width of the row, centred on a 7px rail.
+ * `touch-action: none` is what makes the gesture possible at all — without it the panel's scroll
+ * claims the pointer the moment it moves and the slide never gets a second event.
+ */
+.ml-czone__hit {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem; /* 44px */
+  touch-action: none;
+}
+
+/* ---------- The band at rest ---------- */
+.ml-cband {
+  position: relative;
+  width: 100%;
+  height: 0.4375rem; /* 7px */
+  background: var(--bg-gauge);
+  border: var(--hairline-px) solid var(--border-holdtrack);
+  box-sizing: border-box;
+}
+/* The target is always centre; the scale is relative, ±8° full width. */
+.ml-cband__notch {
+  position: absolute;
+  left: 50%;
+  top: -0.1875rem;    /* 3px proud, top and bottom */
+  bottom: -0.1875rem;
+  width: var(--hairline-px);
+  background: var(--brass);
+}
+/* During a loan the borrowed target is the centre, and it says so with weight. */
+.ml-cband__notch--borrowed {
+  width: 0.1875rem; /* 3px */
+  background: var(--brass-bright);
+  transform: translateX(-50%);
+}
+/* …and the standing target keeps a dim mark at its true offset, so you can see what you borrowed from. */
+.ml-cband__standing {
+  position: absolute;
+  top: -0.1875rem;
+  bottom: -0.1875rem;
+  width: var(--hairline-px);
+  background: var(--brass-dim);
+}
+/* The gap the loop is working against, drawn as fill rather than stated as a number. */
+.ml-cband__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.ml-cband__fill--correcting { background: var(--bg-active); }
+.ml-cband__fill--stuck { background: #2A1F11; }
+.ml-cband__dot {
+  position: absolute;
+  top: 50%;
+  width: 0.5625rem; /* 9px */
+  height: 0.5625rem;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.ml-cdot--live { background: var(--live-text); }
+.ml-cdot--brass { background: var(--brass-bright); }
+.ml-cdot--alert { background: var(--alert); }
+/* Past ±8° the dot stops at the edge and the edge itself takes over — the band has run out of scale,
+   and pretending otherwise would compress the readable part of it for the sake of one outlier. */
+.ml-cband__peg {
+  position: absolute;
+  top: -0.25rem;
+  bottom: -0.25rem;
+  width: 0.125rem; /* 2px */
+  background: var(--alert);
+}
+.ml-cband__peg--high { right: calc(var(--hairline-px) * -1); }
+.ml-cband__peg--low { left: calc(var(--hairline-px) * -1); }
+
+/* ---------- The band under a thumb ---------- */
+.ml-cslider {
+  position: relative;
+  width: 100%;
+  height: 3.5rem; /* 56px */
+}
+.ml-cslider__rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1.625rem; /* 26px */
+  height: 0.4375rem; /* 7px */
+  background: #141310;
+  border: var(--hairline-px) solid #3D3628;
+  box-sizing: border-box;
+}
+.ml-cslider__travelled {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #3D3020;
+}
+.ml-cslider__standing {
+  position: absolute;
+  top: 1.4375rem; /* 23px */
+  width: var(--hairline-px);
+  height: 0.8125rem; /* 13px */
+  background: var(--brass-dim);
+}
+.ml-cslider__standinglabel {
+  position: absolute;
+  top: 2.5rem; /* 40px */
+  transform: translateX(-50%);
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.14em;
+  color: var(--text-disabled);
+  white-space: nowrap;
+}
+.ml-cslider__thumb {
+  position: absolute;
+  top: 1.25rem; /* 20px */
+  width: 1.125rem;  /* 18px */
+  height: 1.25rem;  /* 20px */
+  background: var(--brass-bright);
+  transform: translateX(-50%);
+}
+/* Armed: the mark grows and brightens under the thumb that is already on it. The change has to be
+   felt as much as seen, which is what the single haptic tick is for. */
+.ml-cslider__thumb--armed {
+  top: 1rem; /* 16px */
+  width: 1.375rem;  /* 22px */
+  height: 1.5rem;   /* 24px */
+  background: #E8C893;
+}
+.ml-cslider__readout {
+  position: absolute;
+  top: -0.5rem; /* -8px */
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 0.5625rem; /* 9px */
+  border: var(--hairline-px) solid var(--brass);
+  background: var(--bg-active);
+  padding: 0.25rem 0.75rem; /* 4px 12px */
+  white-space: nowrap;
+}
+.ml-cslider__readout .serif {
+  font-size: 1.375rem; /* 22px */
+  color: var(--brass-bright);
+}
+.ml-cslider__readout--armed {
+  top: -0.75rem; /* -12px */
+  border-color: #E8C893;
+  background: #2C2415;
+  padding: 0.3125rem 0.8125rem; /* 5px 13px */
+}
+.ml-cslider__readout--armed .serif { color: #E8C893; }
+.ml-cslider__keep {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  color: var(--brass-bright);
+}
+.ml-cslider__end {
+  position: absolute;
+  top: 2.5rem; /* 40px */
+  font-size: 0.5625rem;
+  letter-spacing: 0.14em;
+  color: var(--text-faintest);
+}
+.ml-cslider__end--min { left: 0; }
+.ml-cslider__end--max { right: 0; }
+
+/* ---------- Watched and cold storage ---------- */
+.ml-cwatched {
+  display: flex;
+  align-items: center;
+  gap: 1rem; /* 16px */
+  width: 100%;
+  padding: 0.9375rem 0; /* 15px */
+  border: none;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  background: none;
+  text-align: left;
+}
+/*
+ * The one filled row in the section. A freezer going off is not a status change — it is the only
+ * thing on this screen that is about food rather than comfort, and it earns a background where
+ * nothing else does.
+ */
+.ml-cwatched--alarm {
+  background: var(--bg-danger-soft);
+  margin: 0 -0.75rem; /* 12px */
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+.ml-cwatched--alarm .ml-cwatched__reading,
+.ml-cwatched--alarm .ml-cwatched__name { color: var(--danger); }
+.ml-cwatched__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem; /* 5px */
+  min-width: 0;
+}
+.ml-cwatched__name {
+  font-size: 1rem; /* 16px */
+  color: var(--text-secondary);
+}
+.ml-cwatched__meta {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.ml-cwatched__reading {
+  font-size: 1.6875rem; /* 27px */
+  line-height: 1;
+  color: var(--text-secondary);
+}
+.ml-cwatched__trail {
+  width: 4rem; /* 64px */
+  text-align: right;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  color: var(--text-disabled);
+}
+
+/* ---------- The repeat-offer ---------- */
+.ml-coffer {
+  border: var(--hairline-px) solid var(--border-inactive);
+  background: var(--bg-tile);
+  padding: 1rem 1.125rem; /* 16px 18px */
+  margin-bottom: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6875rem; /* 11px */
+}
+.ml-coffer__text {
+  font-size: 0.9375rem; /* 15px */
+  font-weight: var(--body-weight);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.ml-coffer__actions { display: flex; gap: 0.625rem; }
+.ml-coffer__yes,
+.ml-coffer__no {
+  flex: 1;
+  min-height: 2.75rem;
+  padding: 0.75rem 0;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: var(--body-weight);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.ml-coffer__yes {
+  border: var(--hairline-px) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+  color: var(--brass-bright);
+}
+.ml-coffer__no {
+  border: var(--hairline-px) solid var(--border-inactive);
+  background: none;
+  color: var(--text-secondary);
+}
+
+/* ---------- The room drill-in ---------- */
+.ml-croom {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem; /* 24px */
+  padding: 1.25rem var(--gutter) 1.5rem;
+}
+.ml-croom__missing {
+  padding: 2rem var(--gutter);
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+.ml-croom__hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+.ml-croom__reading {
+  font-size: 4.0625rem; /* 65px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-croom__target {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.ml-croom__targetval {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 3.5rem;
+}
+.ml-croom__targetval .serif {
+  font-size: 2.3125rem; /* 37px */
+  line-height: 1;
+  color: var(--brass-bright);
+}
+.ml-croom__targetlabel {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  color: var(--text-disabled);
+}
+.ml-croom__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.ml-croom__fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-croom__factlabel {
+  font-size: 0.9375rem; /* 15px */
+  color: var(--text-muted);
+}
+.ml-croom__factvalue {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  text-align: right;
+}
+/* The sentence that makes the split legible. Body copy, not a caption — it is the one paragraph in
+   the section and it is doing the explaining the rest of the screen refuses to do in labels. */
+.ml-croom__sentence {
+  padding-top: 0.75rem;
+  font-size: 0.875rem; /* 14px */
+  font-weight: var(--body-weight);
+  line-height: 1.55;
+  color: var(--text-muted);
+  text-wrap: pretty;
+}
+.ml-croom__nudge { display: flex; gap: 0.625rem; }
+.ml-croom__nudgebtn {
+  flex: 1;
+  min-height: 3.25rem; /* 52px */
+  border: var(--hairline-px) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+  font-family: var(--font-serif);
+  font-size: 1.375rem; /* 22px */
+  color: var(--brass-bright);
+}
+.ml-croom__knob {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-croom__knoblabel {
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+}
+.ml-croom__chips { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+.ml-cchip {
+  min-height: 2.75rem; /* 44px */
+  padding: 0.5rem 0.75rem;
+  border: var(--hairline-px) solid var(--border-inactive);
+  background: none;
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: var(--body-weight);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-cchip--on {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}

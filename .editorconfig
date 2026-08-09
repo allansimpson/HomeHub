@@ -1,0 +1,120 @@
+﻿# HomeHub — editor and analyzer configuration.
+#
+# Two jobs, deliberately in one file:
+#   1. Record the formatting this codebase already uses, so an editor that has never opened it
+#      produces the same output as one that has.
+#   2. Decide, once and with a reason, which .NET analyzer rules this project treats as errors.
+#
+# The second job is the load-bearing one. `TreatWarningsAsErrors` is on for HomeHub.Api
+# (Directory.Build.props), so every rule left at `warning` severity below is a rule that will stop
+# the build. A rule turned off here is a decision, not an oversight — each one says why, because a
+# silent `dotnet_diagnostic.CAxxxx.severity = none` is indistinguishable from giving up.
+
+root = true
+
+# ---- Every file ----
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.{yml,yaml,json,jsonc}]
+indent_size = 2
+
+[*.{ts,tsx,js,jsx,css,html}]
+indent_size = 2
+
+[*.{sh,bash}]
+# The deploy scripts run on the Linux server. CRLF in a shell script is a `bad interpreter` error
+# on the shebang line, which is a confusing way to find out about a line ending.
+end_of_line = lf
+indent_size = 2
+
+[*.md]
+indent_size = 2
+# Two trailing spaces is a hard line break in Markdown, and stripping it silently reflows prose.
+trim_trailing_whitespace = false
+
+# ---- C# ----
+[*.cs]
+indent_size = 4
+
+# Style the codebase already uses, stated so it survives a fresh editor.
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_prefer_braces = true:silent
+csharp_using_directive_placement = inside_namespace:silent
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+csharp_style_expression_bodied_properties = true:silent
+csharp_new_line_before_open_brace = all
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# Naming: `_camelCase` private fields, `PascalCase` everything else public.
+dotnet_naming_rule.private_fields_underscore.symbols = private_fields
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel
+dotnet_naming_rule.private_fields_underscore.severity = suggestion
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.required_prefix = _
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+
+# ---- Analyzer rules deliberately turned off ----
+#
+# CA1848 / CA1873 — "use LoggerMessage delegates" and "guard expensive logging with IsEnabled".
+# Together these are 131 of the 220 warnings a Recommended-mode build produces here. They exist to
+# remove boxing and string interpolation from logging on services that log at very high rates. This
+# is a wall panel: the hottest logger in the app fires on a 15-second control loop. Paying for that
+# with 101 source-generated partial declarations would trade the thing this codebase is best at —
+# readable code that explains itself at the call site — for an allocation nobody can measure.
+# Revisit if a hot path ever logs per-request.
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.CA1873.severity = none
+
+# CA1859 — "change IReadOnlyList<T> to List<T> for improved performance". Every one of the 11 hits
+# is a signature that returns or accepts a read-only interface on purpose, to say the caller must
+# not mutate it. Taking this advice would devirtualise a few calls and delete a real invariant. The
+# rule is written for private helpers; it cannot tell intent from accident, and here it is intent.
+dotnet_diagnostic.CA1859.severity = none
+
+# CA1711 / CA1716 / CA1720 — identifier rules for *published libraries*: don't end a type in
+# `Stream`, don't name a parameter `step`/`on`/`option` because they are keywords in some other
+# .NET language, don't put a type name in an identifier. HomeHub.Api is an application with exactly
+# one consumer, written in C#. `HermesStream` is a stream; `SetSwitchAsync(..., bool on, ...)` reads
+# correctly at the call site. Renaming for a VB.NET consumer that will never exist makes the code
+# worse to read for the only person who does.
+dotnet_diagnostic.CA1711.severity = none
+dotnet_diagnostic.CA1716.severity = none
+dotnet_diagnostic.CA1720.severity = none
+
+# CA1725 — "rename `ct` to `stoppingToken` to match BackgroundService.ExecuteAsync". The whole
+# codebase names cancellation tokens `ct`, in hundreds of signatures. Matching one base-class
+# parameter name would make exactly one method inconsistent with every other method around it.
+# Local consistency wins.
+dotnet_diagnostic.CA1725.severity = none
+
+# ---- Tests ----
+[tests/**/*.cs]
+# CA1707 — "remove the underscores from method name". 601 hits, every one of them an xUnit fact
+# whose name is a sentence: `A_wildcard_in_the_term_is_matched_literally`. The underscores *are*
+# the readability — that name is what a failing run prints, and it is the closest thing this suite
+# has to a spec. The rule is about public API surface; a test method is not one.
+dotnet_diagnostic.CA1707.severity = none
+
+# CA1861 — "prefer static readonly fields over constant array arguments". Inline literal arrays in
+# a test are the fixture, written next to the assertion that reads them so both are visible at
+# once. Hoisting 18 of them to static fields at the top of the class would move the data away from
+# the thing it explains, to save an allocation in a test that runs in microseconds.
+dotnet_diagnostic.CA1861.severity = none
+
+# ---- EF-scaffolded migrations ----
+# `dotnet ef migrations add` writes these; nothing here is hand-edited, and the two rules it trips
+# (CA1707 underscores in `Stage1_ProfilesAndSettings`, CA1861 constant arrays in `CreateIndex`
+# calls) are properties of the generator's output, not of any decision made here. 58 of the 220
+# warnings live in this folder. `generated_code` is the supported way to say so — it disables
+# analysis wholesale rather than listing rules the generator might trip next.
+[**/Migrations/*.cs]
+generated_code = true
