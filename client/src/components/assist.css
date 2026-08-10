@@ -1021,24 +1021,45 @@
   width: 2.875rem;
   height: 2.875rem;
   flex-shrink: 0;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
   font-size: 1.5rem;
   line-height: 1;
   color: var(--text-muted);
-  transition: transform 160ms ease, color 160ms ease;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+/*
+ * The mark, which is what turns — not the box.
+ *
+ * The rotation used to sit on the control itself, which was free when the control *was* the glyph.
+ * Now that there is a border around it, rotating the button would swing the square into a diamond;
+ * the ＋ has to turn inside a box that stays put.
+ */
+.ml-composer__plusglyph {
+  display: block;
+  transition: transform 160ms ease;
 }
 
 /* Turns into the close it now is. The rotation is the affordance: nothing else on the row moves, so
-   the one that does is the one holding the menu open. */
+   the one that does is the one holding the menu open — and now the box it sits in comes up to brass
+   with it, so an open menu is legible from the control as well as from the menu hanging off it. */
 .ml-composer__plus--open {
-  transform: rotate(45deg);
   color: var(--brass-bright);
+  border-color: var(--brass);
+}
+
+.ml-composer__plus--open .ml-composer__plusglyph {
+  transform: rotate(45deg);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ml-composer__plus { transition: none; }
+  .ml-composer__plus,
+  .ml-composer__plusglyph { transition: none; }
 }
 
 /* The pickers themselves. Positioned off-screen rather than `display:none`, which Safari has

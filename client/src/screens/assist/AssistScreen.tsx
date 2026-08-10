@@ -6,7 +6,6 @@ import { Icon } from '../../icons/Icon'
 import { useAssist } from '../../app/AssistProvider'
 import { useSession } from '../../app/SessionProvider'
 import { useVoice } from '../../app/VoiceProvider'
-import { speechEnabled } from '../../app/speech'
 import { api, ApiError } from '../../api/client'
 import type { Conversation, SearchResults as Results, UpdateConversationRequest } from '../../api/types'
 import { AssistComposer } from './AssistComposer'
@@ -366,7 +365,10 @@ export function AssistScreen() {
         // (`app/speech.ts`) that turn would answer into silence: the chat is created and a row
         // appears in the list, but the reply itself is nowhere on screen. Open it so it can be read.
         // Nothing to do when the panel speaks again, which is why this asks rather than assumes.
-        onSent={speechEnabled() ? undefined : (id) => navigate(`/assist/c/${id}`)}
+        // No `onSent`. Spoken turns now hand off through `onCompose` like typed ones (see `readAloud`
+        // in the composer), so the chat opens the moment the mic closes rather than after the whole
+        // reply has landed. With the voice on, a spoken turn is answered aloud and deliberately leaves
+        // this screen where it is — and nothing reaches that path while the voice is off.
       />
 
       {confirming && selected.length > 0 && (

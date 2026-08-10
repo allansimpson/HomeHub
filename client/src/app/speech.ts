@@ -43,6 +43,41 @@ interface SpeechRecognitionLike {
 }
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike
 
+/** Lowercase, unpunctuated, single-spaced — for comparing two drafts of the same words. */
+const normalize = (text: string): string =>
+  text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim()
+
+/**
+ * Add a finished segment to the transcript so far.
+ *
+ * **Not an append**, because a segment is not always new words. Chrome hands each finished phrase over
+ * once and appending is right; Safari — the phones, not the kiosk — re-states the *whole* utterance
+ * every time it revises it, and marks each draft final. So one breath of "testing can you hear me now"
+ * arrives as eight final results: `testing`, `testing`, `testing`, `testing can`, `testing can you`,
+ * and so on. Glued together verbatim that is the
+ * `testingtestingtestingtesting cantesting can you…` transcript the household actually saw — the mic
+ * heard perfectly, the drafts were stacked.
+ *
+ * When one of the two restates the other, the longer one wins and the shorter is dropped. Otherwise
+ * they are separate phrases and get joined with the space that `+=` never inserted.
+ *
+ * The cost is a real one, and small: say "testing", pause past the recognizer's phrase break, then say
+ * "testing can you hear me now", and the first is folded away as a draft of the second. Two phrases
+ * where one opens the other are rare; a spoken sentence arriving eight times over was every phone in
+ * the house.
+ */
+export function foldTranscript(soFar: string, segment: string): string {
+  const next = segment.trim()
+  if (!next) return soFar
+  if (!soFar) return next
+
+  const a = normalize(soFar)
+  const b = normalize(next)
+  if (b.startsWith(a)) return next // a revision that grew — keep it
+  if (a.startsWith(b)) return soFar // a revision that shrank — keep what we had
+  return `${soFar} ${next}`
+}
+
 function getRecognitionCtor(): SpeechRecognitionCtor | undefined {
   const w = window as unknown as {
     SpeechRecognition?: SpeechRecognitionCtor
@@ -71,11 +106,14 @@ export function createRecognizer(handlers: RecognizerHandlers): Recognizer | nul
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const result = e.results[i]
       const transcript = result[0].transcript
-      if (result.isFinal) finalText += transcript
-      else interim += transcript
+      // Folded rather than concatenated — see `foldTranscript`. A final result is not reliably a new
+      // phrase; on Safari it is usually the same phrase said better.
+      if (result.isFinal) finalText = foldTranscript(finalText, transcript)
+      else interim = foldTranscript(interim, transcript)
     }
     handlers.onSpeech?.()
-    handlers.onPartial((finalText + interim).trim())
+    // The live band gets the same treatment, so what you watch being heard is what gets sent.
+    handlers.onPartial(foldTranscript(finalText, interim))
   }
   recognition.onend = () => handlers.onFinal(finalText.trim())
   recognition.onerror = (e) => handlers.onError?.(e.error ?? 'recognition-error')

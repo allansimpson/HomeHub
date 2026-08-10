@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { Icon } from '../../icons/Icon'
 import { useAssist } from '../../app/AssistProvider'
 import { useVoice } from '../../app/VoiceProvider'
+import { speechEnabled } from '../../app/speech'
 import { ApiError } from '../../api/client'
 import { AttachmentRefused, readAttachment, sizeLabel } from './attachments'
 import type { AttachmentDraft } from './attachments'
@@ -162,7 +163,17 @@ export function AssistComposer({
       // Typed turns only. A spoken one is answered *aloud*, which means the whole reply has to
       // exist before anything can happen with it — there is nothing to stream and nobody looking
       // at the screen. Handing it off would open a chat nobody asked to read and say nothing.
-      if (onCompose && !spoken) {
+      // The test is `readAloud`, not `spoken`. Being spoken was a proxy for being *answered aloud*,
+      // which is what actually forces the awaited path: a reply that will be read out has to exist as
+      // whole sentences first, there is nothing to stream, and nobody is looking at the screen anyway.
+      //
+      // With the voice off (`app/speech.ts`) every one of those clauses inverts, and holding the
+      // awaited path cost the worst transition in the app: the listening band closed, the inbox came
+      // back with its empty state, and seconds later the finished chat replaced it — so the panel
+      // appeared to discard what you had just said before changing its mind.
+      const readAloud = spoken && speechEnabled()
+
+      if (onCompose && !readAloud) {
         onCompose(trimmed, held)
         return
       }
@@ -173,7 +184,7 @@ export function AssistComposer({
       // Spoken turns take the awaited path deliberately: text-to-speech needs whole sentences, and
       // feeding it fragments would produce speech that stutters at every token boundary. The panel
       // has nothing to show mid-stream for a turn nobody is looking at.
-      if (onStream && !spoken) {
+      if (onStream && !readAloud) {
         // Sent and forgotten. A failed turn used to come back here — the text was stored nowhere, so
         // this was the only copy — but by then it could be seconds or minutes later, and refilling
         // the field would land on top of whatever the member had started typing since. The failed
@@ -371,7 +382,7 @@ export function AssistComposer({
           aria-label={menuOpen ? 'Close the attach menu' : 'Attach something'}
           aria-expanded={menuOpen}
         >
-          <span aria-hidden="true">＋</span>
+          <span className="ml-composer__plusglyph" aria-hidden="true">＋</span>
         </button>
         <textarea
           ref={inputRef}
