@@ -6,6 +6,8 @@ using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
 using HomeHub.Api.Meals;
+using HomeHub.Api.Notifications;
+using HomeHub.Api.Pantry;
 using HomeHub.Api.Tasks;
 using System.Net.Http.Json;
 using HomeHub.Api.Ai;
@@ -117,6 +119,18 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
             services.AddScoped<ICalendarProvider, SqlCalendarProvider>();
             services.AddScoped<ITaskProvider, SqlTaskProvider>();
             services.AddScoped<IClimateProvider, SimulatedClimateProvider>();
+            services.AddScoped<ClimateReader>();
+            services.AddScoped<ClimateBinder>();
+            services.AddScoped<ClimateLoop>();
+            services.AddScoped<ClimateCommands>();
+            services.AddScoped<NotificationService>();
+            services.AddScoped<MealNotifier>();
+            services.AddScoped<PantryLedger>();
+            services.AddScoped<StockCheckService>();
+            services.AddScoped<DeductionService>();
+            services.AddScoped<UnitRegistry>();
+            services.AddScoped<HomeHub.Api.Assist.AgentAccess>();
+            services.AddScoped<HomeHub.Api.Assist.LineageAudit>();
             // Same reasoning as the AI keys below: a developer with HomeAssistant configured in
             // user-secrets would otherwise have these tests resolve the real HA-backed provider and
             // hit their live instance. Force the not-connected provider so behaviour is

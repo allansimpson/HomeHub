@@ -605,7 +605,7 @@ namespace HomeHub.Api.Migrations
                             ProviderRef = "sim-kitchen",
                             SetPointF = 72.0,
                             Source = "simulated",
-                            UpdatedUtc = new DateTime(1, 1, 1, 6, 0, 0, 0, DateTimeKind.Utc)
+                            UpdatedUtc = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                         },
                         new
                         {
@@ -618,7 +618,7 @@ namespace HomeHub.Api.Migrations
                             ProviderRef = "sim-bedroom",
                             SetPointF = 70.0,
                             Source = "simulated",
-                            UpdatedUtc = new DateTime(1, 1, 1, 6, 0, 0, 0, DateTimeKind.Utc)
+                            UpdatedUtc = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                         },
                         new
                         {
@@ -631,7 +631,7 @@ namespace HomeHub.Api.Migrations
                             ProviderRef = "sim-office",
                             SetPointF = 68.0,
                             Source = "simulated",
-                            UpdatedUtc = new DateTime(1, 1, 1, 6, 0, 0, 0, DateTimeKind.Utc)
+                            UpdatedUtc = new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                         });
                 });
 

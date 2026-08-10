@@ -352,24 +352,31 @@ builder.Services.AddHttpClient<RecipeFetcher>()
     .ConfigurePrimaryHttpMessageHandler(sp =>
         RecipeFetcher.CreateGuardedHandler(sp.GetRequiredService<IOptions<MealsOptions>>().Value));
 builder.Services.AddScoped<RecipeImportService>();
-// The Meals notifications (MEALS_BEHAVIOURS §4). The notifier is scoped because it writes through
-// the request's DbContext; the lead-time watcher is the one thing here that has to run while nobody
-// is looking at the panel, so it is hosted.
-builder.Services.AddScoped<MealNotifier>();
-builder.Services.AddHostedService<MealLeadTimeService>();
+// The Meals notifications (MEALS_BEHAVIOURS §4). Both require the database: the notifier writes
+// through the request's DbContext, and the lead-time watcher has no durable plan to inspect without
+// one. Keep them out of the no-database shell so its health endpoint can still start cleanly.
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddScoped<MealNotifier>();
+    builder.Services.AddHostedService<MealLeadTimeService>();
+}
 
 // --- Stage M5: pantry ---
 // The ledger is the only thing that mutates a pantry item, so everything that writes takes it
 // rather than touching the entity — see PantryLedger for why the two can never be allowed to drift.
-builder.Services.AddScoped<PantryLedger>();
-builder.Services.AddScoped<StockCheckService>();
-builder.Services.AddScoped<DeductionService>();
-// Canonical units. Scoped because it caches the (tiny) unit table for the life of one request and
-// adds new ones through that request's DbContext — see UnitRegistry for why a per-value round trip
-// would be fifteen queries to save one recipe. Every field that takes a typed unit goes through it,
-// which is the only reason canonical units are worth having: the pantry and the recipe folder have
-// to spell things the same way or the stock check cannot join them.
-builder.Services.AddScoped<UnitRegistry>();
+// All four services require a DbContext, so the no-database shell must not validate them.
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddScoped<PantryLedger>();
+    builder.Services.AddScoped<StockCheckService>();
+    builder.Services.AddScoped<DeductionService>();
+    // Canonical units. Scoped because it caches the (tiny) unit table for the life of one request and
+    // adds new ones through that request's DbContext — see UnitRegistry for why a per-value round trip
+    // would be fifteen queries to save one recipe. Every field that takes a typed unit goes through it,
+    // which is the only reason canonical units are worth having: the pantry and the recipe folder have
+    // to spell things the same way or the stock check cannot join them.
+    builder.Services.AddScoped<UnitRegistry>();
+}
 
 // Barcode → product name. Open Food Facts when switched on, otherwise nothing at all — and
 // "nothing at all" is the handoff's own design (DECISIONS PG4), where every new barcode is an
@@ -516,7 +523,8 @@ builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions
 // The roster is configuration, so it is a singleton: nothing about which agents exist varies by
 // request. Which *member* gets which agent is household data and is read per request.
 builder.Services.AddSingleton<AgentRoster>();
-builder.Services.AddScoped<HomeHub.Api.Assist.AgentAccess>();
+if (!string.IsNullOrWhiteSpace(connectionString))
+    builder.Services.AddScoped<HomeHub.Api.Assist.AgentAccess>();
 // Singleton: the point of the gate is that two *requests* contend for it.
 builder.Services.AddSingleton<HomeHub.Api.Assist.ConversationLocks>();
 // Singleton for the same reason, and one step further: a turn now outlives the request that started
@@ -526,7 +534,8 @@ builder.Services.AddSingleton<HomeHub.Api.Assist.TurnRegistry>();
 
 // The §3.1 lineage repair report. Read-only, on demand, never scheduled: it enumerates every session
 // on every agent, which is not something to do on a timer behind a wall panel.
-builder.Services.AddScoped<HomeHub.Api.Assist.LineageAudit>();
+if (!string.IsNullOrWhiteSpace(connectionString))
+    builder.Services.AddScoped<HomeHub.Api.Assist.LineageAudit>();
 
 // In-app action layer (add a task, …). Resolves the task provider/DB from the request scope, so it
 // degrades gracefully when no database is configured. Runs *before* any agent and works with every
