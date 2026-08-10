@@ -1027,8 +1027,6 @@
   justify-content: center;
   border: var(--control-border) solid var(--border-inactive);
   background: none;
-  font-size: 1.5rem;
-  line-height: 1;
   color: var(--text-muted);
   transition: color 160ms ease, border-color 160ms ease;
 }
@@ -1037,8 +1035,18 @@
  * The mark, which is what turns — not the box.
  *
  * The rotation used to sit on the control itself, which was free when the control *was* the glyph.
- * Now that there is a border around it, rotating the button would swing the square into a diamond;
- * the ＋ has to turn inside a box that stays put.
+ * With a border around it, rotating the button would swing the square into a diamond; the mark has to
+ * turn inside a box that stays put.
+ *
+ * **`ico-add`, not the `＋` character.** Text is placed on a baseline, so centring a glyph in a flex
+ * box centres its *line box* and leaves the mark itself sitting low — and Josefin Sans's tall
+ * ascenders make that gap plainly visible inside a border that shows exactly where the true centre is.
+ * The sprite's plus is `M12 5v14M5 12h14` on a 24×24 viewBox: symmetric about (12,12), so it centres
+ * geometrically on both axes and rotates into a clean ✕ about its own middle. Sized to the mic's
+ * 1.25rem, which is the parity the box was drawn for in the first place.
+ *
+ * `display: block` matters — an inline SVG sits on the baseline too, which would bring back the very
+ * offset this is here to remove.
  */
 .ml-composer__plusglyph {
   display: block;

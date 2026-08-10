@@ -371,9 +371,15 @@ export function AssistComposer({
 
       <div className={'ml-composer__row' + (emphasised ? ' ml-composer__row--emphasised' : '')}>
         {/*
-          The plus is a glyph, not a box: two brass-edged squares either side of the input would
-          fight, and the right-hand one should win. It carries the same 46px tap area all the same,
-          and stays live while a reply runs — attaching the next thing is not an interruption.
+          A box, like the two beside it — see `.ml-composer__plus`. It was a bare glyph of exactly the
+          mic's width, which was symmetrical and still made the field look like it started late; the
+          hierarchy is carried by the border it takes (the field's, not the mic's brass) rather than by
+          being the one control without one. It stays live while a reply runs — attaching the next
+          thing is not an interruption.
+
+          The mark is its own element so it can turn without the box turning with it, and it is the
+          sprite's `ico-add` rather than a `＋` character: text centres on its baseline, which left the
+          mark visibly low inside a border that shows exactly where the true centre is.
         */}
         <button
           type="button"
@@ -382,7 +388,7 @@ export function AssistComposer({
           aria-label={menuOpen ? 'Close the attach menu' : 'Attach something'}
           aria-expanded={menuOpen}
         >
-          <span className="ml-composer__plusglyph" aria-hidden="true">＋</span>
+          <Icon id="ico-add" size="1.25rem" className="ml-composer__plusglyph" />
         </button>
         <textarea
           ref={inputRef}
