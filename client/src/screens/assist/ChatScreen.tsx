@@ -556,11 +556,13 @@ function PendingTurnView({ turn, memberName, agentName, showThinking, onStop, on
         </div>
       )}
 
-      {/* Gone the moment it is pressed. The turn takes a beat to wind down — the reply is asked to
-          stop rather than cut off, so what has been written survives — and a Stop still sitting there
-          through that beat reads as one that did not register. A queued turn stops instantly, because
-          nothing has been sent. */}
-      {!turn.done && !turn.stopping && !turn.recovering && (
+      {/* Only for a turn that has not been sent yet.
+          The reply being written is stopped from the composer, where the square turns into a Stop for
+          exactly as long as one is arriving (`AssistComposer`) — so a second Stop under the transcript
+          was two controls for one act, one of them scrolling away mid-answer. A queued turn is the
+          case the square cannot reach: it acts on the reply in flight, and this message is behind it.
+          It stops instantly, because nothing has been sent. */}
+      {turn.queued && !turn.stopping && (
         <button type="button" className="ml-turn__stop" onClick={onStop}>Stop</button>
       )}
 

@@ -1322,28 +1322,26 @@
 }
 
 /*
- * COPY, at the far end of a turn's label row.
+ * COPY, in the label row beside the name.
  *
  * Set in the label's own type at the label's own weight, so it belongs to the meta line rather than
  * arriving as a button on top of it — a filled control beside every turn would turn a transcript
  * into a list of things to press. It is disabled-grey at rest and brass while it is saying COPIED,
  * which is the only moment it has anything to say.
  *
- * The auto margin puts it at the end of the row on its own, and stands down when a timestamp is
- * already doing that job — otherwise both would claim the slack and the two would be pushed apart to
- * opposite ends of the label.
+ * It sits in the flow rather than being pushed to the far end of the row. It used to take the slack
+ * with an auto margin, stood down from by the timestamp — which meant it landed beside the time on
+ * a stored turn and alone at the end of the row on a turn still in flight, where there is no
+ * timestamp yet. On the member's side, which is mirrored, that put COPY on the opposite side of the
+ * row from the name it belongs to, reading as a label on nothing.
  */
 .ml-turn__copy {
-  margin-left: auto;
   padding: 0;
   font-size: 0.6875rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--text-disabled);
   transition: color 160ms ease;
-}
-.ml-turn__time + .ml-turn__copy {
-  margin-left: 0;
 }
 .ml-turn__copy--done {
   color: var(--brass);
@@ -1520,12 +1518,32 @@
   color: var(--brass-meta);
 }
 
+/*
+ * The caret walks with the word, because that is the whole illusion.
+ *
+ * This used to hold a `min-width` past the longest word in the list, to stop the caret sliding back
+ * and forth as the line was rewritten. It bought stillness at the cost of the thing being depicted:
+ * the caret sat at a fixed stop several centimetres past the text, blinking on its own, and the
+ * letters appeared *behind* it rather than under it — two unrelated animations sharing a line. A
+ * caret is where the next character is going to land, so it has to sit against the last one that
+ * did. Left in the flow, it types the word out and backspaces over it, which is what a terminal
+ * does and what the whole flourish is imitating.
+ */
 .ml-turn__waitingword {
-  /* The line is rewritten letter by letter, so it changes width on every tick. Without a floor
-     the caret walks left and right across the turn and drags the eye with it; with one it stays
-     put and only the word moves. Sized past the longest word in the list — "Discombobulating",
-     at sixteen characters — so raise it if a longer one is ever added. */
-  min-width: 9.5rem;
+  white-space: pre;
+}
+
+/*
+ * Steady while the word is being typed or erased; blinking only while it rests.
+ *
+ * A caret blinks to prove a still line is live. A line that is gaining and losing a character every
+ * 55ms has already proved it, and a blink on top of that is a caret dropping out mid-word for no
+ * reason anybody can see — the flicker reads as the panel stuttering rather than as a cursor. The
+ * blink comes back for the beat the finished word is held, which is the only part of the cycle that
+ * is standing still.
+ */
+.ml-turn__caret--steady {
+  animation: none;
 }
 
 /*

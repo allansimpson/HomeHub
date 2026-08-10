@@ -40,7 +40,15 @@ export function WaitingWord() {
       <span className="ml-turn__waitingword" aria-hidden="true">
         {still ? word : visible(state)}
       </span>
-      <span className="ml-turn__caret" aria-hidden="true" />
+      {/* Against the last character typed, and steady while characters are still landing — the
+          caret is meant to be the thing writing the word, not a second animation beside it. It
+          blinks again on the hold, when there is nothing else on the line moving. */}
+      <span
+        className={
+          'ml-turn__caret' + (!still && state.phase !== 'holding' ? ' ml-turn__caret--steady' : '')
+        }
+        aria-hidden="true"
+      />
     </span>
   )
 }
