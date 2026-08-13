@@ -103,6 +103,15 @@ public sealed class StubHermes : IDisposable
     /// <summary>Every session id this gateway was asked to delete.</summary>
     public ConcurrentBag<string> DeletedSessionIds { get; } = [];
 
+    /// <summary>
+    /// Every title this gateway accepted — a set, because it will not accept a name twice.
+    /// </summary>
+    /// <remarks>
+    /// The uniqueness is the point of holding them: a test that two chats opened is not the same
+    /// statement as a test that they opened under names the gateway would take.
+    /// </remarks>
+    public HashSet<string> CreatedTitles { get; } = [];
+
     private async Task ServeAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -146,6 +155,22 @@ public sealed class StubHermes : IDisposable
 
         if (path == "/api/sessions" && method == "POST")
         {
+            using var body = new StreamReader(ctx.Request.InputStream, Encoding.UTF8);
+            var asked = JsonDocument.Parse(await body.ReadToEndAsync()).RootElement;
+            var title = asked.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+
+            // Hermes will not hold two sessions of one name, and says so with a 400 rather than the
+            // 409 it uses for a duplicate id. Modelled here because it not being modelled is what let
+            // the real thing through: a household that asks "tell me a joke" twice got no session the
+            // second time, and with no session there is no chat — while every conversation that
+            // already existed carried on answering, so the panel looked broken only for new ones.
+            if (!CreatedTitles.Add(title))
+            {
+                await WriteJson(ctx, HttpStatusCode.BadRequest,
+                    $$$"""{"error":{"message":"Title already in use by session {{{SessionId}}}","type":"invalid_request_error","code":"invalid_title"}}""");
+                return;
+            }
+
             await WriteJson(ctx, HttpStatusCode.Created,
                 $$$"""{"object":"hermes.session","session":{"id":"{{{SessionId}}}","source":"homehub"}}""");
             return;

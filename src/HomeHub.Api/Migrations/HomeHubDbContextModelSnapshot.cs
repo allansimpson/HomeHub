@@ -381,8 +381,14 @@ namespace HomeHub.Api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<DateTime?>("CreatedUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime>("EndUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<bool>("FromPhoto")
+                        .HasColumnType("bit");
 
                     b.Property<string>("GoogleBirthdayType")
                         .HasColumnType("nvarchar(max)");
@@ -397,6 +403,9 @@ namespace HomeHub.Api.Migrations
                     b.Property<string>("GoogleId")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsAllDay")
+                        .HasColumnType("bit");
 
                     b.Property<string>("Location")
                         .HasMaxLength(300)
@@ -414,6 +423,13 @@ namespace HomeHub.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("PhotoFile")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("PhotoTakenUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<int?>("ProfileId")
                         .HasColumnType("int");
@@ -2992,6 +3008,9 @@ namespace HomeHub.Api.Migrations
                     b.Property<int>("IdleTimeoutMinutes")
                         .HasColumnType("int");
 
+                    b.Property<bool>("KeepEventPhotos")
+                        .HasColumnType("bit");
+
                     b.Property<int>("LitterFullPercent")
                         .HasColumnType("int");
 
@@ -3023,6 +3042,7 @@ namespace HomeHub.Api.Migrations
                             DaylightBoost = "auto",
                             IdleDimmingEnabled = true,
                             IdleTimeoutMinutes = 5,
+                            KeepEventPhotos = true,
                             LitterFullPercent = 80,
                             NightDimEnd = new TimeOnly(6, 0, 0),
                             NightDimStart = new TimeOnly(22, 0, 0),

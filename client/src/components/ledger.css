@@ -364,9 +364,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   align-items: center;
   justify-content: center;
   border: var(--control-border) solid var(--brass-dim); /* 1px #5C5342 */
-  color: var(--brass-bright); /* ◂ glyph #C8A877 */
-  font-size: 1.0625rem; /* 17px */
-  line-height: 1;
+  color: var(--brass-bright); /* the arrow, #C8A877 — inherited through currentColor */
   flex: 0 0 auto;
 }
 .ml-backbtn:active {
@@ -533,6 +531,21 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   padding: 1rem 0 1.375rem; /* 16px 0 22px — see above for why the sides are 0 */
   background: var(--bg-nav);
   border-top: var(--rule-brass-px) solid var(--brass);
+  /*
+   * Above the composer's dimming, and only that.
+   *
+   * The attach menu and the listening band each lay a fixed, full-viewport scrim over the screen
+   * they open on top of (`.ml-composer__scrim`, `.ml-listening__scrim`, both z-index 1). The nav was
+   * a static flex item, so a positioned layer above it in the stack painted straight over it and the
+   * bar went dark with everything else — which is wrong twice: the nav is not what is being operated
+   * on, and dimming it says it stopped working, which it did not.
+   *
+   * 3, not 40+. Everything that genuinely *should* cover the bar — the agent menu (40), sheets (45),
+   * modals (50), the cards and the keyboard (55, 60), the drawer (70) — still does, because those
+   * are full takeovers rather than a dimmed backdrop with one live thing on it.
+   */
+  position: relative;
+  z-index: 3;
 }
 .ml-nav__item {
   /* Sized to its own content rather than to a share of the bar. */
@@ -553,7 +566,12 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 
      77px (NAV.md), up from 52px at ten tabs: eight cells on the 32.75rem track have 4.09rem each
      to spend, and the cap is a ceiling rather than a target — only CALENDAR reaches it. `WEATHER`
-     is the widest label that does not and the one to check on the panel. */
+     is the widest label that does not and the one to check on the panel.
+
+     Equal-width columns (`flex: 1 1 0`) were tried here and are worse on the real panel, not better:
+     the icon pitch does become exactly uniform, but every label has to be squeezed to fit the
+     narrowest share and the bar reads as cramped. Content-sizing plus this cap is the arrangement
+     that survives contact. */
   max-width: 4.8125rem;
   position: relative;
   display: flex;
@@ -860,8 +878,17 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   transition: color 400ms ease;
 }
 
-/* ---------- Mic-live banner (verdigris; global) ---------- */
+/* ---------- Mic-live banner (verdigris; global) ----------
+ *
+ * Above the scrims, and the one thing on the screen that is. The listening band dims everything
+ * behind it to put the eye on the mic; dimming the notice that says the mic is *on* would be the one
+ * casualty that matters, because that banner is not decoration — it is the promise this panel makes
+ * about when it is hearing the room, and a promise is not allowed to grey out at the exact moment it
+ * is true. `position` because a z-index on a static box does nothing.
+ */
 .ml-miclive {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center; /* dot + text sit centred on the banner */
@@ -1659,6 +1686,18 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap; /* the calendar list is as long as the account makes it */
+}
+/* KIND: a content-width pair on the right of a label-left row, not a stretched pair like WHO —
+   TIMED and ALL DAY are two answers to one question, and equal thirds of the screen would read as
+   a filter bar. */
+.ml-evt__kind {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.5rem;
+}
+.ml-evt__kind .ml-chip {
+  padding: 0.6875rem 1.25rem; /* 11px 20px */
+  letter-spacing: 0.16em;
 }
 .ml-evt__chips .ml-chip {
   flex: 1 1 0;
@@ -2656,37 +2695,83 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   border-color: var(--danger);
   background: var(--bg-danger-soft);
 }
+/*
+ * Shaped like the Assist composer (`.ml-composer*`, assist.css), because it is the same control: a
+ * line you type into at the bottom of a screen, with what it will do sitting beside it.
+ *
+ * It used to be one bordered box with everything loose inside it — which read as a form field on a
+ * screen that has no other forms, and next to Assist as a different idea about the same job. The bar
+ * carries no box of its own now: a rule along the top and the screen's gutter, so what the eye lands
+ * on is the row rather than the frame around it.
+ *
+ * Bottom-aligned for the composer's reason, held here against the day this field wraps: the boxes
+ * either side of it do not grow, and centred they would drift away from the line being typed.
+ */
 .ml-todo__addbar {
   flex: 0 0 auto;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.75rem;
-  margin: 0.5rem var(--gutter) 0.875rem;
-  padding: 0.75rem 0.875rem;
-  border: var(--control-border) solid var(--border-inactive);
+  border-top: var(--control-border) solid var(--rule-minor);
+  padding: 0.875rem var(--gutter) 1.125rem;
 }
+
+/* The composer's plus, to the pixel — same 46px box, same border, same muted mark. */
 .ml-todo__addplus {
   flex: 0 0 auto;
-  width: 1.5rem;
-  height: 1.5rem;
-  border: var(--hairline-px) solid var(--rule-major);
+  width: 2.875rem;
+  height: 2.875rem;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: var(--control-border) solid var(--border-inactive);
   color: var(--text-muted);
 }
+
+/* The composer's field. Brass on focus is the part that earns its place: it is how both screens say
+   which box the keyboard is pointed at, and this one said nothing at all. */
 .ml-todo__addfield {
-  flex: 1 1 auto;
+  flex: 1;
   min-width: 0;
-  background: transparent;
-  border: none;
-  font-size: 1rem;
+  min-height: 2.875rem;
+  box-sizing: border-box;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  outline: none;
+  padding: 0.625rem 0.9375rem;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.5rem;
+  font-weight: 300;
   color: var(--text-primary);
   caret-color: var(--brass-bright);
 }
 .ml-todo__addfield::placeholder { color: var(--text-disabled); }
+.ml-todo__addfield:focus { border-color: var(--brass); }
+
+/*
+ * The target chip, in both its forms — the list this task is going to.
+ *
+ * <b>It keeps its box even when it is only a label.</b> The first cut of this dropped the box on the
+ * label form, reasoning that a boxed thing reads as pressable. That was the wrong trade: on a list
+ * tab the target is fixed and the label is all there is, so with the bar's own frame gone as well it
+ * became small muted text floating at the end of a row — indistinguishable from nothing. A control
+ * that is merely quiet is better than one nobody can find.
+ *
+ * The two forms are told apart by weight, not by presence: this one is an unfilled box on the
+ * inactive border, the `--btn` below is brass-edged and filled. Same size, same place, so the row
+ * does not reflow as you move between tabs.
+ */
 .ml-todo__addtarget {
   flex: 0 0 auto;
+  align-self: flex-end;
+  min-height: 2.875rem;
+  box-sizing: border-box;
+  padding: 0 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  border: var(--control-border) solid var(--border-inactive);
   font-size: 0.6875rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -2697,20 +2782,34 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   position: relative;
   flex: 0 0 auto;
 }
+/* When it *is* a control it takes the composer's right-hand square: brass edge, filled, the thing you
+   press. Sized to its words rather than to 46px square — it names a list, and the composer's square
+   holds a glyph. */
 .ml-todo__addtarget--btn {
-  cursor: pointer;
-  background: none;
-  border: none;
-  color: var(--brass);
+  min-height: 2.875rem;
+  box-sizing: border-box;
+  padding: 0 0.875rem;
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  cursor: pointer;
 }
 .ml-todo__targetmenu {
   position: absolute;
   right: 0;
   bottom: calc(100% + 0.5rem);
+  /* It hangs over the list it is opened in front of. Nothing in this screen is positioned to fight
+     it today, but a popup that relies on nobody else ever taking a layer is one bug away from
+     opening behind the rows it covers. */
+  z-index: 3;
   min-width: 9rem;
+  /* Names are shown whole here — the chip that opened this is the thing that truncates. Bounded so a
+     long one wraps inside the menu rather than growing it off the left edge, which is the direction
+     it grows: it is anchored right, to the control it belongs to. */
+  max-width: min(18rem, calc(100vw - 2 * var(--gutter)));
   display: flex;
   flex-direction: column;
   background: var(--bg-nav);
@@ -2724,6 +2823,9 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   border-bottom: var(--hairline-px) solid var(--rule-minor);
   color: var(--text-secondary);
   font-size: 0.875rem;
+  /* A list can be named without spaces in it. Breaking mid-word is worse than nothing everywhere
+     else on the panel; here it is what keeps the name readable instead of clipped. */
+  overflow-wrap: anywhere;
 }
 .ml-todo__targetopt:last-child {
   border-bottom: none;
@@ -2898,6 +3000,27 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 /* Day Detail header stepper */
 /* The standard header reserves 88px on the right for the account avatar; this header has no
    right-aligned content, so restore a symmetric gutter and the stepper centres on screen. */
+/*
+ * The header's date and time, stacked (§ Weather header).
+ *
+ * A column inside the shared status slot rather than a change to the slot itself: every other screen
+ * puts one short phrase there ("3 OF 5 RUNNING") and stacking them all would be a header-height
+ * change across the app for the sake of one screen. `flex-end` rather than `text-align: right` so
+ * each row is only as wide as its own words — the letterspacing leaves a trailing gap after the last
+ * glyph, and against a shared right edge that gap is what makes two right-aligned lines look
+ * fractionally misaligned.
+ */
+.ml-weather__headerwhen {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.125rem;
+  line-height: 1.3;
+  /* Its own trailing letterspace pulled back, so the rows end on the gutter and not a fifth of an
+     em inside it — the same correction the mic banner makes for the same reason. */
+  margin-right: -0.22em;
+}
+
 .ml-weather__dayhead {
   padding-right: var(--gutter);
 }
@@ -3310,6 +3433,27 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   font-size: 0.875rem; /* 14px */
   font-weight: 300;
   color: var(--text-muted);
+}
+/*
+ * The build stamp, and the last line on the screen.
+ *
+ * <b>The bottom padding is the point.</b> Every section above this ends against another section, so
+ * the list has never needed to say where it stops — but the final row ended flush with the scroll
+ * container, which put it under the nav bar's edge at exactly the scroll position where scrolling
+ * has already stopped. Reachable in principle, unreadable in practice, which for the one line whose
+ * entire job is being read off a panel is the same as not shipping it.
+ *
+ * Dimmer than the intro it otherwise matches. Nothing here is for the household — it is for whoever
+ * is standing in front of a panel wondering whether it has today's deploy — so it should be legible
+ * to somebody looking for it and invisible to everybody else. Tabular figures because it gets
+ * compared, character by character, against a sha in a terminal.
+ */
+.ml-settings__build {
+  padding: 0.875rem var(--gutter) 2.75rem; /* 14px 34px 44px */
+  font-size: 0.8125rem; /* 13px */
+  font-weight: 300;
+  color: var(--text-disabled);
+  font-variant-numeric: tabular-nums;
 }
 /*
  * A coordinate field, in the right-hand slot of a settings row.
@@ -5121,4 +5265,687 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+/* ---------- Confirm sheet — an engagement read off a photograph (screens 05–09) ----------
+ *
+ * A bottom sheet over the dimmed chat, and the only path from a reading to a write. It wraps its
+ * content rather than taking a fixed height: a four-date term letter and a single flyer are very
+ * different amounts of sheet, and a tail of empty graphite under the last field reads as broken.
+ */
+.ml-sheetwrap {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+/* The chat behind stays legible at 45% — this is a confirmation of something said up there, and
+   blacking it out would take away the sentence the sheet is answering. */
+.ml-sheet__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(21, 23, 26, 0.55);
+}
+.ml-sheet {
+  position: relative;
+  background: var(--bg-screen);
+  border-top: var(--rule-brass-px) solid var(--brass);
+  max-height: 88vh;
+  overflow-y: auto;
+  animation: ml-sheet-rise 220ms ease-out;
+}
+@keyframes ml-sheet-rise {
+  from { transform: translateY(6%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-sheet { animation: none; }
+}
+.ml-sheet__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem var(--gutter) 0.875rem;
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+}
+.ml-sheet__title {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+.ml-sheet__source {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.ml-sheet__photo {
+  display: block;
+  width: calc(100% - var(--gutter) * 2);
+  height: 13.125rem; /* 210px */
+  margin: 1rem var(--gutter) 0;
+  object-fit: cover;
+  border: var(--hairline-px) solid var(--rule-major);
+  background: var(--bg-nav);
+}
+
+/* ---- Field rows ---- */
+.ml-sheet__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.5rem; /* keeps every row a touch target even when its value is one line */
+  padding: 0.75rem var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-sheet__row--stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.ml-sheet__label {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-sheet__value {
+  font-size: 1.375rem; /* 22px */
+  color: var(--text-primary);
+}
+.ml-sheet__value--title {
+  font-size: 1.5rem; /* 24px */
+}
+.ml-sheet__ampm {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+.ml-sheet__where {
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+  text-align: right;
+}
+.ml-sheet__where--none {
+  color: var(--text-disabled);
+}
+.ml-sheet__stated {
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+.ml-sheet__caption {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-sheet__chips,
+.ml-sheet__kind {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.ml-sheet__ctrl {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.ml-sheet__step {
+  width: 2.5rem; /* 40px */
+  height: 2.5rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: none;
+  color: var(--brass-bright);
+  font-size: 1.125rem;
+}
+.ml-sheet__step:active {
+  background: var(--bg-active);
+}
+
+/*
+ * The amber underline: the only thing on this sheet separating a value that was read from one that
+ * was guessed.
+ */
+.ml-sheet__amber {
+  color: var(--alert);
+  border-bottom: 2px solid var(--alert);
+  padding-bottom: 2px;
+}
+
+/* ---- Several found: one ticked row per engagement (screen 07) ---- */
+.ml-sheet__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ml-sheet__tick {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  width: 100%;
+  padding: 1rem var(--gutter);
+  border: 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  background: none;
+  text-align: left;
+}
+.ml-sheet__box {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.375rem; /* 22px */
+  height: 1.375rem;
+  border: var(--control-border) solid var(--border-inactive);
+  font-size: 0.875rem;
+  color: var(--brass-bright);
+}
+.ml-sheet__tick--on .ml-sheet__box {
+  border-color: var(--brass);
+  background: var(--bg-active);
+}
+.ml-sheet__tickbody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.ml-sheet__ticktitle {
+  font-size: 1.125rem; /* 18px */
+  color: var(--text-primary);
+}
+.ml-sheet__tickmeta {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Unticked recedes in ink, never in opacity — the row is still readable, just not chosen. */
+.ml-sheet__tick:not(.ml-sheet__tick--on) .ml-sheet__ticktitle { color: var(--text-muted); }
+.ml-sheet__tick:not(.ml-sheet__tick--on) .ml-sheet__tickmeta { color: var(--text-disabled); }
+
+/* ---- Clash (screen 09) ---- */
+.ml-sheet__clash {
+  margin: 1rem var(--gutter) 0;
+  padding: 1rem 1.125rem;
+  border: var(--control-border) solid var(--border-fault);
+  background: var(--bg-danger-soft);
+}
+.ml-sheet__clashlabel {
+  display: block;
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--text-fault-meta);
+  margin-bottom: 0.5rem;
+}
+.ml-sheet__clashrow + .ml-sheet__clashrow {
+  margin-top: 0.5rem;
+}
+.ml-sheet__clashtitle {
+  display: block;
+  font-size: 1.0625rem; /* 17px */
+  color: var(--danger);
+}
+.ml-sheet__clashmeta {
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-fault-meta);
+}
+
+/* ---- Footnote ---- */
+.ml-sheet__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 1rem var(--gutter) 0;
+}
+.ml-sheet__square {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--brass-meta);
+}
+.ml-sheet__square--amber {
+  background: var(--alert);
+}
+.ml-sheet__footnote {
+  font-size: 0.8125rem;
+  font-weight: var(--body-weight);
+  color: var(--text-muted);
+}
+
+/* ---- Actions ---- */
+.ml-sheet__actions {
+  display: flex;
+  gap: 0.875rem;
+  padding: 1.25rem var(--gutter) 1.5rem;
+}
+/* The clash form stacks: ADD IT ANYWAY takes the full width above the two ways of not doing that. */
+.ml-sheet__actions:has(> .ml-sheet__btn--wide) {
+  flex-direction: column;
+}
+.ml-sheet__actions--second {
+  padding: 0;
+}
+.ml-sheet__btn {
+  flex: 1;
+  min-height: 3.375rem; /* 54px — past the 44px floor with the sheet's own padding */
+  padding: 1.125rem 0;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-sheet__btn--alt {
+  color: var(--text-secondary);
+}
+.ml-sheet__btn--go {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-sheet__btn--wide {
+  width: 100%;
+}
+/* Inert only for a genuinely unfillable required field — no title, no date. A proposed value counts
+   as filled, which is what the amber underline is telling somebody. */
+.ml-sheet__btn:disabled {
+  border-color: var(--border-inactive);
+  background: none;
+  color: var(--text-disabled);
+}
+
+/*
+ * Night.
+ *
+ * `index.css` dims the whole app to brightness(0.4) after 10 PM, and evening is exactly when a school
+ * bag gets emptied onto the table and photographed. The amber underline is the only thing separating
+ * a read value from a guessed one, so it must survive that.
+ *
+ * A CSS filter on an ancestor cannot be switched off by a descendant, so this lifts the colour the
+ * way `.ml-avatar__badge` above already does rather than exempting the element: a brighter amber that
+ * still reads as amber once the dim has taken 60% of it. Applies to the underline and its footnote
+ * square only — everything else on the sheet dims normally, which is the point.
+ */
+:root[data-nightdim='on'] .ml-sheet__amber {
+  color: #F5C978;
+  border-bottom-color: #F5C978;
+}
+:root[data-nightdim='on'] .ml-sheet__square--amber {
+  background: #F5C978;
+}
+
+/* ---------- Photo capture — what a photograph says on the transcript (screens 02–04, 10, 11, 15) ----------
+ *
+ * Every block here sits inside an ordinary assistant turn, because that is what it is: Barnaby saying
+ * something about a picture somebody handed over. Only the buttons and the two status blocks are new.
+ */
+
+/* Reading. Indeterminate, and honest about it — nothing reports progress through a vision pass. */
+.ml-capture__track {
+  height: 2px;
+  margin-top: 0.75rem;
+  background: var(--rule-minor);
+  overflow: hidden;
+}
+.ml-capture__fill {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--brass);
+  animation: ml-capture-sweep 1.4s ease-in-out infinite;
+}
+@keyframes ml-capture-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-capture__fill { animation: none; width: 100%; opacity: 0.5; }
+}
+
+/* Offline. The fault border and terracotta square this panel already uses for "something is wrong
+   with the house", not with the photograph. */
+.ml-capture__fault {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border: var(--control-border) solid var(--border-fault);
+  background: var(--bg-fault);
+}
+.ml-capture__faultsquare {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--danger);
+}
+.ml-capture__faulttext {
+  flex: 1;
+  font-size: 0.8125rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+.ml-capture__faultstate {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-fault-meta);
+}
+
+/* The buttons live inside the turn, and leave the DOM on tap rather than going grey — the answer is
+   written into the transcript as an ordinary user turn instead. */
+.ml-capture__actions {
+  display: flex;
+  gap: 0.875rem;
+  margin-top: 1rem;
+}
+.ml-capture__btn {
+  flex: 1;
+  min-height: 3rem; /* 48px — past the touch floor on a panel nobody is aiming carefully at */
+  padding: 1rem 0;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-capture__btn--alt {
+  color: var(--text-secondary);
+}
+.ml-capture__btn--go {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+
+/* ---------- Provenance — where an engagement came from (screens 12–14) ---------- */
+
+/* Under a calendar row's sub-line. No badge and no fill: a quiet fact about the row rather than a
+   status anybody has to act on. */
+.ml-agenda__source {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+/* The SOURCE block on an engagement's own screen. */
+.ml-evt__sourcelabel {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-evt__sourcephoto {
+  width: 100%;
+  height: 14.375rem; /* 230px */
+  margin-top: 0.5rem;
+  object-fit: cover;
+  border: var(--hairline-px) solid var(--rule-major);
+  background: var(--bg-nav);
+}
+
+/* The flyer's own note, on the confirm sheet. Multi-line, because a note is where a flyer puts
+   "bring a packed lunch / cost $5" — and because everything written has to be visible first. */
+.ml-sheet__note {
+  font-size: 0.875rem;
+  font-weight: var(--body-weight);
+  line-height: 1.45;
+  color: var(--text-secondary);
+  white-space: pre-line;
+  /* A hostile flyer's text lands here verbatim. It must never be able to push the sheet's actions
+     off the screen, so it scrolls within its own row instead of growing without limit. */
+  max-height: 7rem;
+  overflow-y: auto;
+}
+
+/* ---------- A photograph into the New Engagement form (screens 16–24) ----------
+ *
+ * The Calendar entry. No Barnaby, no offer turn, no confirm sheet — the form somebody already
+ * opened is the confirmation, and the merge rule (`app/formFill`) is what makes that safe: a reading
+ * fills what is empty and never overwrites what was typed.
+ */
+
+/* 16 · the empty-state offer. Unmounts the moment anything is typed — an offer, not furniture. */
+.ml-readphoto {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  width: calc(100% - var(--gutter) * 2);
+  margin: 1.125rem var(--gutter) 0;
+  padding: 1.0625rem 1.25rem;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+  text-align: left;
+}
+.ml-readphoto__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+.ml-readphoto__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-readphoto__sub {
+  font-size: 0.875rem;
+  font-weight: var(--body-weight);
+  color: var(--text-muted);
+}
+.ml-readphoto__chev {
+  font-size: 1rem;
+  color: var(--brass-bright);
+}
+
+/* 17 · READ FROM — the attach panel's three sources, camera first. */
+.ml-sheet__scrim--light { background: rgba(21, 23, 26, 0.65); }
+.ml-readfrom__row {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  width: 100%;
+  padding: 1.1875rem var(--gutter);
+  border: 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  background: none;
+  color: var(--text-primary);
+  font-size: 1.0625rem;
+  font-weight: var(--body-weight);
+  text-align: left;
+}
+.ml-readfrom__row svg { color: var(--brass-bright); }
+.ml-readfrom__never {
+  display: block;
+  width: 100%;
+  padding: 1.25rem var(--gutter) 1.625rem;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+/* 18 · reading in place. Same footprint as the row it replaces, so nothing below it moves. */
+.ml-reading {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  margin: 1.125rem var(--gutter) 0;
+  padding: 1.0625rem 1.25rem;
+  border: var(--control-border) solid var(--brass-dim);
+}
+.ml-reading__thumb {
+  flex: none;
+  width: 3.5rem;
+  height: 4.375rem;
+  object-fit: cover;
+  border: var(--hairline-px) solid var(--rule-major);
+  background: #1a1d20;
+}
+.ml-reading__body { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; }
+.ml-reading__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-reading__track { height: 3px; background: var(--rule-minor); overflow: hidden; }
+.ml-reading__fill {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--brass);
+  animation: ml-capture-sweep 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-reading__fill { animation: none; width: 100%; opacity: 0.5; }
+}
+.ml-reading__sub { font-size: 0.8125rem; color: var(--text-muted); }
+
+/* 19 · the source strip — a plain row, no border box, once a reading has landed. */
+.ml-srcstrip {
+  display: flex;
+  align-items: center;
+  gap: 1.125rem;
+  margin: 1.125rem var(--gutter) 0;
+  padding-bottom: 0.875rem;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-srcstrip__thumb {
+  flex: none;
+  width: 3rem;
+  height: 3.75rem;
+  object-fit: cover;
+  border: var(--hairline-px) solid var(--rule-major);
+  background: var(--bg-nav);
+}
+.ml-srcstrip__body { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+.ml-srcstrip__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+.ml-srcstrip__sub { font-size: 0.875rem; font-weight: var(--body-weight); color: var(--text-muted); }
+.ml-srcstrip__replace {
+  border: 0;
+  background: none;
+  color: var(--brass-bright);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+/* 24 · what a take changed, and the way back. Per take, not per photo. */
+.ml-srcstrip__taken {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0.625rem var(--gutter) 0;
+  font-size: 0.8125rem;
+  font-weight: var(--body-weight);
+  color: var(--text-muted);
+}
+.ml-srcstrip__undo {
+  border: 0;
+  background: none;
+  color: var(--brass-bright);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* 20 · nothing on it. Takes the row's place; the form keeps its defaults and its focus. */
+.ml-nothing {
+  margin: 1.125rem var(--gutter) 0;
+  padding: 1.125rem 1.25rem;
+  border: var(--control-border) solid var(--border-fault);
+  background: var(--bg-fault);
+}
+.ml-nothing__head { display: flex; align-items: center; gap: 0.625rem; }
+.ml-nothing__square { width: 7px; height: 7px; background: var(--danger); }
+.ml-nothing__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--danger);
+}
+.ml-nothing__text {
+  margin: 0.75rem 0 1rem;
+  font-size: 1rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+.ml-nothing__actions { display: flex; gap: 0.875rem; }
+.ml-nothing__btn {
+  flex: 1;
+  padding: 0.875rem 1.125rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ml-nothing__btn--alt { color: var(--text-secondary); }
+
+/* 23 · what the photograph says, under a row somebody wrote. One per field; no bulk accept. */
+.ml-offer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--brass-dim);
+}
+.ml-offer__text {
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  color: var(--text-muted);
+}
+.ml-offer__value { color: var(--text-secondary); }
+.ml-offer__take {
+  flex: none;
+  padding: 0.5625rem 0.875rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: none;
+  color: var(--brass-bright);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* The same amber the confirm sheet uses, on a form row. Lifted at night for the same reason. */
+.ml-evt__amber {
+  color: var(--alert);
+  border-bottom: 2px solid var(--alert);
+  padding-bottom: 2px;
+}
+:root[data-nightdim='on'] .ml-evt__amber {
+  color: #F5C978;
+  border-bottom-color: #F5C978;
 }

@@ -83,6 +83,29 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
     /// </remarks>
     public Dictionary<string, string> ServiceTokens { get; init; } = [];
 
+    /// <summary>
+    /// A stand-in for the photograph reader, or null for the not-connected default.
+    /// </summary>
+    /// <remarks>
+    /// The suite must never reach a vision provider, so the default registration is already the
+    /// not-connected one — no key, no call. A test that wants to exercise what happens *after* a
+    /// reading supplies its own here, which is the honest way to test a seam whose other side is
+    /// somebody else's model.
+    /// </remarks>
+    public HomeHub.Api.Calendar.Capture.IEventExtractor? EventExtractor { get; init; }
+
+    /// <summary>
+    /// Configuration keys to set before the host is built, for tests about *registration*.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="EventExtractor"/> replaces the reader after the fact, which is right for tests
+    /// about what the endpoint does with a reading. It cannot answer which reader `Program` chooses,
+    /// and that became a question worth asking when the default became the house agent rather than a
+    /// vision vendor: "nothing configured" is now a specific combination rather than the absence of
+    /// one key.
+    /// </remarks>
+    public Dictionary<string, string> Settings { get; init; } = [];
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Program.cs reads `Mcp:ApiKey` from raw configuration at build time to decide whether to
@@ -90,6 +113,7 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
         // has to be the configuration value itself. Blank by default: a developer with a real key
         // in user-secrets must not get an MCP surface that CI does not have.
         builder.UseSetting("Mcp:ApiKey", McpApiKey ?? "");
+        foreach (var (key, value) in Settings) builder.UseSetting(key, value);
         foreach (var (name, token) in ServiceTokens)
             builder.UseSetting($"Auth:ServiceTokens:Tokens:{name}", token);
         foreach (var (name, cred) in McpCredentials)
@@ -129,6 +153,8 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
             services.AddScoped<StockCheckService>();
             services.AddScoped<DeductionService>();
             services.AddScoped<UnitRegistry>();
+            if (EventExtractor is { } extractor)
+                services.AddSingleton(extractor);
             services.AddScoped<HomeHub.Api.Assist.AgentAccess>();
             services.AddScoped<HomeHub.Api.Assist.LineageAudit>();
             // Same reasoning as the AI keys below: a developer with HomeAssistant configured in

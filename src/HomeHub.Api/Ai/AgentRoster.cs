@@ -33,6 +33,9 @@ public sealed class AgentRoster
     {
         _agents = [.. options.Value.Agents
             .Where(kv => !string.IsNullOrWhiteSpace(kv.Key))
+            // A listener HomeHub calls on the household's behalf is not an agent the household picks
+            // — see `HermesAgentOptions.Internal`. It stays reachable by key; it is just not offered.
+            .Where(kv => !kv.Value.Internal)
             .Select(kv => new Agent(
                 kv.Key,
                 string.IsNullOrWhiteSpace(kv.Value.Name) ? kv.Key : kv.Value.Name,

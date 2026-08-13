@@ -6,6 +6,11 @@ public record CalendarEventDto(
     string Title,
     DateTime StartUtc,
     DateTime EndUtc,
+    /// <summary>
+    /// Whole days rather than an hour of one. Sent so the panel can stop guessing from the
+    /// boundaries — see <see cref="CalendarEvent.IsAllDay"/>.
+    /// </summary>
+    bool IsAllDay,
     string? Location,
     string? Notes,
     IReadOnlyList<int> OwnerIds,
@@ -32,12 +37,36 @@ public record CalendarEventDto(
     /// axis: it is an explicit statement about this event, so it outranks both the provider's kind and
     /// the calendar's mark.
     /// </summary>
-    string? Mark)
+    string? Mark,
+    /// <summary>
+    /// Read off a photograph rather than typed. Drives the FROM A PHOTO line under a calendar row,
+    /// and stays true whether or not the picture itself was kept.
+    /// </summary>
+    bool FromPhoto = false,
+    /// <summary>
+    /// Whether the source photograph is still there to show.
+    /// </summary>
+    /// <remarks>
+    /// The filename is deliberately not sent. The panel asks for the image by event id; a stored
+    /// name is an implementation detail and there is no reason to put one in front of a browser.
+    /// </remarks>
+    bool HasPhoto = false,
+    /// <summary>The photograph's EXIF date, or null — which is what makes the label read ADDED.</summary>
+    DateTime? PhotoTakenUtc = null,
+    /// <summary>
+    /// When the engagement was written down, or null for a row older than the column.
+    /// </summary>
+    /// <remarks>
+    /// The date the ADDED form of the source label shows. Not <c>UpdatedUtc</c>, which answers a
+    /// different question and moves every time somebody corrects a time.
+    /// </remarks>
+    DateTime? CreatedUtc = null)
 {
     public static CalendarEventDto From(CalendarEvent e) => new(
-        e.Id, e.Title, e.StartUtc, e.EndUtc, e.Location, e.Notes, ParseOwners(e.OwnerTags), e.Source, e.Version, e.ProfileId, e.CalendarName,
+        e.Id, e.Title, e.StartUtc, e.EndUtc, e.IsAllDay, e.Location, e.Notes, ParseOwners(e.OwnerTags), e.Source, e.Version, e.ProfileId, e.CalendarName,
         EventKinds.Refine(EventKinds.Classify(e.GoogleEventType, e.GoogleCalendarId, e.Title), e.GoogleBirthdayType),
-        e.GoogleEventType, e.GoogleCalendarId, e.Mark);
+        e.GoogleEventType, e.GoogleCalendarId, e.Mark,
+        e.FromPhoto, e.PhotoFile is not null, e.PhotoTakenUtc, e.CreatedUtc);
 
     public static IReadOnlyList<int> ParseOwners(string csv) =>
         string.IsNullOrWhiteSpace(csv)
@@ -57,6 +86,16 @@ public record CalendarEventInput(
     string? Location,
     string? Notes,
     IReadOnlyList<int>? OwnerIds,
+    /// <summary>
+    /// Whole days rather than an hour of one.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="StartUtc"/> and <see cref="EndUtc"/> are still required and still bound the event:
+    /// the caller sends local midnight to local midnight, end exclusive. The zone is the confirming
+    /// device's, because there is no household timezone in the product and the panel is the only
+    /// thing in the system that knows one — see <c>homehub-docs/docs/event-capture.md</c> D4.
+    /// </remarks>
+    bool IsAllDay = false,
     /// <summary>Owning profile (whose Google account it's created on). Null for the local calendar.</summary>
     int? ProfileId = null,
     /// <summary>Target Google calendar for a new event; null = the profile's primary calendar.</summary>
@@ -65,7 +104,38 @@ public record CalendarEventInput(
     /// Mark for this one event, overriding its kind and its calendar's mark; null to inherit. Stored
     /// locally — Google has nowhere to put it.
     /// </summary>
-    string? Mark = null)
+    string? Mark = null,
+    /// <summary>
+    /// The photograph this engagement was read from, base64, or null.
+    /// </summary>
+    /// <remarks>
+    /// <b>Sent with the write, not with the reading.</b> A photograph is kept because somebody
+    /// pressed ADD TO CALENDAR, so it travels with the create that press makes — a flyer that was
+    /// read and then discarded leaves nothing behind. The bytes are never persisted as they arrive:
+    /// the controller hands them to <c>EventPhotoStore</c> and stores the filename it gets back.
+    /// </remarks>
+    string? PhotoBase64 = null,
+    /// <summary>The photograph's EXIF original date, or null when it carried none (screenshots).</summary>
+    DateTime? PhotoTakenUtc = null,
+    /// <summary>
+    /// Whether this engagement came off a photograph at all.
+    /// </summary>
+    /// <remarks>
+    /// Separate from <see cref="PhotoBase64"/> because the two answer different questions: an event
+    /// read from a flyer that could not be kept — an unrenderable format, or retention switched off
+    /// — is still an event that came from a flyer, and its calendar row still says so.
+    /// </remarks>
+    bool FromPhoto = false,
+    /// <summary>
+    /// The stored photograph's filename — <b>set by the controller, never by a caller</b>.
+    /// </summary>
+    /// <remarks>
+    /// It sits on the input because that is what the providers persist, but anything arriving here
+    /// from the wire is discarded: the controller always assigns it, from what
+    /// <c>EventPhotoStore.KeepAsync</c> returned or null. Trusting a caller's filename would let one
+    /// hang somebody else's photograph on an event of its own making.
+    /// </remarks>
+    string? PhotoFile = null)
 {
     public string OwnersCsv => OwnerIds is null ? "" : string.Join(',', OwnerIds.Distinct());
 

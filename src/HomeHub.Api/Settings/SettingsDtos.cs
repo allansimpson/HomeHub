@@ -24,12 +24,17 @@ public record SettingsDto(
     /// configured location is still in force — see <see cref="HouseholdSettings.WeatherLatitude"/>.
     /// </summary>
     double? WeatherLatitude = null,
-    double? WeatherLongitude = null)
+    double? WeatherLongitude = null,
+    /// <summary>
+    /// Whether a photograph read into an engagement is kept with it. Governs new engagements only.
+    /// </summary>
+    bool KeepEventPhotos = true)
 {
     public static SettingsDto From(HouseholdSettings s) => new(
         s.IdleTimeoutMinutes, s.IdleDimmingEnabled, s.DaylightBoost, s.ActiveProfileId, s.CatName,
         s.LitterFullPercent, Clock.Wire(s.NightDimStart), Clock.Wire(s.NightDimEnd),
-        s.StoreConversations, s.ConversationRetentionDays, s.WeatherLatitude, s.WeatherLongitude);
+        s.StoreConversations, s.ConversationRetentionDays, s.WeatherLatitude, s.WeatherLongitude,
+        s.KeepEventPhotos);
 }
 
 /// <summary>Update payload for the editable household settings (active profile has its own route).</summary>
@@ -98,6 +103,9 @@ public record SetLitterFullPercentRequest(int Percent);
 /// which holds none of the whole-object PUT's other state.
 /// </summary>
 public record SetConversationPolicyRequest(bool StoreConversations, int RetentionDays);
+
+/// <summary>Whether a photograph read into an engagement is kept with it. New engagements only.</summary>
+public record SetEventPhotoPolicyRequest(bool KeepEventPhotos);
 
 /// <summary>
 /// Where the weather is for, on its own route for the same reason as <see cref="SetCatNameRequest"/>:

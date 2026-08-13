@@ -5,6 +5,7 @@ import { useClock } from '../app/useClock'
 import { useWeather } from '../app/WeatherProvider'
 import { useSensors } from '../app/SensorsProvider'
 import { useConnection } from '../app/ConnectionProvider'
+import { alertHeadline } from '../app/needsYou'
 import type { WeatherSnapshotDto, DailyDto } from '../api/types'
 
 type View = 'now' | 'hourly' | 'radar'
@@ -17,7 +18,7 @@ const VIEWS: View[] = ['now', 'hourly', 'radar']
  * tile). A severe NWS alert still renders the shared amber banner + hazard stripe at the very top.
  */
 export function WeatherScreen() {
-  const { time, ampm, date } = useClock()
+  const { time, ampm, dateMonthFirst } = useClock()
   const { weather, offline } = useWeather()
   const { alerts } = useSensors()
   const { stale } = useConnection()
@@ -33,9 +34,11 @@ export function WeatherScreen() {
     setView('hourly')
   }
 
+  // The dashboard banners this same alert on the same test, through the same headline — see
+  // `alertHeadline`. Not tappable here: this *is* the screen it would take you to.
   const banner = weatherAlert && (
     <AlertBanner
-      title={weatherAlert.message.split(':')[0] || 'Weather Alert'}
+      title={alertHeadline(weatherAlert)}
       detail={weatherAlert.message}
       severe={weatherAlert.severity === 'Severe'}
     />
@@ -51,14 +54,25 @@ export function WeatherScreen() {
         onNext={() => setDayIndex((i) => Math.min(days.length - 1, i + 1))}
       />
     ) : (
-      // Where, then when. The place goes in the title because it is the thing that changes what the
+      // Where, then when. The place is the whole title because it is the thing that changes what the
       // numbers below mean — a forecast is a claim about somewhere, and a screen that never says
-      // where is one nobody can catch being wrong. Falls back to the bare word when NWS has not
-      // named the point (or has not been asked yet), rather than to the coordinates, which confirm
-      // nothing to anybody standing in the kitchen.
+      // where is one nobody can catch being wrong. The word "weather" is not in it: the nav already
+      // said which section this is, and repeating it spends the line on something the reader knows.
+      // Falls back to the bare word when NWS has not named the point (or has not been asked yet),
+      // rather than to the coordinates, which confirm nothing to anybody standing in the kitchen.
       <DrillInHeader
-        title={weather?.place ? `Weather · ${weather.place.label}` : 'Weather'}
-        status={`${date} · ${time} ${ampm}`}
+        title={weather?.place ? weather.place.label : 'Weather'}
+        // Two rows, always — the day over the time, both to the right edge. As one line it was
+        // `MONDAY 10 AUGUST · 5:02 PM`, which at this tracking is wider than the space left beside a
+        // place name and broke wherever it happened to run out: sometimes after the weekday,
+        // sometimes mid-clock. Stacking it puts the break where it belongs and holds the shape
+        // whatever the day is called and whatever the town is called.
+        status={
+          <span className="ml-weather__headerwhen">
+            <span>{dateMonthFirst}</span>
+            <span>{`${time} ${ampm}`}</span>
+          </span>
+        }
       />
     )
 

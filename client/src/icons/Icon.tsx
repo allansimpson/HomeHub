@@ -37,6 +37,8 @@ export type IconId =
   | 'ico-add'
   | 'ico-minus'
   | 'ico-check'
+  /** Take a turn's words somewhere else — the transcript's copy control (`CopyTurn`). */
+  | 'ico-copy'
   | 'ico-delete'
   | 'ico-alert'
   | 'ico-chevron-right'
@@ -75,11 +77,24 @@ interface IconProps {
 /**
  * Renders a symbol from the inline sprite (see IconSprite). Colour follows `currentColor`,
  * so set `color` on the parent to tint. Icons are decorative here (labels carry meaning).
+ *
+ * **The `viewBox` is not redundant.** Every symbol in the sprite carries its own `0 0 24 24`, and by
+ * the spec that is enough: a `<use>` of a `<symbol>` renders as an `<svg>` sized to the host's
+ * viewport, so the artwork should scale to whatever `size` says. WebKit does not reliably do that
+ * when the host `<svg>` has no `viewBox` of its own — it draws the symbol at its intrinsic 24×24
+ * anchored at the origin and clips it to the box, which shifts every glyph down and right by
+ * `(24 − size) / 2` and crops the far edges.
+ *
+ * A glyph that fills its 24 units survives that looking merely a little large. A glyph that is small
+ * and centred in an empty square does not: the composer's attach mark sat visibly off-centre inside
+ * the border drawn exactly around its true middle, which is the sort of thing you can stare at for a
+ * long time while checking the CSS that centres it — and the CSS was right the whole time.
  */
 export function Icon({ id, size = '1.5rem', className, style }: IconProps) {
   return (
     <svg
       className={className}
+      viewBox="0 0 24 24"
       style={{ width: size, height: size, color: 'inherit', ...style }}
       aria-hidden="true"
       focusable="false"

@@ -294,6 +294,9 @@ public class HomeHubDbContext : DbContext
             entity.Property(e => e.GoogleCalendarId).HasMaxLength(200);
             entity.Property(e => e.CalendarName).HasMaxLength(200);
             entity.Property(e => e.Mark).HasMaxLength(40);
+            // A 32-character content hash plus an extension; the column is sized for the name this
+            // app writes, not for anything a caller might send.
+            entity.Property(e => e.PhotoFile).HasMaxLength(64);
             entity.HasIndex(e => e.StartUtc);
             entity.HasIndex(e => e.GoogleId);
             entity.HasIndex(e => new { e.ProfileId, e.StartUtc });

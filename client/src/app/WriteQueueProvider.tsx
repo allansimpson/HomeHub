@@ -10,7 +10,13 @@ export interface Conflict {
   current: unknown
 }
 
-type RunOutcome = ExecOutcome | { kind: 'queued' }
+/**
+ * What became of a write.
+ *
+ * `queued` carries the op's id so a caller can take it back before it ever leaves — see
+ * {@link WriteQueueState.withdraw}. Everything else is the server's answer.
+ */
+type RunOutcome = ExecOutcome | { kind: 'queued'; opId: string }
 
 /**
  * Offline write-queue coordinator (Stage 9b). Domain providers apply their change optimistically
@@ -26,6 +32,16 @@ export interface WriteQueueState {
   run: (draft: Omit<QueuedOp, 'id' | 'createdAt'>) => Promise<RunOutcome>
   resolveConflict: (opId: string, choice: 'keep-mine' | 'discard') => Promise<void>
   retry: () => void
+  /**
+   * Take a queued op back before it is ever sent. Returns whether one was found to withdraw.
+   *
+   * <b>The third state Undo has to keep its promise in.</b> The queue could add and replay but not
+   * forget, so an offline create that somebody immediately undid had nothing to undo — the delete
+   * would 404 against an event that did not exist yet, and the create would replay on reconnect and
+   * put the engagement on the calendar minutes after it was taken back. Withdrawing in place is the
+   * only version of that promise that survives being made offline.
+   */
+  withdraw: (opId: string) => boolean
 }
 
 const WriteQueueContext = createContext<WriteQueueState | null>(null)
@@ -52,12 +68,12 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
       const op: QueuedOp = { ...draft, id: newId(), createdAt: Date.now() }
       if (!online) {
         enqueue(op)
-        return { kind: 'queued' }
+        return { kind: 'queued', opId: op.id }
       }
       const outcome = await executeOp(op)
       if (outcome.kind === 'offline') {
         enqueue(op)
-        return { kind: 'queued' }
+        return { kind: 'queued', opId: op.id }
       }
       if (outcome.kind === 'conflict') {
         setConflicts((c) => [...c, { op, current: outcome.current }])
@@ -129,9 +145,26 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  /*
+   * Read from the persisted queue rather than from `pending`, and written straight back.
+   *
+   * `pending` is a render away from whatever the last `run` put in it, and the case this exists for
+   * is somebody pressing UNDO seconds after the create that queued it — quite possibly in the same
+   * commit. Going through storage makes the withdrawal answer about the queue that will actually be
+   * replayed, not the one this render happens to be holding.
+   */
+  const withdraw = useCallback((opId: string): boolean => {
+    const queue = loadQueue()
+    const without = queue.filter((op) => op.id !== opId)
+    if (without.length === queue.length) return false
+    saveQueue(without)
+    setPending(without)
+    return true
+  }, [])
+
   const value = useMemo<WriteQueueState>(
-    () => ({ pendingCount: pending.length, conflicts, run, resolveConflict, retry: () => void replay() }),
-    [pending.length, conflicts, run, resolveConflict, replay],
+    () => ({ pendingCount: pending.length, conflicts, run, resolveConflict, retry: () => void replay(), withdraw }),
+    [pending.length, conflicts, run, resolveConflict, replay, withdraw],
   )
 
   return <WriteQueueContext.Provider value={value}>{children}</WriteQueueContext.Provider>

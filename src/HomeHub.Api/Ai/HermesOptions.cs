@@ -78,6 +78,25 @@ public sealed class HermesAgentOptions
     public string? Tagline { get; set; }
 
     /// <summary>
+    /// A listener HomeHub calls but the household never chooses — kept out of the agent roster.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written for the photograph reader.</b> Hermes's own guidance on that seam is that the
+    /// extraction listener should be "an internal HomeHub service dependency, not a third
+    /// household-facing agent in the UI" — it exists to be least-privilege (no tools, no memory,
+    /// minimal persona), and offering it in the Assist switcher would invite somebody to hold a
+    /// conversation with a profile built to do exactly one thing badly.
+    /// </para>
+    /// <para>
+    /// It changes nothing about how the listener is reached: <see cref="HermesClientFactory"/> still
+    /// resolves it by key, so <c>EventCapture:Agent</c> can name it. This flag governs the roster the
+    /// panel draws from, and nothing else.
+    /// </para>
+    /// </remarks>
+    public bool Internal { get; set; }
+
+    /// <summary>
     /// Base URL of this agent's own Hermes gateway, e.g. <c>http://127.0.0.1:8642</c>.
     /// </summary>
     /// <remarks>

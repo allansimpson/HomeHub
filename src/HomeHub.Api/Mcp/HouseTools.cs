@@ -148,7 +148,29 @@ public static class HouseTools
     // ---- Calendar ----
 
     [McpServerTool(Name = "get_calendar")]
-    [Description("Upcoming calendar events for the household, soonest first.")]
+    /*
+     * The description says "read-only" out loud because the agent was overclaiming without it.
+     *
+     * A model holding a tool called `get_calendar` — beside `add_todo`, which really does write —
+     * reasonably infers a symmetric calendar write exists somewhere in its toolkit. Hand it a
+     * photograph of a flyer (images do reach the agent, `AssistController.BuildContent`) and it
+     * offers to put the engagement on the calendar. Nothing happens: there is no such tool. A
+     * promise the household has no way to tell from a kept one is worse than a refusal.
+     *
+     * <b>The absence is deliberate and stays.</b> Calendar writes from a photograph go through the
+     * tool-less extraction seam and a confirm sheet a person presses (`event-capture.md` D1/D8).
+     * Printed words reaching a tool-bearing model are an injection surface, and a flyer is the one
+     * input made of somebody else's printed words — giving this agent `add_calendar_event` would
+     * hand that surface the write it would most want.
+     *
+     * This is a nudge, not a guarantee. The durable half is the agent's own instructions, which live
+     * in Hermes; see PROJECT.md §6 on persona being Hermes's rather than ours.
+     */
+    [Description(
+        "READ-ONLY. Upcoming calendar events for the household, soonest first. "
+        + "There is no tool for adding, changing or deleting an engagement — calendar writes happen "
+        + "only on the panel itself, where a person confirms each one. Never tell the household you "
+        + "will put something on the calendar; say what you found and let the panel offer it.")]
     public static async Task<IReadOnlyList<object>> GetCalendar(
         ICalendarProvider calendar,
         TimeProvider clock,

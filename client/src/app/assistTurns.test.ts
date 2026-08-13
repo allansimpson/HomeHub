@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectTurns } from './assistTurns'
+import { selectPendingChat, selectTurns } from './assistTurns'
 import type { AssistTurn } from './assistTurns'
 
 /**
@@ -19,8 +19,8 @@ function turn(group: string, conversationId: number | null = null): AssistTurn {
     key: `${group}#${seq}`, group, seq, conversationId,
     prompt: 'when do the bins go out',
     attachment: null,
-    text: '', thinking: '', tool: null, started: false, queued: false, recovering: false,
-    done: false, stopping: false, messageId: 0, outcome: null, error: null,
+    text: '', thinking: '', tool: null, started: false, opened: false, queued: false,
+    recovering: false, done: false, stopping: false, messageId: 0, outcome: null, error: null,
   }
 }
 
@@ -92,5 +92,75 @@ describe('selectTurns', () => {
     const opener = turn('new:1')
     const queued = { ...turn('new:1'), queued: true }
     expect(selectTurns(index(opener, queued), null)).toEqual([opener, queued])
+  })
+})
+
+/**
+ * The row the inbox draws for a chat the server has not written down yet.
+ *
+ * The bug it exists for: start a chat, go back before the reply lands, and the list showed nothing —
+ * a message the household had definitely sent, in neither the inbox nor anywhere they could reach.
+ * These pin the two ends of its life, because both of them are ways to lose the row again.
+ */
+describe('selectPendingChat', () => {
+  it('has nothing to draw when nothing is in flight', () => {
+    expect(selectPendingChat({}, [])).toBeNull()
+  })
+
+  it('draws a chat that has been started and has no id yet', () => {
+    const opener = { ...turn('new:1'), prompt: 'when do the bins go out' }
+    expect(selectPendingChat(index(opener), [])).toEqual({
+      title: 'when do the bins go out',
+      preview: '',
+      status: 'Sending',
+    })
+  })
+
+  /*
+   * The distinction a whole day went into making by hand.
+   *
+   * "Sending" means nothing is known to have left the panel. Once the server has named the turn, the
+   * wait is an agent thinking — which can honestly run to the better part of a minute — and saying
+   * the same word for both left no way to tell a turn that was working from one that was never going
+   * anywhere.
+   */
+  it('separates a turn still going out from one being thought about', () => {
+    const sending = turn('new:1')
+    expect(selectPendingChat(index(sending), [])?.status).toBe('Sending')
+
+    const thinking = { ...turn('new:2'), opened: true }
+    expect(selectPendingChat(index(thinking), [])?.status).toBe('Thinking')
+  })
+
+  it('shows the reply as it arrives', () => {
+    const opener = { ...turn('new:1'), started: true, text: 'Thursday, and the' }
+    expect(selectPendingChat(index(opener), [])?.status).toBe('Replying')
+    expect(selectPendingChat(index(opener), [])?.preview).toBe('Thursday, and the')
+  })
+
+  /** Nothing was stored, so this row is the only place the member's words still exist. */
+  it('keeps drawing a turn that failed, and says so', () => {
+    const failed = { ...turn('new:1'), error: 'The assistant is unreachable right now.' }
+    expect(selectPendingChat(index(failed), [])).toEqual({
+      title: 'when do the bins go out',
+      preview: 'The assistant is unreachable right now.',
+      status: 'Failed',
+    })
+  })
+
+  /**
+   * The id arrives on the stream's last event; the list that will carry the real row is a round trip
+   * behind it. Standing down here would blank the row for the length of that trip.
+   */
+  it('holds on after the id lands, until the real row is in the list', () => {
+    const landed = { ...turn('new:1', 12), done: true }
+    expect(selectPendingChat(index(landed), [])?.status).toBe('Just now')
+    expect(selectPendingChat(index(landed), [3, 12])).toBeNull()
+  })
+
+  it('titles the chat from the opening message, not the last one', () => {
+    const opener = { ...turn('new:1'), prompt: 'when do the bins go out' }
+    const queued = { ...turn('new:1'), prompt: 'and the recycling?', queued: true }
+    expect(selectPendingChat(index(opener, queued), [])?.title).toBe('when do the bins go out')
   })
 })

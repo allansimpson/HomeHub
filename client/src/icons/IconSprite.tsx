@@ -7,7 +7,8 @@
  * earlier set wholesale when the bar went from ten tabs to seven; `ico-baby`, `ico-litter` and
  * `ico-pantry` went with the tabs they named. The remaining glyphs (back, add, steppers, check,
  * delete, alert, chevrons, stop) and the `ico-mark-*` calendar set are a different vocabulary with
- * their own stroke-width convention — leave them alone.
+ * their own stroke-width convention — leave them alone. `ico-copy` joined that second group when the
+ * transcript's copy control stopped being the word COPY.
  */
 export function IconSprite() {
   return (
@@ -197,6 +198,12 @@ export function IconSprite() {
       </symbol>
       <symbol id="ico-check" viewBox="0 0 24 24">
         <path d="M5 12l4 4L19 7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </symbol>
+      {/* COPY — one sheet laid over another, the back one showing at its top-left corner. Drawn as
+          two open paths rather than two closed rectangles so the overlap reads as depth instead of
+          as a grid: the back sheet stops where the front one covers it. */}
+      <symbol id="ico-copy" viewBox="0 0 24 24">
+        <path d="M9 9h10v10H9zM15 9V5H5v10h4" fill="none" stroke="currentColor" strokeWidth="1.5" />
       </symbol>
       <symbol id="ico-delete" viewBox="0 0 24 24">
         <path d="M9 5h11v14H9l-6-7zM12 9l5 6M17 9l-5 6" fill="none" stroke="currentColor" strokeWidth="1.5" />

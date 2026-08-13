@@ -30,6 +30,7 @@ provider-seam model are in **[`PROJECT.md`](PROJECT.md)**.
 - [Build one deployable unit](#build-one-deployable-unit)
 - [Test](#test)
 - [Deploy](#deploy)
+- [Working alongside Hermes](#working-alongside-hermes)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -202,8 +203,14 @@ dotnet user-secrets set "SensorPush:Password" "…"
   `sensorpush`) automatically, writing every reading to SQL every `Sensors:PollSeconds` (default 60).
 - **Optional friendly names** — map a SensorPush sensor id to a display name:
   `SensorPush__ZoneNames__<sensorId>=Freezer`. Sensor ids are visible in the SensorPush app/API.
-- The five pre-seeded **simulated** zones remain in the DB alongside your real ones; delete those
-  seed rows (`DELETE FROM SensorZones WHERE Source = 'simulated'`) once real sensors are flowing.
+- The six pre-seeded **simulated** zones are dropped automatically on the first successful poll, so
+  the panel shows only real sensors. Nothing to delete by hand.
+- **They appear on Climate too.** A sensor whose name matches a seeded room (`Kitchen`,
+  `Master Bedroom`, `Upstairs Office`, `Living Room`, `Fridge`, `Freezer`) binds to that room and
+  becomes its probe; every other sensor is adopted as a new **watched** row named after the sensor.
+  So set `ZoneNames` to the room names you want *before* first poll if you want the automated rooms
+  and cold-storage bands — a room adopted as watched shows its temperature and humidity but has no
+  target and no in-range band.
 
 ### Weather — NWS (National Weather Service)
 
@@ -852,6 +859,98 @@ systemd fails with a bare `203/EXEC` without it. The `[server]` half is plain ba
 
 The kiosk side is [`deploy/pi-kiosk.md`](deploy/pi-kiosk.md). Supply all secrets as environment
 variables in `/etc/homehub/homehub.env` (the `__` form above); **never commit them**.
+
+## Working alongside Hermes
+
+On the home server, `/srv/dev/homehub` is a **shared working checkout**. Both a coding agent
+(Claude Code, running as `simpson`) and the household agent (Hermes/Geist, running as `hermes`) edit
+source here. Neither service runs from this directory: prod is `homehub.service` out of
+`/opt/homehub/current`, test is `homehub-test.service` out of `/opt/homehub-test/current`, each a
+`releases/<stamp>` directory behind a `current` symlink. A change in the dev tree is invisible to the
+panel until it is deployed.
+
+Both accounts are members of the **`geist-dev`** group, which owns the checkout; the restricted
+`geist-deploy` account is deliberately outside it. `origin` is the SSH remote
+`git@github.com:allansimpson/HomeHub.git`.
+
+### Who owns what
+
+| | Claude Code (`simpson`) | Hermes (`hermes`) |
+|---|---|---|
+| Source files in `/srv/dev/homehub` | Edit — explicit path set, checked against `git status` first | Edit — same rule |
+| `npm test`, `tsc -b`, `oxlint`, `dotnet test` | Yes | Yes |
+| `npm run build` in the dev tree | Yes, **as `simpson`, never under `sudo`** | **No** — builds only from its own isolated snapshot |
+| `src/HomeHub.Api/wwwroot/` | Generated output of a local build. Never hand-edited | Never written back into the checkout |
+| `scripts/deploy.sh`, `/opt/homehub*`, `systemctl restart` | **Never** | Owns test deploy and prod promotion |
+| Commits | May commit a coherent set it owns (optional) | Does not stage or commit unless Allan asks |
+| `git push origin` | Owns routine pushes, after reviewing the explicit commits | Does not push merely to deploy test |
+| `reset --hard`, `clean`, forced checkout, force-push, history rewrite | **Never without Allan's explicit authorization** | Same — standing rule is never |
+
+`main` is canonical. Feature branches are fine for active work, but **no agent switches the shared
+checkout's branch, stages, commits, resets, or rewrites files while the other is reviewing or
+snapshotting it**. Whatever branch and revision supplied a reviewed snapshot is recorded with the
+test deploy; production comes from the approved clean revision, normally integrated into `main`.
+
+### The two hazards that actually cost work
+
+1. **Root-owned build output.** `scripts/deploy.sh` builds *from this tree*
+   (`cd client && npm ci && npm run build`, then `dotnet publish`). Run as root, it leaves
+   `client/package-lock.json` and `src/HomeHub.Api/wwwroot/{assets,icons,index.html}` as `root:root`,
+   and the next `npm run build` as `simpson` dies with `EACCES`. This is why Hermes builds from an
+   isolated snapshot instead, and why no agent builds here under `sudo`.
+2. **`git add -A` in a tree another agent is writing to.** Files change *while being staged*, so a
+   blanket add commits work the committer never touched. Always stage an **exact path allowlist**,
+   inspect the staged diff, and leave the other editor's uncommitted work alone. Never `git add -A`
+   or `git add .`.
+
+Both hazards, plus one destroyed commit, are what this section exists to prevent. Coordination is
+path-based: say which files you are changing, and do not edit paths the other agent is holding.
+
+### The verify-only loop
+
+Safe to run at any time — touches nothing Hermes owns:
+
+```bash
+cd /srv/dev/homehub
+git status                       # always first — know what else is in the tree
+cd client && npm test && npx tsc -b && npx oxlint
+npm run build                    # optional; writes ../src/HomeHub.Api/wwwroot only
+```
+
+A dev build deploys nothing. When a change is finished and verified, **ask Hermes for a test
+deployment** rather than deploying it.
+
+### Deploying to test, and verifying
+
+Hermes deploys test from a **reviewed snapshot of the working tree** — uncommitted changes included,
+by design; a commit or a push is not required. It records the changed-path allowlist, base revision,
+and pre/post snapshot digest, checks the source digest before and after copying, and aborts if the
+tree moved underneath it. Artifacts built from a dirty or unpushed tree are marked **ineligible for
+production**: production needs Allan's explicit approval and a freshly built, clean, tested artifact
+from authoritative source.
+
+Verify against test, not prod:
+
+| | URL |
+|---|---|
+| Test panel | `https://homehub-test.home.arpa:5181/` (also `https://192.168.5.15:5181/` under the current certificate) |
+| Test direct HTTP / health | `http://192.168.5.15:5180/` · `/api/health?deep=true` |
+| Production | `https://192.168.5.15:5081/` — **read-only** unchanged/health check only, never a feature target |
+
+`/opt/homehub-test/` is not readable by `simpson`, so post-deploy verification is over HTTP, not by
+inspecting the release directory.
+
+The deploy mechanics themselves are in [`deploy/updating.md`](deploy/updating.md) and
+[`deploy/dev-on-server.md`](deploy/dev-on-server.md); this section covers only the part they don't —
+two agents sharing one directory.
+
+> **Known gap.** The shared-group protection is not yet complete. Only the checkout root carries
+> setgid; `client/`, `src/`, `tests/`, `scripts/` and their children are `drwxr-xr-x simpson:geist-dev`,
+> and files written by an editor land `simpson:simpson` mode `660` — unreadable by `hermes` as its own
+> user. Until setgid and the group are applied recursively
+> (`chgrp -R geist-dev . && find . -type d -not -path './.git/*' -exec chmod g+s {} +`, plus
+> `chmod -R g+rw` on tracked files), Hermes can only *read* what the other agent has written by using
+> root — which is the hazard above. Fix before relying on symmetric editing.
 
 ## Troubleshooting
 

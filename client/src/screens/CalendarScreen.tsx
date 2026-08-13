@@ -263,6 +263,16 @@ function AgendaRow({
         <div className="ml-row__title ml-clamp2">{event.title}</div>
         {event.location && <div className="ml-row__sub">{event.location}</div>}
         {meta && <div className="ml-agenda__meta">{meta}</div>}
+        {/* Where this engagement came from, under its own sub-line. No badge and no fill: it is a
+            quiet fact about the row, not a status somebody has to act on — and it stays whether or
+            not the picture itself survived, because how an engagement reached the calendar is not a
+            claim about bytes. */}
+        {event.fromPhoto && (
+          <div className="ml-agenda__source">
+            <Icon id="ico-image" size="0.8125rem" />
+            <span>From a photo</span>
+          </div>
+        )}
       </div>
       {/* A guess is still labelled as one. The converse badge — crediting Google when it stated the
           kind itself — was dropped: a birthday that is right needs no citation, and the row is

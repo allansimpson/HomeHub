@@ -38,10 +38,19 @@ public sealed class SqlCalendarProvider : ICalendarProvider
             Title = input.Title.Trim(),
             StartUtc = input.StartUtc,
             EndUtc = input.EndUtc,
+            IsAllDay = input.IsAllDay,
             Location = input.Location,
             Notes = input.Notes,
             OwnerTags = input.OwnersCsv,
             Mark = input.NormalizedMark,
+            // Provenance and the kept photograph are create-time facts. Update deliberately leaves
+            // them alone: editing the time of an engagement does not change where it came from.
+            FromPhoto = input.FromPhoto,
+            PhotoFile = input.PhotoFile,
+            PhotoTakenUtc = input.PhotoTakenUtc,
+            // Stamped once, here, and never again — this is when the engagement was written down, not
+            // when it was last touched. `UpdatedUtc` is the one that moves.
+            CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow,
         };
         _db.CalendarEvents.Add(e);
@@ -58,6 +67,7 @@ public sealed class SqlCalendarProvider : ICalendarProvider
         e.Title = input.Title.Trim();
         e.StartUtc = input.StartUtc;
         e.EndUtc = input.EndUtc;
+        e.IsAllDay = input.IsAllDay;
         e.Location = input.Location;
         e.Notes = input.Notes;
         e.OwnerTags = input.OwnersCsv;

@@ -91,6 +91,15 @@ logs/
 # directory is the SPA build output and every deploy replaces it wholesale.
 recipe-images/
 
+# ---- Photographs read into calendar events (E3, event-capture.md D5/D6) ----
+# The same reasoning as recipe-images above, and more sharply: these are photographs of the
+# household's own post — a school flyer, a letter, a screenshot of somebody's text — kept against an
+# engagement so it can be checked later. Machine-local, content-addressed, and emphatically not
+# source. Without this line the first `git add -A` after somebody confirms a flyer commits a picture
+# of their child's school letter to the repository, which is the exact disclosure this feature spends
+# a privacy switch and a receipt line being careful about.
+event-photos/
+
 # ---- Local development TLS (scripts/make-dev-certs.sh) ----
 # A private CA key that can sign for any hostname, plus the server key it signs. Both are secrets in
 # the plain sense — anyone holding the CA key can mint a certificate the household's phones will
@@ -128,3 +137,9 @@ client/dist-ds/
 # the design project, never pasted into, so the secrets concern that rule guards against does not
 # apply. Unignored by path so the blanket rule keeps protecting every other NOTES.md.
 !.design-sync/NOTES.md
+
+# ---- Claude Code local session state ----
+# `settings.json` is the project's shared configuration and belongs in the repo. `settings.local.json`
+# is one machine's permission allowlist, grown by whoever happened to be working there, and says
+# nothing another checkout can use.
+.claude/settings.local.json

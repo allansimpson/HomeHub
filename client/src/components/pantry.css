@@ -168,7 +168,9 @@
   padding-right: 0;
 }
 
-/* The list row (§1.6). Name flexes, amount is mono, age is a fixed 64px right-aligned cell. */
+/* The list row (§1.6). Name flexes, amount is mono, age is a fixed right-aligned cell — fixed so the
+   amounts above and below it line up as a column, which they stop doing the moment it sizes to
+   content. */
 .pt-row {
   display: flex;
   align-items: center;
@@ -191,8 +193,16 @@
   color: var(--text-secondary);
 }
 
+/*
+ * The age cell is sized to its longest label, not to the shortest one that happened to be on screen
+ * when it was measured. "NEVER SEEN", "SEEN TODAY" and "SEEN 6 D" are all wider at Josefin's tracking
+ * than the spec's 64px, and a wrapped age puts a lone "D" on a second line and pushes the row taller
+ * than its neighbours. `nowrap` is the part that has to stay: without it the next long label wraps
+ * again, silently, and the width becomes something to rediscover rather than a rule.
+ */
 .pt-row__age {
-  width: 4rem;
+  width: 6rem;
+  white-space: nowrap;
   text-align: right;
   font-size: 0.6875rem;
   letter-spacing: 0.18em;

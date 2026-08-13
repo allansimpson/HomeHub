@@ -268,4 +268,118 @@ public class RecipesApiTests
         Assert.Equal(new[] { "Fry it." }, created.Steps.Select(s => s.Text));
         Assert.Equal(0, created.Steps[0].Position);
     }
+
+    // ---- Naming: what an added recipe ends up called ----
+
+    /// <summary>A pasted block with the headings a real copy carries, so the parse is not the thing
+    /// under test in the naming cases below.</summary>
+    private const string PastedBlock = """
+        Our Best-Ever Weeknight Chili
+
+        Ingredients
+
+        2 tablespoons chili powder
+        1 teaspoon ground cumin
+
+        Directions
+
+        Combine in a small bowl and mix well.
+        """;
+
+    /// <summary>
+    /// The name typed on the add screen is stored, over the one the parser reads off the block.
+    /// </summary>
+    /// <remarks>
+    /// The parser-level rule is covered in <c>PastedRecipeTests</c>; this is the wire, because the
+    /// override is only worth anything if the controller actually passes the field through.
+    /// </remarks>
+    [Fact]
+    public async Task A_typed_name_beats_the_one_at_the_top_of_a_pasted_block()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var res = await client.PostAsJsonAsync(
+            "/api/recipes/import/text", new RecipePasteInput(PastedBlock, Title: "Nana's chili"));
+
+        var imported = await res.Content.ReadFromJsonAsync<RecipeImportResponse>();
+        Assert.Equal("Nana's chili", imported!.Recipe!.Title);
+    }
+
+    /// <summary>A blank name is not a name — the block's own title still stands.</summary>
+    [Fact]
+    public async Task A_blank_typed_name_leaves_the_pasted_one_alone()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var res = await client.PostAsJsonAsync(
+            "/api/recipes/import/text", new RecipePasteInput(PastedBlock, Title: "   "));
+
+        var imported = await res.Content.ReadFromJsonAsync<RecipeImportResponse>();
+        Assert.Equal("Our Best-Ever Weeknight Chili", imported!.Recipe!.Title);
+    }
+
+    /// <summary>
+    /// An overlong typed name is a 400, and is caught before the fetcher is ever reached.
+    /// </summary>
+    /// <remarks>
+    /// Both halves matter. A 400 rather than the endpoint's <c>Empty</c> response, because the page
+    /// is fine and the name is the problem — "that page publishes no recipe data" would send someone
+    /// to fix the wrong thing. And before the fetch, so a name nobody can store does not cost a
+    /// round trip to the publisher: no network happens in this test, which is what proves it.
+    /// </remarks>
+    [Fact]
+    public async Task An_overlong_typed_name_is_refused_without_fetching_the_page()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var res = await client.PostAsJsonAsync("/api/recipes/import", new RecipeImportInput(
+            Url: "https://example.com/recipes/chili",
+            Title: new string('x', 301)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    /// <summary>
+    /// Renaming later is a plain <c>PUT</c> — the edit screen's name field, at the wire.
+    /// </summary>
+    /// <remarks>
+    /// The rest of the recipe has to survive it. A rename that quietly dropped the steps would be a
+    /// perfectly plausible bug here, because the edit form sends the whole document back and the
+    /// name is the only part it composes rather than echoes.
+    /// </remarks>
+    [Fact]
+    public async Task Renaming_keeps_everything_else_and_bumps_the_version()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+        var created = await CreateAsync(client, Simple("Our Best-Ever Weeknight Chili", "weeknight"));
+
+        var renamed = await (await client.PutAsJsonAsync(
+            $"/api/recipes/{created.Id}?baseVersion={created.Version}",
+            Simple("Nana's chili", "weeknight"))).Content.ReadFromJsonAsync<RecipeDto>();
+
+        Assert.Equal("Nana's chili", renamed!.Title);
+        Assert.Equal(created.Id, renamed.Id);
+        Assert.Equal(2, renamed.Version);
+        Assert.Equal(new[] { "2 tbsp olive oil", "1 onion, diced" }, renamed.Ingredients.Select(i => i.RawText));
+        Assert.Equal(new[] { "Heat the oil.", "Cook the onion." }, renamed.Steps.Select(s => s.Text));
+        Assert.Equal(new[] { "weeknight" }, renamed.Tags);
+    }
+
+    /// <summary>A rename to nothing is refused rather than storing an unnameable recipe.</summary>
+    [Fact]
+    public async Task Renaming_to_blank_is_refused()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+        var created = await CreateAsync(client, Simple("Chili"));
+
+        var res = await client.PutAsJsonAsync($"/api/recipes/{created.Id}", Simple("   "));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal("Chili", (await client.GetFromJsonAsync<RecipeDto>($"/api/recipes/{created.Id}"))!.Title);
+    }
 }

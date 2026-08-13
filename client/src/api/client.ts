@@ -11,6 +11,8 @@ import type {
   CalendarEventDto,
   CalendarEventInput,
   SyncCalendarDto,
+  ReadPhotoRequest,
+  ReadPhotoResponse,
   TaskItemDto,
   TaskCreateInput,
   SyncListDto,
@@ -198,24 +200,65 @@ async function streamAssistTurn(
   handlers: AssistStreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
+  /*
+   * The deadline, and what it is a deadline on.
+   *
+   * <b>Silence, not duration.</b> A turn is allowed to take as long as it takes — an agent that
+   * spends four minutes on a tool run is working, and a ceiling on the whole turn would kill exactly
+   * the long answers the streaming path exists for. What is never healthy is hearing *nothing*: the
+   * server writes a keepalive comment every fifteen seconds for the whole turn (`KeepAliveEvery`),
+   * so three missed beats means the other end is gone whatever the connection still claims.
+   *
+   * There was no deadline of any kind here, and a request that neither resolved nor rejected left
+   * the turn on "Sending" for ever, took the rest of that chat's queue down with it, and offered
+   * nobody a way out short of reloading the panel. A wait that cannot end is not a slow answer, it
+   * is a lie about one.
+   */
+  const SILENCE_MS = 45_000
+
+  // Linked by hand rather than through `AbortSignal.any`, which is too new to rely on for the phones
+  // and panels this runs on. The caller's signal still means what it meant — Stop — and this one is
+  // only ever the deadline, so the catch below can tell the two apart and say the right thing.
+  const watchdog = new AbortController()
+  let expired = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const heard = () => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = setTimeout(() => { expired = true; watchdog.abort() }, SILENCE_MS)
+  }
+  const stopWatching = () => { if (timer !== undefined) clearTimeout(timer) }
+
+  if (signal?.aborted) watchdog.abort()
+  else signal?.addEventListener('abort', () => watchdog.abort(), { once: true })
+
+  heard()
+
   let res: Response
   try {
     res = await fetch('/api/assist/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify(body),
-      signal,
+      signal: watchdog.signal,
     })
+    heard()
   } catch (cause) {
+    stopWatching()
     if (signal?.aborted) return
+    if (expired) throw new ApiError(0, 'The assistant did not answer.')
     throw new ApiError(0, cause instanceof Error ? cause.message : 'Network error')
   }
 
   if (!res.ok) {
+    stopWatching()
     const text = await res.text().catch(() => '')
     throw new ApiError(res.status, text || res.statusText)
   }
-  if (!res.body) throw new ApiError(0, 'The assistant stream returned no body.')
+  if (!res.body) {
+    stopWatching()
+    throw new ApiError(0, 'The assistant stream returned no body.')
+  }
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
@@ -246,6 +289,9 @@ async function streamAssistTurn(
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
+      // Anything at all counts, including the keepalive comment `dispatch` throws away. The question
+      // this answers is whether the other end is still there, and a colon on its own says yes.
+      heard()
       buffer += decoder.decode(value, { stream: true })
 
       // A blank line ends a frame. Anything after the last one is a partial frame still arriving.
@@ -259,7 +305,13 @@ async function streamAssistTurn(
   } catch (cause) {
     // An abort mid-stream is the user's own doing; whatever arrived is already rendered.
     if (signal?.aborted) return
+    // The deadline, said as what happened rather than as a broken pipe. The caller decides what to
+    // do about it — a turn that got as far as being named is asked about rather than mourned, see
+    // `assistTurns.execute` — but either way it ends, which is the whole point of this.
+    if (expired) throw new ApiError(0, 'The assistant stopped sending mid-answer.')
     throw cause instanceof ApiError ? cause : new ApiError(0, 'The assistant stream ended unexpectedly.')
+  } finally {
+    stopWatching()
   }
 }
 
@@ -349,6 +401,15 @@ export const api = {
     request<SettingsDto>('/settings/conversation-policy', {
       method: 'PUT', ...json({ storeConversations, retentionDays }),
     }),
+  /**
+   * Whether a photograph read into an engagement is kept with it.
+   *
+   * New engagements only — this never reaches back and deletes flyers already kept. Its own route
+   * rather than a field on the conversation policy: the same kind of decision about two different
+   * subjects, and one switch for both would mean giving up chat history to stop keeping photographs.
+   */
+  setEventPhotoPolicy: (keepEventPhotos: boolean) =>
+    request<SettingsDto>('/settings/event-photo-policy', { method: 'PUT', ...json({ keepEventPhotos }) }),
 
   // ---- Sensors ----
   getZones: () => request<ZoneReadingDto[]>('/sensors/zones'),
@@ -402,6 +463,18 @@ export const api = {
   updateEvent: (id: number, input: CalendarEventInput) =>
     request<CalendarEventDto>(`/calendar/events/${id}`, { method: 'PUT', ...json(input) }),
   deleteEvent: (id: number) => request<void>(`/calendar/events/${id}`, { method: 'DELETE' }),
+  /**
+   * Read a photograph for engagements. Returns drafts; writes nothing, and stores nothing.
+   *
+   * The photograph reaches the calendar through a decision, never through a reading — so the bytes
+   * are sent again with the write if somebody presses ADD TO CALENDAR, and are forgotten here if
+   * nobody does. `available: false` means this panel has no reader configured, which is a different
+   * fact from an empty result and is not the photograph's fault.
+   */
+  readPhoto: (input: ReadPhotoRequest) =>
+    request<ReadPhotoResponse>('/calendar/read-photo', { method: 'POST', ...json(input) }),
+  /** Where a kept photograph is served from. Not a data URL — the browser fetches it with the session. */
+  eventPhotoUrl: (id: number) => `/api/calendar/events/${id}/photo`,
 
   // ---- Tasks ----
   getTasks: () => request<TaskItemDto[]>('/tasks'),

@@ -43,6 +43,72 @@ public class ClimateLoopTests
         Assert.DoesNotContain(world.Db.ClimateUnits, u => u.Source == "simulated");
     }
 
+    /// <summary>
+    /// A real SensorPush sensor that matches none of the seeded room names still reaches the panel:
+    /// it is adopted as a watched room of its own rather than reporting into SQL forever unseen.
+    /// </summary>
+    [Fact]
+    public async Task An_unclaimed_probe_becomes_a_watched_room()
+    {
+        using var world = new LoopWorld();
+        await world.SeedAsync(probeF: 72, setPointF: 72, targetF: 72);
+        world.Db.SensorZones.Add(new SensorZone
+        {
+            Id = 2, Name = "Basement", Source = "sensorpush", ProviderRef = "abc123", DisplayOrder = 1,
+        });
+        await world.Db.SaveChangesAsync();
+
+        await world.TickAsync(Noon);
+
+        var adopted = await world.Db.ClimateZones.SingleAsync(z => z.Name == "Basement");
+        Assert.Equal(ZoneClass.Watched, adopted.Class);
+        Assert.Equal(2, adopted.SensorZoneId);
+        // Below the room that was already there, and with no target — nothing conditions it.
+        Assert.True(adopted.SortOrder > 0);
+        Assert.Null(adopted.StandingTargetF);
+        Assert.Null(adopted.ClimateUnitId);
+    }
+
+    /// <summary>Adoption runs on every tick, so it has to stop after the first one.</summary>
+    [Fact]
+    public async Task Adopting_a_probe_happens_once_and_not_again()
+    {
+        using var world = new LoopWorld();
+        await world.SeedAsync(probeF: 72, setPointF: 72, targetF: 72);
+        world.Db.SensorZones.Add(new SensorZone
+        {
+            Id = 2, Name = "Basement", Source = "sensorpush", ProviderRef = "abc123", DisplayOrder = 1,
+        });
+        await world.Db.SaveChangesAsync();
+
+        await world.TickAsync(Noon);
+        await world.TickAsync(Noon.AddMinutes(30));
+        await world.TickAsync(Noon.AddHours(1));
+
+        Assert.Single(world.Db.ClimateZones.Where(z => z.Name == "Basement"));
+    }
+
+    /// <summary>
+    /// One probe to one room. A second room of the same name gets nothing rather than quietly
+    /// steering its mini-split by a temperature taken in someone else's room.
+    /// </summary>
+    [Fact]
+    public async Task Two_rooms_never_share_one_probe()
+    {
+        using var world = new LoopWorld();
+        await world.SeedAsync(probeF: 72, setPointF: 72, targetF: 72);
+        world.Db.ClimateZones.Add(new ClimateZone
+        {
+            Id = 2, Name = "Master Bedroom", Class = ZoneClass.Watched, SortOrder = 1,
+        });
+        await world.Db.SaveChangesAsync();
+
+        await world.TickAsync(Noon);
+
+        var second = await world.Db.ClimateZones.SingleAsync(z => z.Id == 2);
+        Assert.Null(second.SensorZoneId);
+    }
+
     [Fact]
     public async Task Corrects_toward_the_target_by_the_correction_step()
     {

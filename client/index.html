@@ -31,15 +31,22 @@
       artwork). Served at /icons/ by Vite in dev and from wwwroot in production, since
       `npm run build` copies public/ verbatim.
 
-      No `rel="icon" type="image/svg+xml"` here, deliberately: the pack's svg/favicon.svg is an
-      <image> element with no href, so it draws nothing — and a browser prefers a declared SVG over
-      every PNG beside it, which would leave the tab blank. The .ico covers 16/32/48 and the 96px
-      PNG covers the rest. A real single-colour vector would still be worth having; it would also
-      give Safari a pinned-tab mask, which raster artwork cannot.
+      The SVG favicon is declared now. It could not be before: the old pack's svg/favicon.svg was an
+      <image> element with no href, so it drew nothing — and a browser prefers a declared SVG over
+      every PNG beside it, which left the tab blank. The 2026-08-10 pack replaced it with true vector
+      paths, so the tab gets the mark at any density and the .ico is what falls back for the browsers
+      that still want one.
+
+      That rebuild also brought the pinned-tab mask the old comment here asked for — a solid
+      silhouette, which is the only thing Safari will take and which raster artwork cannot provide.
+      Its `color` is the artwork's brass (#E0B145), not a token: this is the mark's own colour in a
+      place no stylesheet reaches.
     -->
     <link rel="manifest" href="/icons/manifest.webmanifest" />
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/svg+xml" href="/icons/svg/favicon.svg" />
     <link rel="icon" type="image/png" sizes="96x96" href="/icons/png/favicon-96.png" />
+    <link rel="mask-icon" href="/icons/svg/safari-pinned-tab.svg" color="#E0B145" />
 
     <!-- iOS / iPadOS home screen. A phone is a first-class surface here, not an afterthought: the
          pantry scan screen is phone-only by design, so this really does get added to home screens. -->

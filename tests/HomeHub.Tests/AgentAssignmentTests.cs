@@ -406,4 +406,28 @@ public class AgentAssignmentTests
 
         Assert.Equal(HttpStatusCode.NotFound, put.StatusCode);
     }
+    /*
+     * A listener HomeHub calls but the household never chooses.
+     *
+     * Hermes's guidance on the photograph reader is that a least-privilege extraction listener must be
+     * "an internal HomeHub service dependency, not a third household-facing agent in the UI". The
+     * roster is built from every `Hermes:Agents:*` entry, so without this flag publishing that
+     * listener would have offered a no-tools, no-memory, one-job profile in the Assist switcher.
+     */
+    [Fact]
+    public async Task An_internal_listener_is_not_offered_to_the_household()
+    {
+        using var app = new HubAppFactory
+        {
+            Agents = [("barnaby", "Barnaby", true), ("reader", "Reader", false)],
+            Settings = new() { ["Hermes:Agents:reader:Internal"] = "true" },
+        };
+        var client = app.CreateSeededClient();
+
+        var agents = await client.GetFromJsonAsync<List<AgentDto>>("/api/assist/agents");
+
+        Assert.NotNull(agents);
+        Assert.Contains(agents!, a => a.Key == "barnaby");
+        Assert.DoesNotContain(agents!, a => a.Key == "reader");
+    }
 }

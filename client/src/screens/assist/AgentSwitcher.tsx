@@ -70,12 +70,6 @@ export function AgentSwitcher({ agents, activeKey, onSelect, onDismiss }: Props)
             </button>
           )
         })}
-
-        {/* Says what switching actually does. Without it the switch reads as a filter, and somebody
-            eventually asks the wrong agent to remember what they told the other one. */}
-        <div className="ml-agentmenu__note">
-          Each agent keeps its own chats, memory and skills. Assignment is per member, in Config.
-        </div>
       </div>
     </div>
   )

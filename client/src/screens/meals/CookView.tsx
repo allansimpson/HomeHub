@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../../icons/Icon'
+import { BackButton } from '../../components/BackButton'
 import { nextComponent, normaliseForSearch, scaleLine, type ScheduleRow } from '../../app/mealsDomain'
 import { useNow } from '../../app/useNow'
 import type { RecipeDto } from '../../api/types'
@@ -84,7 +85,9 @@ export function CookView({
     <div className="ml-shell">
       <div className="ml-shell__body ml-shell__body--noavatar">
         <header className="ml-cook__header">
-          <button type="button" className="ml-backbtn" onClick={onBack} aria-label="Back">◂</button>
+          {/* The shared control rather than the class alone: this is the same 44px box every other
+              drill-in draws, and holding a copy of its mark here is how the two drifted apart. */}
+          <BackButton onClick={onBack} />
           <span className="ml-cook__title serif">{recipe.title}</span>
           <span className="ml-cook__modes" role="tablist">
             <button type="button" role="tab" aria-selected={false} className="ml-cook__mode" onClick={onRead}>READ</button>

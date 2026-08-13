@@ -73,6 +73,16 @@ export interface AssistTurn {
   /** True once the first character has arrived — the moment the panel stops looking asleep. */
   started: boolean
   /**
+   * True once the server has named the turn — it is on the other end and being worked on.
+   *
+   * <b>The difference between two waits that looked identical.</b> Before the server says `open`,
+   * nothing is known to have left the panel; after it, an agent is thinking and the wait is honest.
+   * Both used to draw as the word "Sending", so a turn that never went out and a turn that was
+   * taking forty seconds to reason were the same sentence — and a morning went into telling them
+   * apart by reading server logs, which is not a thing anybody standing at a panel can do.
+   */
+  opened: boolean
+  /**
    * Sent by the member, not yet sent to the agent: there is a turn ahead of it in this chat.
    *
    * On screen from the moment it is typed. A queued message that stayed invisible until its turn
@@ -127,6 +137,12 @@ export interface TurnAttachment {
   text: string | null
   /** An object URL for the thumbnail. Owned by whoever created it; the store only passes it along. */
   preview: string | null
+  /**
+   * EXIF `DateTimeOriginal` as an ISO instant, or null — read before the downscale that would have
+   * stripped it. Travels with the turn because the write that keeps the photograph happens later,
+   * from the confirm sheet, and by then the original file is long gone.
+   */
+  takenAt: string | null
 }
 
 /** The one send path, from the provider. */
@@ -191,6 +207,65 @@ export function selectTurns(
     ? all.filter((t) => t.group === newestUnnamedGroup(all))
     : all.filter((t) => t.group === keyFor(conversationId) || t.conversationId === conversationId)
   return mine.sort((a, b) => a.seq - b.seq)
+}
+
+/** A chat the inbox can list before the server has one to list. */
+export interface PendingChat {
+  /** The member's opening message, which is also what the chat will be named after. */
+  title: string
+  /** The reply so far, or what went wrong. */
+  preview: string
+  /**
+   * Where a stored row shows a time.
+   *
+   * Four waits, not one. <b>Sending</b> is the only one where nothing is known to have reached the
+   * server, and it is the one that used to cover all of them — including a turn the agent had been
+   * reasoning over for a minute, and a turn that was never going anywhere. They are different
+   * situations and only one of them is worth worrying about.
+   */
+  status: 'Sending' | 'Thinking' | 'Replying' | 'Just now' | 'Failed'
+}
+
+/**
+ * The chat that has been started but does not exist yet, for the inbox to draw.
+ *
+ * <b>Nothing is written until a turn ends.</b> The server persists a conversation on the way out of
+ * the stream (`AssistController.StreamChat`), which is deliberate — the member's words and the reply
+ * land together, so there is no half-chat to reconcile if the panel dies mid-answer. The cost is a
+ * window: type a first message, go back to the inbox before the agent has finished, and the list has
+ * nothing to show, because as far as the database is concerned the chat has not happened. The turn is
+ * fine — it lives here, above the router — but with no row for it there is no way back in, and the
+ * only cure was waiting on a screen you had already left.
+ *
+ * Reads the same group {@link selectTurns} gives `/assist/c`, so the row and the route cannot
+ * disagree about which chat it is.
+ *
+ * <b>It stands down when the real row arrives, not when the id does.</b> Those are different moments
+ * — the id comes back on the stream's last event, and the list that will carry the row is a round
+ * trip behind it. Standing down on the id leaves a gap where the chat is in neither place, which is
+ * the same disappearing act this exists to fix, only shorter.
+ */
+export function selectPendingChat(
+  turns: Record<string, AssistTurn>,
+  knownIds: readonly number[],
+): PendingChat | null {
+  const group = selectTurns(turns, null)
+  if (group.length === 0) return null
+
+  const landed = group.find((t) => t.conversationId !== null)?.conversationId ?? null
+  if (landed !== null && knownIds.includes(landed)) return null
+
+  const first = group[0]
+  const last = group[group.length - 1]
+  return {
+    title: first.prompt,
+    preview: last.error ?? last.text,
+    status: last.error ? 'Failed'
+      : last.done ? 'Just now'
+      : last.started ? 'Replying'
+      : last.opened ? 'Thinking'
+      : 'Sending',
+  }
 }
 
 /** The most recently opened unnamed chat, by the newest turn in it. */
@@ -352,6 +427,14 @@ export function useAssistTurns(stream: StreamFn, agentKey: string | null): TurnS
 
   const drop = useCallback((key: string) => {
     forget(key)
+    // Out of the ref too, for the reason `runTurn` puts it there: a turn dropped before its chain
+    // reaches it — Stop on something still queued — must not be found and sent by the `execute` that
+    // arrives a microtask later, and must not go on counting as this chat being busy.
+    if (turnsRef.current[key]) {
+      const without = { ...turnsRef.current }
+      delete without[key]
+      turnsRef.current = without
+    }
     setTurns((prev) => {
       if (!prev[key]) return prev
       const next = { ...prev }
@@ -506,7 +589,10 @@ export function useAssistTurns(stream: StreamFn, agentKey: string | null): TurnS
         turn.prompt,
         turn.conversationId,
         {
-          onOpen: (turnId) => turnIds.current.set(key, turnId),
+          onOpen: (turnId) => {
+            turnIds.current.set(key, turnId)
+            patch(key, { opened: true })
+          },
           onDelta: (text) => {
             // First character: straight to the screen, no frame wait. Everything after it joins
             // the next repaint.
@@ -596,14 +682,34 @@ export function useAssistTurns(stream: StreamFn, agentKey: string | null): TurnS
       const waiting = Object.values(turnsRef.current)
         .some((t) => t.group === group && !t.error && !t.done)
 
-      setTurns((prev) => ({
-        ...prev,
-        [key]: {
-          key, group, seq: mySeq, conversationId, prompt, attachment,
-          text: '', thinking: '', tool: null, started: false, queued: waiting, recovering: false,
-          done: false, stopping: false, messageId: 0, outcome: null, error: null,
-        },
-      }))
+      const created: AssistTurn = {
+        key, group, seq: mySeq, conversationId, prompt, attachment,
+        text: '', thinking: '', tool: null, started: false, opened: false, queued: waiting,
+        recovering: false, done: false, stopping: false, messageId: 0, outcome: null, error: null,
+      }
+
+      /*
+       * Into the ref as well as into state, and into the ref first.
+       *
+       * `execute` reads the turn back out of `turnsRef` when the chat's chain reaches it, and the
+       * first link of that chain is a microtask. Where React schedules the re-render as a *task*
+       * instead — an update raised from an effect, which is exactly how the inbox hands a prompt to
+       * the chat screen — the lookup ran before the render that would have put the turn there.
+       *
+       * What that cost was invisible: `execute` found nothing, read it as "cancelled while it
+       * waited", and returned success having sent nothing. No request, no error, and a turn sitting
+       * on Sending for ever with the rest of the chat's queue stacked behind it, because `queued` is
+       * cleared by the same call that never ran. The same message typed inside an open chat went out
+       * fine — a tap is a discrete event, React flushes those in a microtask of their own, and that
+       * microtask is queued before this one. Two paths, one of them racing, and which one won varied
+       * by device.
+       *
+       * The ref is a mirror of state, so seeding it costs nothing: the next render overwrites it with
+       * the committed value, which by then says the same thing. It also makes `waiting` above honest
+       * for a second turn raised in the same tick as the first — it could not see it either.
+       */
+      turnsRef.current = { ...turnsRef.current, [key]: created }
+      setTurns((prev) => ({ ...prev, [key]: created }))
 
       // Appended to this chat's chain either way — `execute` is what a failure ahead of it resolves
       // into, so a turn is never stranded behind one that went wrong.

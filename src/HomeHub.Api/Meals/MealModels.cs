@@ -279,7 +279,15 @@ public record MealEatenInput(DateOnly Date, MealSlot Slot, bool? WasEaten);
 /// Import a recipe from a link. <see cref="ProfileId"/> is optional and only sets attribution —
 /// there is no authentication on this endpoint to derive it from (meals-planning.md D6).
 /// </summary>
-public record RecipeImportInput(string Url, int? ProfileId = null);
+public record RecipeImportInput(
+    string Url,
+    /// <summary>
+    /// What to call it, when the household typed a name on the add screen. Overrides the page's own
+    /// title rather than filling in for it: a publisher's "Our Best-Ever Weeknight Chili (Really!)"
+    /// is a headline, and the folder is browsed by the name the household would actually say.
+    /// </summary>
+    string? Title = null,
+    int? ProfileId = null);
 
 /// <summary>
 /// A recipe copied off a page and pasted in, for publishers that refuse the fetcher.
@@ -291,7 +299,11 @@ public record RecipeImportInput(string Url, int? ProfileId = null);
 public record RecipePasteInput(
     string Text,
     string? SourceUrl = null,
-    /// <summary>Used when the block has no line that reads as a name — the box on the screen.</summary>
+    /// <summary>
+    /// What to call it, from the box on the add screen. Overrides the name the parser reads off the
+    /// top of the block — a typed name is a decision, and the parser's is a guess at where the
+    /// recipe started.
+    /// </summary>
     string? Title = null,
     /// <summary>The cuisine chip, which the parser has no way to read off a block of text.</summary>
     IReadOnlyList<string>? Tags = null,

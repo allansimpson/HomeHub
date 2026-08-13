@@ -177,3 +177,23 @@ export function alertTarget(source: string): string {
   if (kind === 'baby') return '/care?subject=conrad'
   return kind === 'sensor' && id ? `/sensor?zone=${id}` : '/sensor'
 }
+
+/**
+ * The banner headline for an alert: the part of the message before the colon.
+ *
+ * NWS writes these as `Winter Storm Warning: heavy snow expected…`, so the head of the message is
+ * already the name of the thing, and the name is what a banner is for.
+ *
+ * **Only when there is a colon to split on.** Weather's banner used `split(':')[0] || 'Weather Alert'`,
+ * which for a message without one returns the whole message — printing it as the title *and* as the
+ * detail underneath. A generic word is better than the same sentence twice.
+ *
+ * Shared, because the same alert is bannered on two screens now and two screens naming one storm
+ * differently is worse than either name on its own.
+ */
+export function alertHeadline(alert: { message: string; severity: string; source: string }): string {
+  const head = alert.message.split(':')[0].trim()
+  if (head && head !== alert.message.trim()) return head
+  if (alert.severity === 'Severe') return 'Severe Alert'
+  return alert.source.split(':')[0] === 'weather' ? 'Weather Alert' : 'Alert'
+}

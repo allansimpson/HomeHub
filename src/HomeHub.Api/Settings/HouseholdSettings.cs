@@ -51,6 +51,21 @@ public class HouseholdSettings
     /// <summary>High-ambient token boost mode: "auto" (light sensor / daytime), "on", or "off".</summary>
     public string DaylightBoost { get; set; } = "auto";
 
+    /// <summary>
+    /// Whether a photograph an engagement was read from is kept alongside it.
+    /// </summary>
+    /// <remarks>
+    /// <b>On by default, because the picture is the receipt.</b> This feature manufactures uncertain
+    /// data — a year nobody printed, a finish nobody stated — and marks it amber so somebody checks
+    /// it. Checking means looking at the flyer, which only works if the flyer is still there.
+    /// <para>
+    /// Turning it off changes nothing that already exists: the switch governs new engagements, and
+    /// photographs already kept stay kept. It is off-by-choice rather than off-by-neglect, so the
+    /// confirmation receipt stops claiming the photo was kept the moment it changes.
+    /// </para>
+    /// </remarks>
+    public bool KeepEventPhotos { get; set; } = true;
+
     // Alert thresholds moved to per-zone AlertThreshold rows in Stage 2 (the engine's source of
     // truth); the Settings screen edits those directly.
 

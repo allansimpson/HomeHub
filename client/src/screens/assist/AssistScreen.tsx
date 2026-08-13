@@ -4,6 +4,7 @@ import { ScreenShell } from '../../components/ScreenShell'
 import { SectionLabel } from '../../components/SectionLabel'
 import { Icon } from '../../icons/Icon'
 import { useAssist } from '../../app/AssistProvider'
+import { selectPendingChat } from '../../app/assistTurns'
 import { useSession } from '../../app/SessionProvider'
 import { useVoice } from '../../app/VoiceProvider'
 import { api, ApiError } from '../../api/client'
@@ -44,7 +45,7 @@ export function AssistScreen() {
   const { activeProfileId } = useSession()
   const {
     conversations, agent, agents, agentKey, selectAgent,
-    archivedCount, storeConversations, loading, otherUnread, patch, remove, refresh,
+    archivedCount, storeConversations, loading, otherUnread, patch, remove, refresh, turns,
   } = useAssist()
 
   const [query, setQuery] = useState('')
@@ -61,6 +62,12 @@ export function AssistScreen() {
     pinned: conversations.filter((c) => c.pinned),
     rest: conversations.filter((c) => !c.pinned),
   }), [conversations])
+
+  /** The chat that has been started but does not exist yet — see {@link selectPendingChat}. */
+  const pendingChat = useMemo(
+    () => selectPendingChat(turns, conversations.map((c) => c.id)),
+    [turns, conversations],
+  )
 
   const openChat = useCallback((id: number) => navigate(`/assist/c/${id}`), [navigate])
 
@@ -163,7 +170,9 @@ export function AssistScreen() {
   const agentName = agent?.name ?? 'Assist'
 
   const selecting = selection !== null
-  const empty = !loading && conversations.length === 0
+  // A first chat still being written is not an empty inbox. Showing "No chats yet" over the top of a
+  // turn the panel is actively streaming is the same lie the missing row was, told louder.
+  const empty = !loading && conversations.length === 0 && !pendingChat
 
   /**
    * Nothing on this panel that a search could return.
@@ -289,6 +298,19 @@ export function AssistScreen() {
           <AssistEmpty agentName={agentName} storing={storeConversations} archived={archivedCount} />
         ) : (
           <>
+            {/* Above PINNED, and above everything: it is the newest thing here and the only one still
+                happening. Not swipeable and not selectable — archive, pin and delete all need an id,
+                and offering gestures that cannot fire would be worse than not offering them. */}
+            {pendingChat && !selecting && (
+              <PendingChatRow
+                agentName={agentName}
+                title={pendingChat.title}
+                preview={pendingChat.preview}
+                status={pendingChat.status}
+                onOpen={() => navigate('/assist/c')}
+              />
+            )}
+
             {pinned.length > 0 && (
               <>
                 <SectionLabel label="Pinned" />
@@ -380,6 +402,44 @@ export function AssistScreen() {
         />
       )}
     </ScreenShell>
+  )
+}
+
+/**
+ * The row for a chat that is still being written — see `pendingChat` for why one is needed.
+ *
+ * Shaped like a {@link ChatRow} and deliberately not one. A `ChatRow` is a conversation: it swipes to
+ * archive, holds to select, and every one of those needs an id this chat does not have yet. What is
+ * left is the part that matters here — the words, who is answering, and a way back in.
+ *
+ * The title is the member's own message, which is also what the chat will be called: the server names
+ * an opening turn from its prompt (`AssistTitle.From`), so the row does not rename itself out from
+ * under anybody when the real one arrives.
+ */
+function PendingChatRow({ agentName, title, preview, status, onOpen }: {
+  agentName: string
+  title: string
+  preview: string
+  status: string
+  onOpen: () => void
+}) {
+  return (
+    <div className="ml-chatrow__slot">
+      <button type="button" className="ml-chatrow ml-chatrow--pending" onClick={onOpen}>
+        <span className="ml-chatrow__main">
+          <span className="ml-chatrow__title">{title}</span>
+          <span className="ml-chatrow__preview">
+            <span className="ml-chatrow__speaker">{`${agentName} — `}</span>
+            {/* The reply so far, or what is holding it up. Never blank: a preview line that empties
+                itself while a row is on screen reads as the chat losing its contents. */}
+            {preview.trim() || 'Writing…'}
+          </span>
+        </span>
+        <span className="ml-chatrow__aside">
+          <span className="ml-chatrow__time">{status}</span>
+        </span>
+      </button>
+    </div>
   )
 }
 

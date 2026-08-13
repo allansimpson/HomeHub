@@ -23,11 +23,16 @@ interface Draft {
 }
 
 /**
- * Edit amounts (MEALS_SCREEN §8, ids 2d form / 4e conflict).
+ * Edit a recipe (MEALS_SCREEN §8, ids 2d form / 4e conflict).
  *
- * Deliberately narrow: amounts and units only, plus the base servings they refer to. The
- * descriptive tail of each line is shown but not editable here, because it is the source's wording
- * and the thing this form exists to fix is "the recipe says 4 and we always cook 6".
+ * Deliberately narrow: the name, the amounts and units, and the base servings those amounts refer
+ * to. The descriptive tail of each line is shown but not editable here, because it is the source's
+ * wording and the thing this form exists to fix is "the recipe says 4 and we always cook 6".
+ *
+ * **The name is editable because nothing else could rename a recipe.** An importer's title is the
+ * publisher's headline, a paste takes whatever line sat above the ingredients, and both are wrong
+ * often enough that a folder full of them stops being browsable. There is no separate rename screen
+ * and there should not be — renaming is an edit, and this is where edits happen.
  */
 export function RecipeEditScreen() {
   const navigate = useNavigate()
@@ -38,6 +43,8 @@ export function RecipeEditScreen() {
 
   const recipeId = Number(id)
   const [recipe, setRecipe] = useState<RecipeDto | null>(null)
+  /** The name as edited. Blank is not savable — the server requires a title and so does the folder. */
+  const [title, setTitle] = useState('')
   const [lines, setLines] = useState<Draft[]>([])
   const [servings, setServings] = useState<number | null>(null)
   const [focused, setFocused] = useState<number | null>(null)
@@ -58,11 +65,12 @@ export function RecipeEditScreen() {
    */
   const dirty = useMemo(() => {
     if (!recipe) return false
+    if (title.trim() !== recipe.title) return true
     if (servings !== recipe.servings) return true
     const original = recipe.ingredients.map(toDraft)
     if (original.length !== lines.length) return true
     return lines.some((l, i) => l.amount !== original[i]?.amount || l.unit !== original[i]?.unit)
-  }, [recipe, lines, servings])
+  }, [recipe, title, lines, servings])
 
   /** The lines whose amounts differ, for WHAT YOU CHANGED. */
   const changed = useMemo(() => {
@@ -86,6 +94,7 @@ export function RecipeEditScreen() {
       const next = await api.getRecipe(recipeId)
       if (cancelled) return
       setRecipe(next)
+      setTitle(next.title)
       setServings(next.servings)
       setLines(next.ingredients.map(toDraft))
     })()
@@ -105,10 +114,10 @@ export function RecipeEditScreen() {
   const close = () => navigate(-1)
 
   const save = useCallback(async () => {
-    if (!recipe) return
+    if (!recipe || !title.trim()) return
     setSaving(true)
     try {
-      await api.updateRecipe(recipeId, buildInput(recipe, lines, servings, activeProfileId), recipe.version)
+      await api.updateRecipe(recipeId, buildInput(recipe, title, lines, servings, activeProfileId), recipe.version)
       await refresh()
       close()
     } catch (err) {
@@ -123,7 +132,19 @@ export function RecipeEditScreen() {
       setSaving(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, recipeId, lines, servings, activeProfileId, refresh])
+  }, [recipe, recipeId, title, lines, servings, activeProfileId, refresh])
+
+  /**
+   * The name to open the fork sheet with.
+   *
+   * A rename typed into the form above is already the name this version was meant to have, so it
+   * seeds the sheet verbatim. Untouched, it falls back to the parent's name plus a suffix — two
+   * recipes called "Chicken Piccata" is a folder nobody can read.
+   */
+  const forkSeed = () => {
+    const typed = title.trim()
+    return typed && recipe && typed !== recipe.title ? typed : `${recipe?.title ?? ''} — our version`
+  }
 
   /**
    * Save the edit as a new recipe. The original is not written to at all — not even a version bump,
@@ -156,8 +177,8 @@ export function RecipeEditScreen() {
 
   /** Re-save my values over theirs, against the version they left behind. */
   const keepMine = async () => {
-    if (!recipe || !theirs) return
-    await api.updateRecipe(recipeId, buildInput(recipe, lines, servings, activeProfileId), theirs.version)
+    if (!recipe || !theirs || !title.trim()) return
+    await api.updateRecipe(recipeId, buildInput(recipe, title, lines, servings, activeProfileId), theirs.version)
     await refresh()
     close()
   }
@@ -167,15 +188,27 @@ export function RecipeEditScreen() {
    * discard: the point of showing a per-line diff is that only some of the lines are contested.
    */
   const useTheirs = () => {
-    if (!theirs) return
+    if (!theirs || !recipe) return
     const byId = new Map(theirs.ingredients.map((i) => [i.id, toDraft(i)]))
     setLines((prev) => prev.map((mine) => byId.get(mine.id) ?? mine))
+    // The name follows the same rule as the lines: theirs is taken only where I did not type over
+    // it. A rename I made is an edit like any other and USE THEIRS does not discard those.
+    setTitle((mine) => (mine.trim() === recipe.title ? theirs.title : mine))
     setRecipe(theirs)
     setServings(theirs.servings)
     setTheirs(null)
   }
 
   const differing = useMemo(() => (theirs ? diffLines(lines, theirs) : []), [lines, theirs])
+
+  /**
+   * Did the other device rename it?
+   *
+   * Called out separately because the per-line diff below cannot show it, and because KEEP MINE
+   * would otherwise write my name over their rename with nothing on screen having mentioned it —
+   * the one silent overwrite the conflict screen exists to prevent.
+   */
+  const renamedElsewhere = theirs != null && recipe != null && theirs.title !== recipe.title
 
   if (!recipe) {
     return <MealsModal title="RECIPE" onCancel={close}><div className="ml-recipe__skeleton" /></MealsModal>
@@ -220,13 +253,15 @@ export function RecipeEditScreen() {
 
   return (
     <MealsModal
-      title="EDIT AMOUNTS"
+      title="EDIT RECIPE"
       onCancel={close}
       confirm={
         <button
           type="button"
           className={'ml-edit__save' + (theirs ? ' ml-edit__save--inert' : '')}
-          disabled={theirs != null || saving}
+          // A blank name is refused here rather than by the server: the PUT would 400 after every
+          // amount had already been typed, which is the worst possible moment to find out.
+          disabled={theirs != null || saving || !title.trim()}
           // Once anything has changed, SAVE becomes a two-way choice (MEALS_FORK §1). The intent to
           // fork forms *while* you are typing, not as a "duplicate" you had to think of in advance —
           // so the affordance belongs at the moment of saving, and nowhere earlier.
@@ -264,7 +299,7 @@ export function RecipeEditScreen() {
             <button
               type="button"
               className="ml-edit__forkinstead"
-              onClick={() => setForkName(`${recipe.title} — our version`)}
+              onClick={() => setForkName(forkSeed())}
             >
               SAVE MINE AS MY OWN VERSION
             </button>
@@ -273,6 +308,27 @@ export function RecipeEditScreen() {
 
         {theirs && (
           <>
+            {/* Above the lines and under its own heading, not folded into the LINES count — a
+                rename is not a line, and burying it in a list of amounts is how it would get
+                agreed to by accident. */}
+            {renamedElsewhere && (
+              <>
+                <MealsLabel label="THE NAME DIFFERS" />
+                <div className="ml-edit__diff">
+                  <span className="ml-edit__diffname">What it is called</span>
+                  <div className="ml-edit__diffcells">
+                    <span className="ml-edit__yours">
+                      <span className="ml-edit__difflabel">YOURS</span>
+                      <span className="ml-edit__diffvalue">{title.trim() || '—'}</span>
+                    </span>
+                    <span className="ml-edit__theirs">
+                      <span className="ml-edit__difflabel">THEIRS</span>
+                      <span className="ml-edit__diffvalue">{theirs.title}</span>
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
             <MealsLabel label="WHAT DIFFERS" status={`${differing.length} LINE${differing.length === 1 ? '' : 'S'}`} />
             {differing.map(({ mine, their }) => (
               <div className="ml-edit__diff" key={mine.id}>
@@ -290,8 +346,9 @@ export function RecipeEditScreen() {
               </div>
             ))}
             <p className="ml-edit__diffwhy">
-              KEEP MINE writes your amounts over theirs. USE THEIRS takes their value for the lines
-              above and leaves every other edit you made alone.
+              KEEP MINE writes your version over theirs, the name included. USE THEIRS takes their
+              value for anything above you did not type over yourself, and leaves every other edit
+              you made alone.
             </p>
             <RuleLine>
               NOTHING IS SAVED UNTIL YOU CHOOSE · THE FORM STAYS OPEN OFFLINE AND REPLAYS ON RECONNECT
@@ -303,6 +360,35 @@ export function RecipeEditScreen() {
           <Icon id="ico-person" size="1.1875rem" />
           <span>Your copy. Edits stay on the panel and the source link is kept for reference.</span>
         </div>
+
+        {/*
+          The name, first, because it is the thing the folder is read by.
+
+          An importer hands back the publisher's headline and a paste takes whatever line sat above
+          the ingredients — both are right often enough to be worth keeping and wrong often enough
+          that there has to be a way to fix them.
+
+          A rename reaches everything that joins to the recipe — the folder and every night on the
+          week plan read `Recipe.Title` live — but **not** a shopping list already built, because a
+          grocery line stores the title it was added under rather than a link to it. That is the
+          right call there (a list should still say where a line came from after the recipe is
+          deleted) and it is the one surprise in a rename, so the rule line below says so.
+
+          Empty is refused at SAVE rather than snapped back while typing — clearing the box on the
+          way to typing a new name is what everybody does first. The label says REQUIRED while it is
+          blank and the box is left alone; amber here would be an alert, and this is not one.
+        */}
+        <MealsLabel label="NAME" status={title.trim() ? undefined : 'REQUIRED'} />
+        <input
+          className="ml-edit__name"
+          value={title}
+          maxLength={300}
+          aria-label="Recipe name"
+          placeholder="What the household calls it"
+          onChange={(e) => { setTitle(e.target.value); setTheirs(null) }}
+        />
+        {/* Both halves are worth the line: the reach nobody expects, and the one place it stops. */}
+        <RuleLine>THE FOLDER AND THE WEEK FOLLOW A RENAME · SHOPPING LIST LINES KEEP THE OLD NAME</RuleLine>
 
         <div className="ml-edit__base">
           <span className="ml-edit__basemain">
@@ -424,7 +510,7 @@ export function RecipeEditScreen() {
           <button
             type="button"
             className="ml-forkchoice__opt ml-forkchoice__opt--fork"
-            onClick={() => setForkName(`${recipe.title} — our version`)}
+            onClick={() => setForkName(forkSeed())}
           >
             <span className="ml-forkchoice__opttitle">Save as your own version</span>
             <span className="ml-forkchoice__optsub">{`${recipe.title} is left exactly as it was`}</span>
@@ -489,7 +575,7 @@ function ForkSheet({
       }
     >
       <ScrollArea>
-        <MealsLabel label="CALL IT" />
+        <MealsLabel label="NAME" />
         <input
           className="ml-fork__name"
           value={name}
@@ -613,7 +699,9 @@ function parseAmount(text: string): number | null {
  * source's wording survives an edit that only ever meant to change a number. `sourceUrl` and
  * `importMethod` are not sent at all, which is what keeps provenance intact through the round trip.
  */
-function buildInput(recipe: RecipeDto, lines: Draft[], servings: number | null, editor: number | null) {
+function buildInput(
+  recipe: RecipeDto, title: string, lines: Draft[], servings: number | null, editor: number | null,
+) {
   const ingredients: RecipeIngredientInput[] = lines
     .filter((l) => l.amount.trim() || l.unit.trim() || l.tail.trim())
     .map((l) => ({
@@ -626,7 +714,10 @@ function buildInput(recipe: RecipeDto, lines: Draft[], servings: number | null, 
     }))
 
   return {
-    title: recipe.title,
+    // The one field on this form that is a replace rather than a repair. Falls back to the stored
+    // title rather than sending an empty one: the callers already refuse a blank name, and a PUT
+    // that 400s after the amounts were typed is a worse failure than an unchanged name.
+    title: title.trim() || recipe.title,
     description: recipe.description,
     sourceUrl: recipe.sourceUrl,
     sourceName: recipe.sourceName,

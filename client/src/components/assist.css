@@ -159,6 +159,12 @@
   cursor: pointer;
 }
 
+/* The last row now ends the panel. Its separator would land on the panel's own border and read as
+   one thickened, slightly mismatched edge, so the row stops drawing and the panel closes itself. */
+.ml-agentmenu__row:last-child {
+  border-bottom: none;
+}
+
 .ml-agentmenu__row--active {
   background: var(--bg-active);
 }
@@ -205,16 +211,6 @@
   color: var(--bg-screen);
   font-size: 0.75rem;
   font-weight: 600;
-}
-
-.ml-agentmenu__note {
-  padding: 0.625rem 1.125rem 0.75rem;
-  border-top: var(--control-border) solid var(--rule-minor);
-  font-size: 0.6875rem;
-  font-weight: 300;
-  letter-spacing: 0.08em;
-  line-height: 1.5;
-  color: var(--text-disabled);
 }
 
 /* ---- Search, and the selection toolbar it turns into (1g) ---- */
@@ -514,6 +510,18 @@
 }
 
 .ml-chatrow--unread .ml-chatrow__time {
+  color: var(--brass-bright);
+}
+
+/*
+ * The chat that is still being written — a turn in flight with no conversation behind it yet.
+ *
+ * Brass on the status word where a stored row shows a time, because that word is the whole difference
+ * between this row and the ones under it: something is happening, and it is happening now. Nothing
+ * else is restyled. It should read as a chat in the list rather than as a notice about one — the
+ * household is coming back to it, not being told about it.
+ */
+.ml-chatrow--pending .ml-chatrow__time {
   color: var(--brass-bright);
 }
 
@@ -1084,25 +1092,56 @@
  * The attach menu, anchored to the composer rather than sheeted up from the bottom of the screen.
  *
  * The composer is what you are operating, and it should not slide away while you choose what to put
- * in it. Brass along the top edge, which is the app's mark for "this panel is the live thing"; the
- * rest is the ordinary tile border so it reads as belonging to the composer below it.
+ * in it. Brass along the top edge, which is the app's mark for "this panel is the live thing".
+ *
+ * <b>Full width, like the listening band.</b> These are the two panels the composer raises over the
+ * screen, and they were different shapes — one edge to edge, one inset by a gutter and boxed on all
+ * four sides. Matched to the band, which is the one that already reads as the composer taking the
+ * screen over. The side borders go with the inset: a hairline sitting on the glass is not a frame,
+ * and on a rounded phone screen it is a hairline sitting *under* the corner.
  */
 .ml-attachmenu {
   position: absolute;
-  left: var(--gutter);
-  right: var(--gutter);
+  left: 0;
+  right: 0;
   bottom: 100%;
   z-index: 2;
   margin-bottom: 0.5rem;
-  border: var(--control-border) solid var(--border-inactive);
   border-top: 0.125rem solid var(--brass);
+  border-bottom: var(--control-border) solid var(--border-inactive);
   background: var(--bg-tile);
   display: flex;
   flex-direction: column;
+  animation: ml-attachmenu-in 160ms ease;
 }
 
+/*
+ * It rises out of the control that opened it.
+ *
+ * Half a rem, not the keyboard's 1.5 — this panel is already touching the composer's top edge, so it
+ * has nowhere to come *from*; the move only has to say which control it belongs to. 160ms is the
+ * duration the rest of Assist's entrances use (`ml-seltool-in`).
+ *
+ * `from` only. The end state is whatever the rule above computed, so the menu cannot be left holding
+ * an opacity or a transform if either is ever changed there.
+ */
+@keyframes ml-attachmenu-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+}
+
+/* The scrim comes up with it. A panel that eases in over a background that switched to 72% in one
+   frame is still a pop — just a pop with a slower thing on top of it. */
+@keyframes ml-composer-scrim-in {
+  from { opacity: 0; }
+}
+
+/* Padded to the screen's gutter now that the panel reaches the edge, so the label and the icons under
+   it line up with the plus that opened them rather than starting a third of an inch further in. */
 .ml-attachmenu__label {
-  padding: 0.875rem 1.125rem 0.625rem;
+  padding: 0.875rem var(--gutter) 0.625rem;
   font-size: 0.6875rem;
   letter-spacing: 0.28em;
   text-transform: uppercase;
@@ -1113,7 +1152,7 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 0.875rem 1.125rem;
+  padding: 0.875rem var(--gutter);
   border-top: var(--control-border) solid var(--rule-minor);
   font-size: 1.0625rem;
   font-weight: 300;
@@ -1127,20 +1166,105 @@
 }
 
 /*
- * The scrim behind the menu.
+ * The scrim behind the menu, and behind the listening band.
  *
  * A real element rather than a document-level listener, so the tap that dismisses the menu is only
  * that — a listener would let the same tap land on whatever row was underneath and open a chat on the
  * way out. It dims the transcript rather than blacking it: the conversation is still the context for
- * what you are attaching to it.
+ * what you are attaching to it, and the same is true of what you are saying into it.
+ *
+ * One declaration for both, deliberately. These are the two states where the composer row takes the
+ * screen over, and two scrims that were *nearly* the same shade would read as a bug in whichever one
+ * you saw second.
  */
-.ml-composer__scrim {
+.ml-composer__scrim,
+.ml-listening__scrim {
   position: fixed;
   inset: 0;
   z-index: 1;
   background: var(--bg-screen);
-  opacity: 0.6;
+  /* 0.72, which is the alpha every other scrim in the app already uses — the agent menu's and the
+     pantry sheet's. At 0.6 the transcript underneath still competed for the eye. */
+  opacity: 0.72;
   cursor: default;
+}
+
+/* Only this half animates. The listening band arrives by *replacing* the composer rather than opening
+   over it, so its scrim is already part of a swap the eye reads as one move. */
+.ml-composer__scrim {
+  animation: ml-composer-scrim-in 160ms ease;
+}
+
+/*
+ * Both scrims swallow taps. The difference is only what a tap on one *does*.
+ *
+ * The menu's is a button, because a menu needs a way out. This one is not: listening already has its
+ * way out in the stop control the band draws, and in the five seconds of quiet that end it by
+ * themselves.
+ *
+ * <b>It used to let taps through</b> — `pointer-events: none` — on the reasoning that swallowing
+ * them would make the rest of the panel unreachable until the mic timed out. That was true when the
+ * bottom nav went dark along with everything else, and it is not true now the nav sits above the
+ * dimming: the part of the screen that still works is exactly the part that still looks like it
+ * works. What the old rule actually shipped was a dimmed screen whose buttons quietly still fired,
+ * so a tap meant for nothing in particular opened a recipe behind the microphone.
+ *
+ * Dark and dead, or lit and live. Anything in between is the panel lying about what it will do.
+ */
+.ml-listening__scrim {
+  /* Not a tap target, just a floor for taps to land on. `aria-hidden` in the markup keeps it out of
+     the reading order, where it has nothing to say. */
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ml-attachmenu,
+  .ml-composer__scrim {
+    animation: none;
+  }
+}
+
+/*
+ * The composer is not part of what goes dark. It is the thing being operated — you are choosing what
+ * to attach *to it* — and a message field greyed out under its own menu reads as disabled.
+ *
+ * Lifted a child at a time rather than by putting the z-index on `.ml-composer` itself, which is the
+ * move that looks right and is not: a z-index there makes the composer a stacking context, the scrim
+ * is inside it, and everything painting before the scrim goes dark again — which is the whole row.
+ * These are its siblings, so they simply out-rank it.
+ */
+.ml-composer__error,
+.ml-attachdraft,
+.ml-composer__row {
+  position: relative;
+  z-index: 2;
+}
+
+/* Above its own scrim, at the level the attach menu sits at for the same reason: it is the live
+   thing on the screen. Base styles are with the rest of the band in ledger.css.
+
+   Opaque, so the shadow below has an edge to be cast by: the band drew no background of its own and
+   sat directly on the dimmed screen, which is invisible while the scrim happens to be the screen's
+   own colour and stops being invisible the moment either one changes. */
+.ml-listening {
+  position: relative;
+  z-index: 2;
+  background: var(--bg-screen);
+}
+
+/*
+ * A little lift under the top edge of both panels.
+ *
+ * The app is otherwise flat — two box-shadows in the whole stylesheet, and both are glows rather than
+ * depth — so this is deliberately the smallest amount that does the job: the scrim says the screen
+ * behind is inactive, and the shadow says the panel is in front of it rather than cut out of it.
+ *
+ * Cast upward only. These are both anchored to the bottom of the screen, so the top edge is the only
+ * one with anything behind it to fall on; the blur spreads far enough sideways on its own.
+ */
+.ml-attachmenu,
+.ml-listening {
+  box-shadow: 0 -0.5rem 1.5rem rgba(0, 0, 0, 0.45);
 }
 
 /*
@@ -1330,24 +1454,29 @@
 }
 
 /*
- * COPY, in the label row beside the name.
+ * The copy mark, in the label row beside the name.
  *
- * Set in the label's own type at the label's own weight, so it belongs to the meta line rather than
- * arriving as a button on top of it — a filled control beside every turn would turn a transcript
- * into a list of things to press. It is disabled-grey at rest and brass while it is saying COPIED,
- * which is the only moment it has anything to say.
+ * **A glyph, because the word was being read.** This used to set the word COPY in the label's own
+ * caps, which made it belong to the meta line typographically and belong to the *conversation*
+ * visually: a row that otherwise says who spoke and when had an English word in it that was neither,
+ * and on a shared panel people read it as part of the message rather than as something to press.
+ * Two sheets of paper are not a word. It goes disabled-grey to brass on the beat after a copy, when
+ * the mark becomes a check.
+ *
+ * The padding is the tap target and the negative margin is what keeps it from becoming the row's
+ * height — a 15px glyph is a fine thing to look at and not a thing anybody can reliably hit.
  *
  * It sits in the flow rather than being pushed to the far end of the row. It used to take the slack
  * with an auto margin, stood down from by the timestamp — which meant it landed beside the time on
  * a stored turn and alone at the end of the row on a turn still in flight, where there is no
- * timestamp yet. On the member's side, which is mirrored, that put COPY on the opposite side of the
- * row from the name it belongs to, reading as a label on nothing.
+ * timestamp yet. On the member's side, which is mirrored, that put it on the opposite side of the
+ * row from the name it belongs to, reading as a mark on nothing.
  */
 .ml-turn__copy {
-  padding: 0;
-  font-size: 0.6875rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  display: flex;
+  flex: 0 0 auto;
+  padding: 0.3125rem;
+  margin: -0.3125rem 0;
   color: var(--text-disabled);
   transition: color 160ms ease;
 }
@@ -1577,19 +1706,8 @@
   animation: ml-caret-wait 1.2s ease-in-out infinite;
 }
 
-.ml-turn__stop {
-  align-self: flex-start;
-  margin: 0.25rem 0 0.75rem;
-  padding: 0.4375rem 0.875rem;
-  border: var(--control-border) solid var(--border-inactive);
-  background: none;
-  font-family: var(--font-sans);
-  font-size: 0.6875rem;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  cursor: pointer;
-}
+/* The queued turn's own Stop was here. There is one Stop on this screen now and it is the composer's
+   square — see `PendingTurnView`. */
 
 .ml-turn__error {
   margin: 0.5rem 0;

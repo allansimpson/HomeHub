@@ -44,6 +44,31 @@ public class CalendarEvent
     public DateTime StartUtc { get; set; }
     public DateTime EndUtc { get; set; }
 
+    /// <summary>
+    /// Whether this event occupies whole days rather than an hour of one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A stored fact, not a shape read off the times.</b> The panel used to infer this — local
+    /// midnight, spanning a day or more — because that is how Google's all-day events arrive and
+    /// nothing else in the payload distinguished them. Inference is fine for reading and useless for
+    /// writing: an event the household *declares* all-day has to reach Google as a bare
+    /// <c>date</c>, and a heuristic cannot tell "all day" from "an event that happens to start at
+    /// midnight".
+    /// </para>
+    /// <para>
+    /// Set on sync from whether Google sent <c>date</c> or <c>dateTime</c>, so cached rows carry the
+    /// truth rather than the guess. The client's own heuristic survives only as the fallback for
+    /// rows synced before this column existed.
+    /// </para>
+    /// <para>
+    /// <see cref="StartUtc"/> and <see cref="EndUtc"/> still bound the event when this is true —
+    /// local midnight to local midnight, end exclusive, so every range query keeps working without
+    /// knowing about the flag.
+    /// </para>
+    /// </remarks>
+    public bool IsAllDay { get; set; }
+
     public string? Location { get; set; }
     public string? Notes { get; set; }
 
@@ -56,6 +81,52 @@ public class CalendarEvent
     /// deliberately untouched by the sync upsert, so an event keeps its mark when it next syncs.
     /// </summary>
     public string? Mark { get; set; }
+
+    /// <summary>
+    /// Whether this engagement was read off a photograph rather than typed.
+    /// </summary>
+    /// <remarks>
+    /// Provenance, and deliberately independent of whether the photograph itself survived: the
+    /// calendar row says FROM A PHOTO either way, because how an event got onto the calendar is a
+    /// fact about the event and not about whether some bytes are still on disk. Local like
+    /// <see cref="Mark"/> — Google has nowhere to put it — and left untouched by the sync upsert for
+    /// the same reason.
+    /// </remarks>
+    public bool FromPhoto { get; set; }
+
+    /// <summary>
+    /// The kept photograph's filename, or null when none was kept.
+    /// </summary>
+    /// <remarks>
+    /// A content hash, so several engagements read off one flyer share a file — which is why nothing
+    /// may delete it without counting the others first. Null covers three ordinary cases, none of
+    /// them an error: a format the panel cannot draw, retention switched off in Config, and a file
+    /// since removed. <b>Local, and untouched by the sync upsert</b>, exactly like
+    /// <see cref="Mark"/>; without that the flyer would detach itself the next time the calendar
+    /// synced.
+    /// </remarks>
+    public string? PhotoFile { get; set; }
+
+    /// <summary>
+    /// When the photograph was taken, from its EXIF original date — or null when it carried none.
+    /// </summary>
+    /// <remarks>
+    /// Null is common and is not a gap to be filled: a screenshot has no EXIF, and a screenshot of a
+    /// message was one of the three things this feature was asked to read. The detail screen says
+    /// TAKEN when this is set and ADDED when it is not, rather than passing off a file's timestamp
+    /// as the moment somebody pointed a camera at something.
+    /// </remarks>
+    public DateTime? PhotoTakenUtc { get; set; }
+
+    /// <summary>
+    /// When this engagement was written down, or null for a row that predates the column.
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="UpdatedUtc"/>, which moves every time somebody edits the engagement.
+    /// Read by the source block on a photographed engagement whose file carried no EXIF date — that
+    /// case says ADDED rather than TAKEN, and needs a date that means what it says.
+    /// </remarks>
+    public DateTime? CreatedUtc { get; set; }
 
     public DateTime UpdatedUtc { get; set; }
 

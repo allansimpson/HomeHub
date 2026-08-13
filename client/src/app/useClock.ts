@@ -9,7 +9,24 @@ function format(now: Date) {
   const date = now
     .toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
     .toUpperCase()
-  return { time, ampm, date }
+
+  /*
+   * The same day, month before the number: `MONDAY AUGUST 10` rather than `MONDAY 10 AUGUST`.
+   *
+   * Weather's header reads this one; the dashboard and the lock screen keep `date`. Two orders is a
+   * deliberate cost — Weather stacks the day over the time in a narrow right-hand column, and there
+   * the number wants to be last, where the eye lands after the month rather than between two words.
+   *
+   * Composed from parts rather than switching the locale to `en-US`, which formats this as
+   * "Monday, August 10". The comma is the whole reason: every other date on the panel is spaced, not
+   * punctuated, and one comma in one header is the kind of difference nobody can name but everybody
+   * sees.
+   */
+  const weekday = now.toLocaleDateString('en-GB', { weekday: 'long' })
+  const month = now.toLocaleDateString('en-GB', { month: 'long' })
+  const dateMonthFirst = `${weekday} ${month} ${now.getDate()}`.toUpperCase()
+
+  return { time, ampm, date, dateMonthFirst }
 }
 
 /** Live wall-clock, updated every 10s. Drives the dashboard clock and date line. */

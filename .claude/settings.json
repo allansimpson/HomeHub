@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"setForkName\\(\\\\`\" client/src/screens/meals/RecipeEditScreen.tsx)",
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \" deploy/updating.md)",
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \" deploy/dev-on-server.md)",
+      "Bash(npx tsc *)",
+      "Bash(dotnet build *)",
+      "Bash(sudo -n ss -ltnp)",
+      "Bash(ps -eo pid,user,comm,args --no-headers)",
+      "Bash(ls /usr/share/dotnet /usr/lib/dotnet ~/.dotnet 2>/dev/null | head; which -a dotnet8 dotnet9 2>/dev/null)",
+      "Read(//usr/share/**)",
+      "Bash(npx eslint *)",
+      "Bash(npm run *)"
+    ]
+  }
+}

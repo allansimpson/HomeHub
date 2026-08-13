@@ -414,6 +414,22 @@ public class AssistController : ControllerBase
         var sessionId = convo?.HermesSessionId
             ?? await _hermes.CreateSessionAsync(agent.Key, AssistTitle.From(prompt), turn.Token);
 
+        // A chat with no session is not a chat, and must not be attempted as one.
+        //
+        // `CreateSessionAsync` returns null when Hermes refuses — which it does for reasons that have
+        // nothing to do with this request, an expired provider credential among them. Without this the
+        // turn went on to stream against a null session: Hermes answers 200 in under a millisecond,
+        // sends nothing a reader can use, and the panel sits on `open` forever. A member watching that
+        // has no way to tell a dead turn from a slow one, which is the worst thing this screen can do.
+        // Said in the same shape as the precondition above, and retryable, because the usual cause is
+        // something upstream that will be fixed without the household changing anything.
+        if (sessionId is null or { Length: 0 })
+        {
+            _logger.LogWarning("No Hermes session for agent '{Agent}'; the turn was not attempted.", agent.Key);
+            await Tell("error", new { message = "The assistant is unreachable right now. Please try again.", retryable = true });
+            return;
+        }
+
         var text = new StringBuilder();
         string? finishReason = null;
         var interrupted = false;

@@ -167,10 +167,21 @@ export function resolveDayMark(
 }
 
 /**
- * Whether an event occupies whole days. Google all-day events arrive as local midnight to midnight;
- * nothing else in the payload distinguishes them.
+ * Whether an event occupies whole days.
+ *
+ * <b>The flag wins; the shape is the fallback.</b> `isAllDay` is stored now — set when the household
+ * declares it and when Google sends a bare `date` rather than a `dateTime` — so it is the answer
+ * wherever it exists. The boundary heuristic below survives for one reason only: rows cached before
+ * the column existed carry `false` for something that is genuinely all-day, and re-reading them as
+ * timed would show a household a 00:00 engagement on a day that has no hour in it. It is deliberately
+ * *not* a second opinion — it is only ever consulted when the flag says nothing, and a resync
+ * replaces every such row.
+ *
+ * The heuristic itself: Google's all-day events arrive as local midnight spanning a day or more,
+ * and nothing else in the payload distinguishes them.
  */
 export function isAllDay(event: CalendarEventDto): boolean {
+  if (event.isAllDay) return true
   const start = new Date(event.startUtc)
   const end = new Date(event.endUtc)
   const spansWholeDays = end.getTime() - start.getTime() >= 23 * 60 * 60 * 1000

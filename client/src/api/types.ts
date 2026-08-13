@@ -56,6 +56,14 @@ export interface SettingsDto {
   storeConversations: boolean
   /** Days a conversation is kept after its last message. Enforced on read, not by a timer. */
   conversationRetentionDays: number
+  /**
+   * Whether a photograph read into an engagement is kept with it.
+   *
+   * Governs new engagements only. Turning it off does not go back and delete flyers already kept —
+   * a privacy switch that removed things the household had been relying on would be a worse surprise
+   * than the one it exists to prevent.
+   */
+  keepEventPhotos: boolean
 }
 
 // ---- Stage 2: sensors + alerts ----
@@ -205,6 +213,14 @@ export interface CalendarEventDto {
   title: string
   startUtc: string
   endUtc: string
+  /**
+   * Whole days rather than an hour of one — stated by the server, not inferred here.
+   *
+   * `startUtc`/`endUtc` still bound the event when this is true: local midnight to local midnight,
+   * end exclusive. See {@link isAllDay} in `app/calendarMarks`, which prefers this flag and keeps
+   * the old boundary heuristic only for rows synced before the column existed.
+   */
+  isAllDay: boolean
   location: string | null
   notes: string | null
   ownerIds: number[]
@@ -232,6 +248,31 @@ export interface CalendarEventDto {
    * {@link kind} and the calendar's mark.
    */
   mark: string | null
+  /**
+   * Read off a photograph rather than typed.
+   *
+   * Drives the FROM A PHOTO line under a calendar row, and stays true whether or not the picture
+   * survived — how an event reached the calendar is a fact about the event, not about some bytes.
+   */
+  fromPhoto: boolean
+  /** Whether the source photograph is still there to show. Fetch it from `/events/{id}/photo`. */
+  hasPhoto: boolean
+  /**
+   * The photograph's EXIF original date, or null.
+   *
+   * Null is ordinary rather than missing: a screenshot carries no EXIF, so the detail screen reads
+   * ADDED instead of TAKEN rather than passing off a file's timestamp as when a camera was pointed
+   * at something.
+   */
+  photoTakenUtc: string | null
+  /**
+   * When the engagement was written down, or null for a row older than the column.
+   *
+   * The date the ADDED form of the source label shows — a screenshot has no EXIF, so there is no
+   * TAKEN to show and the file's own timestamp is not an answer. Not the edited-at time, which
+   * answers a different question and moves.
+   */
+  createdUtc: string | null
 }
 
 /**
@@ -252,6 +293,12 @@ export interface CalendarEventInput {
   title: string
   startUtc: string
   endUtc: string
+  /**
+   * Whole days rather than an hour of one. Send local midnight to local midnight, end exclusive —
+   * the zone is this device's, because there is no household timezone and the panel is the only
+   * thing that knows one.
+   */
+  isAllDay?: boolean
   location: string | null
   notes: string | null
   ownerIds: number[]
@@ -261,7 +308,90 @@ export interface CalendarEventInput {
   googleCalendarId?: string | null
   /** Mark for this one event, overriding its kind and its calendar's mark; null to inherit. */
   mark?: string | null
+  /**
+   * The photograph this engagement was read from, base64 without a data-URL prefix.
+   *
+   * Sent with the *write*, not with the reading: a flyer is kept because somebody pressed ADD TO
+   * CALENDAR, so a photo that was read and discarded leaves nothing behind. The server stores it and
+   * keeps only the filename.
+   */
+  photoBase64?: string | null
+  /** The photograph's EXIF original date, or null when it carried none. */
+  photoTakenUtc?: string | null
+  /** Whether this engagement came off a photograph at all — true even when the photo is not kept. */
+  fromPhoto?: boolean
 }
+
+// ---- Reading an engagement off a photograph ----
+
+/**
+ * A photograph handed over to be read, and the day the panel believes it is.
+ *
+ * `localDate` is sent rather than left to the server because it is the anchor for an unstated year —
+ * "Saturday 14 September" is next September or last September depending on what today is — and there
+ * is no household timezone here to reconcile the two clocks with.
+ */
+export interface ReadPhotoRequest {
+  imageBase64: string
+  mediaType: string
+  /** The panel's own date, `YYYY-MM-DD`. */
+  localDate: string
+  /** What the member typed alongside the photo. A hint, never an instruction. */
+  context?: string | null
+}
+
+/** `Empty`, `Partial` or `Complete` — the same verdict vocabulary as recipe import. */
+export type ExtractionConfidenceName = 'Empty' | 'Partial' | 'Complete'
+
+export interface ReadPhotoResponse {
+  confidence: ExtractionConfidenceName
+  events: DraftEventDto[]
+  /** A sentence for the household when there is nothing, else null. */
+  reason: string | null
+  /**
+   * Whether a reading could be attempted at all.
+   *
+   * Separate from an empty result on purpose. "There is no date on that photograph" and "this panel
+   * cannot read photographs" are different facts, and only one of them is about the photograph — the
+   * panel stays quiet for the second rather than blaming a picture that may be perfectly clear.
+   */
+  available: boolean
+}
+
+/**
+ * One engagement as read, before anybody has confirmed it.
+ *
+ * <b>Dates without zones.</b> `date`, `begins` and `ends` are calendar values, not instants: the
+ * confirm sheet resolves them to UTC when the household presses ADD TO CALENDAR, because the
+ * confirming device is the only thing in the system that knows a timezone.
+ */
+export interface DraftEventDto {
+  /** Stable within one reading, so the sheet can tick and untick rows. */
+  id: string
+  /** What the engagement is. Empty when the photograph named no event. */
+  title: string
+  /** `YYYY-MM-DD`. */
+  date: string
+  /**
+   * Whole days rather than an hour of one. True whenever the photograph gave a date and no hour —
+   * most school and deadline flyers — because the alternative is inventing a time, and an invented
+   * 9 AM is indistinguishable from a read one.
+   */
+  allDay: boolean
+  /** `HH:MM:SS`, or null when {@link allDay}. */
+  begins: string | null
+  /** `HH:MM:SS`, or null when {@link allDay}. */
+  ends: string | null
+  where: string | null
+  note: string | null
+  /** Fields read badly — a fold, glare, small print. Drives the amber underline. */
+  lowConfidence: DraftField[]
+  /** Fields not on the photograph at all, filled by rule. Same amber, different sentence under it. */
+  assumed: DraftField[]
+}
+
+/** The field names {@link DraftEventDto.lowConfidence} and {@link DraftEventDto.assumed} carry. */
+export type DraftField = 'title' | 'date' | 'year' | 'begins' | 'ends' | 'where'
 
 /** A Google calendar offered for display, with its current selection (CONFIG · choose-calendars). */
 export interface SyncCalendarDto {
@@ -1392,6 +1522,8 @@ export type ImportConfidenceName = 'Complete' | 'Partial' | 'Empty'
 
 export interface RecipeImportInput {
   url: string
+  /** What to call it. Overrides the page's own title, which is a headline as often as a name. */
+  title?: string | null
   /** Sets attribution only — there is no auth on this endpoint to derive it from. */
   profileId?: number | null
 }
@@ -1405,7 +1537,7 @@ export interface RecipeImportInput {
 export interface RecipePasteInput {
   text: string
   sourceUrl?: string | null
-  /** Used when the block has no line that reads as a name. */
+  /** What to call it. Overrides the name the parser reads off the top of the block. */
   title?: string | null
   /** The cuisine chip — the parser has no way to read that off a block of text. */
   tags?: string[] | null

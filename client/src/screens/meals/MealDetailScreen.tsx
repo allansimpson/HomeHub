@@ -258,7 +258,7 @@ export function MealDetailScreen() {
           className="ml-recipe__plan"
           onClick={() => navigate(`/meals/assign/${todayKey()}/Dinner`)}
         >
-          ASSIGN TO A NIGHT
+          SCHEDULE MEAL
         </button>
         <button type="button" className="ml-recipe__edit" onClick={() => setAdding(true)}>EDIT</button>
         <button

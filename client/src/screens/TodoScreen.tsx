@@ -9,6 +9,25 @@ import type { TaskItemDto } from '../api/types'
 
 type Urgency = 'overdue' | 'today' | 'soon' | 'later' | ''
 
+/** How much of a list name the add bar's target chip shows before it gives up. */
+const TARGET_NAME_MAX = 12
+
+/**
+ * The list name as the chip shows it: whole if it fits, otherwise cut at {@link TARGET_NAME_MAX}
+ * with an ellipsis.
+ *
+ * Only the *chip* truncates. The menu it opens shows every name in full — you cannot pick between
+ * two lists that both read `Weekend chor…`, and the moment of choosing is the moment the whole name
+ * matters. Once chosen it is a reminder rather than a decision, and the chip shares its row with the
+ * field somebody is typing into.
+ *
+ * Trailing space is trimmed before the ellipsis so a name that breaks on a word boundary reads
+ * `Weekend…` rather than `Weekend …`.
+ */
+function targetLabel(name: string): string {
+  return name.length <= TARGET_NAME_MAX ? name : `${name.slice(0, TARGET_NAME_MAX).trimEnd()}…`
+}
+
 /** Relative due label + urgency class for a task row. */
 function dueInfo(task: TaskItemDto): { label: string; urgency: Urgency } {
   if (!task.dueUtc) return { label: '', urgency: '' }
@@ -244,16 +263,23 @@ export function TodoScreen() {
 
       {targetList && (
         <div className="ml-todo__addbar">
-          <span className="ml-todo__addplus" aria-hidden="true"><Icon id="ico-add" size="1rem" /></span>
+          {/* 1.25rem, which is the composer's plus — the box around it is the same 46px, so a smaller
+              mark inside would read as the same control drawn wrong. */}
+          <span className="ml-todo__addplus" aria-hidden="true"><Icon id="ico-add" size="1.25rem" /></span>
           <input
             className="ml-todo__addfield"
             value={draft}
-            placeholder="Add a task"
+            placeholder="Add"
+            // The placeholder is the only thing naming this field, so the accessible name is spelled
+            // out rather than left to it: "Add" alone tells a screen reader nothing about what.
+            aria-label="Add a task"
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && add()}
           />
           {onList || listNames.length <= 1 ? (
-            <span className="ml-todo__addtarget">{`To ${targetList}`}</span>
+            <span className="ml-todo__addtarget" title={targetList} aria-label={`Adding to ${targetList}`}>
+              {targetLabel(targetList)}
+            </span>
           ) : (
             <div className="ml-todo__addtargetwrap">
               {picking && (
@@ -276,9 +302,15 @@ export function TodoScreen() {
                 className="ml-todo__addtarget ml-todo__addtarget--btn"
                 aria-haspopup="menu"
                 aria-expanded={picking}
+                // The word "To" carried the relationship when it was on screen. Without it the label
+                // is a bare list name, so the button says what it is for out loud instead.
+                aria-label={`Add to ${targetList}. Choose a different list.`}
+                // The full name, for a pointer. The label above already carries it for everyone else,
+                // so nothing is only available on hover.
+                title={targetList}
                 onClick={() => setPicking((v) => !v)}
               >
-                {`To ${targetList}`} <span aria-hidden="true">▾</span>
+                {targetLabel(targetList)} <span aria-hidden="true">▾</span>
               </button>
             </div>
           )}

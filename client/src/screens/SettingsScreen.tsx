@@ -250,6 +250,24 @@ export function SettingsScreen() {
     [refresh],
   )
 
+  // ---- Whether a photograph read into an engagement is kept with it ----
+  //
+  // Its own write rather than a field on the conversation policy: they are the same *kind* of
+  // decision and two different subjects, and one switch governing both would mean turning off chat
+  // history to stop keeping flyers.
+  const keepEventPhotos = settings?.keepEventPhotos ?? true
+  const saveEventPhotoPolicy = useCallback(
+    async (keep: boolean) => {
+      try {
+        await api.setEventPhotoPolicy(keep)
+        await refresh()
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err
+      }
+    },
+    [refresh],
+  )
+
   // ---- Where the weather is for ----
   //
   // Its own read rather than a field on the settings object, because the interesting part of the
@@ -979,6 +997,24 @@ export function SettingsScreen() {
                 onClick={() => navigate('/settings/display')}
               />
             </div>
+
+            {/*
+              Which build this panel is running.
+
+              Not a diagnostic nobody asked for. The app is installed to home screens and to a wall,
+              and an installed panel keeps whatever it cached until something makes it ask again — so
+              "have you got the fix?" is a real question with a real answer, and until this line it
+              could only be answered by reading server logs and inferring it from behaviour.
+
+              Deliberately plain and at the bottom: nothing here is for the household, and anybody who
+              needs it knows what they are looking at. It says what *this* device is running, which is
+              the whole point — two panels on one deploy can disagree, and that disagreement is
+              precisely the thing worth being able to see.
+            */}
+            <SectionLabel label="About" />
+            <div className="ml-config-index">
+              <p className="ml-settings__build">{`Build ${__BUILD__}`}</p>
+            </div>
           </>
         )}
 
@@ -1202,6 +1238,30 @@ export function SettingsScreen() {
                     </button>
                   ))}
                 </div>
+              }
+            />
+
+            {/*
+              The calendar's half of the same question.
+
+              A photograph read into an engagement is kept against it, which is a picture of the
+              household's post living on the panel — deliberate, and disclosed rather than assumed.
+              This is where it is turned off, and it governs *new* engagements only: photographs
+              already kept stay kept, because a privacy switch that silently deleted things somebody
+              had relied on would be a worse surprise than the one it is preventing.
+            */}
+            <SectionLabel label="Calendar" />
+            <LedgerRow
+              title="Keep photos read into events"
+              sub={keepEventPhotos
+                ? 'The flyer stays with the engagement, so you can check it later'
+                : 'New engagements say they came off a photo, but the photo is not kept'}
+              right={
+                <Toggle
+                  on={keepEventPhotos}
+                  onChange={(next) => void saveEventPhotoPolicy(next)}
+                  label="Keep photos read into events"
+                />
               }
             />
           </>

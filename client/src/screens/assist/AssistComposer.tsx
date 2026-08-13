@@ -49,6 +49,35 @@ interface Props {
    * turn in that conversation already did.
    */
   onCompose?: (prompt: string, attachment?: AttachmentDraft | null) => void
+  /**
+   * A slot the composer fills with "open the ATTACH panel", for one caller outside it.
+   *
+   * <b>Written for ANOTHER PHOTO</b>, on the turn that says a photograph had no date on it. That
+   * button means exactly what the composer's + means, and the alternative to reaching in is asking
+   * somebody who has just been told the reading failed to go and find the + themselves.
+   *
+   * A slot rather than a controlled `open` prop because the panel's state is otherwise entirely the
+   * composer's business — every other way in and out of it is a tap on the composer itself, and
+   * hoisting all of that to two parent screens to serve one button would be the tail wagging the dog.
+   */
+  attachControl?: { current: (() => void) | null }
+  /**
+   * A photograph handed over with no question — take it, and do not send a turn.
+   *
+   * <b>The single biggest saving in this feature, measured.</b> A flyer attached with no words costs
+   * two vision passes today: one for the reading, and one for an agent turn nobody asked a question
+   * in. Measured against this household's own endpoint, each pass is ~5,100 tokens of image on top of
+   * ~7,200 tokens of agent persona and tool definitions — so the unasked turn is ~12,300 tokens, or
+   * half of what a flyer costs.
+   *
+   * It also buys nothing. There is no question to answer, so the agent replies with a description
+   * competing for attention with the offer directly beneath it — and the design has Barnaby saying
+   * "Reading it…" there, not narrating (screen 02).
+   *
+   * Only when the composer is otherwise empty. A photograph with words is a question about a
+   * photograph, and that still goes to the agent exactly as before.
+   */
+  onPhotoOnly?: (attachment: AttachmentDraft) => void
 }
 
 /**
@@ -86,7 +115,8 @@ const MAX_ROWS = 5
  * (`OnScreenKeyboard`, `multiline`).
  */
 export function AssistComposer({
-  agentName, conversationId, emphasised, onStream, onSent, onCompose, replying, onStop,
+  agentName, conversationId, emphasised, onStream, onSent, onCompose, replying, onStop, attachControl,
+  onPhotoOnly,
 }: Props) {
   const { send } = useAssist()
   const { supported, listening, speaking, partial, startListening, stopListening, speak, stopSpeaking } = useVoice()
@@ -102,6 +132,14 @@ export function AssistComposer({
   // existed when the effect was created.
   const attachmentRef = useRef(attachment)
   attachmentRef.current = attachment
+
+  // Filled while this composer is mounted, and emptied when it is not — so a stale slot cannot open
+  // a panel belonging to a screen somebody has already left.
+  useEffect(() => {
+    if (!attachControl) return
+    attachControl.current = () => setMenuOpen(true)
+    return () => { attachControl.current = null }
+  }, [attachControl])
 
   /**
    * Three pickers, because a browser file input is configured by attribute rather than by argument.
@@ -173,6 +211,13 @@ export function AssistComposer({
       // appeared to discard what you had just said before changing its mind.
       const readAloud = spoken && speechEnabled()
 
+      // A photograph and nothing else. The panel reads it; the agent is not asked a question it was
+      // never given — see `onPhotoOnly` for what that costs when it is.
+      if (!trimmed && held?.kind === 'image' && onPhotoOnly && !readAloud) {
+        onPhotoOnly(held)
+        return
+      }
+
       if (onCompose && !readAloud) {
         onCompose(trimmed, held)
         return
@@ -212,7 +257,7 @@ export function AssistComposer({
         setBusy(false)
       }
     },
-    [attachment, busy, onCompose, onStream, send, conversationId, onSent, speak],
+    [attachment, busy, onCompose, onStream, onPhotoOnly, send, conversationId, onSent, speak],
   )
 
   /**
@@ -314,7 +359,10 @@ export function AssistComposer({
       {menuOpen && (
         <>
           {/* Tapping anywhere off the menu closes it. A full-height scrim rather than a document
-              listener so the tap that dismisses is not also a tap on whatever was underneath. */}
+              listener so the tap that dismisses is not also a tap on whatever was underneath.
+
+              It dims the screen the composer sits on, never the composer itself — see the z-index
+              note on `.ml-composer__scrim`. */}
           <button
             type="button"
             className="ml-composer__scrim"
@@ -457,25 +505,33 @@ export function AssistComposer({
  */
 function ListeningBand({ partial, onStop }: { partial: string; onStop: () => void }) {
   return (
-    <div className="ml-listening">
-      <div className="ml-listening__hearing">Hearing…</div>
-      <div className="ml-listening__partial">{partial || '…'}</div>
+    <>
+      {/* The same dimming the attach menu puts behind itself, for the same reason: while the mic is
+          open the band is the live thing, and the screen it replaced is context rather than a place
+          to be. Taps land on it and stop there — dimmed and still clickable is the panel saying one
+          thing and doing another. Not a *dismisser* though, unlike the menu's: a menu needs a way
+          out, and listening already has one in the stop control below. */}
+      <div className="ml-listening__scrim" aria-hidden="true" />
+      <div className="ml-listening">
+        <div className="ml-listening__hearing">Hearing…</div>
+        <div className="ml-listening__partial">{partial || '…'}</div>
 
-      <div className="ml-waveform" aria-hidden="true">
-        {[12, 26, 36, 20, 30, 14, 24].map((h, i) => (
-          <span key={i} className="ml-waveform__bar" style={{ ['--h' as string]: `${h}px`, animationDelay: `${i * 90}ms` }} />
-        ))}
-      </div>
+        <div className="ml-waveform" aria-hidden="true">
+          {[12, 26, 36, 20, 30, 14, 24].map((h, i) => (
+            <span key={i} className="ml-waveform__bar" style={{ ['--h' as string]: `${h}px`, animationDelay: `${i * 90}ms` }} />
+          ))}
+        </div>
 
-      <button type="button" className="ml-emblem ml-emblem--listening" onClick={onStop} aria-label="Tap to stop">
-        <span className="ml-emblem__ring">
-          <span className="ml-emblem__core">
-            <span className="ml-listening__stopglyph" aria-hidden="true" />
-            <span className="ml-emblem__label">Tap to Stop</span>
+        <button type="button" className="ml-emblem ml-emblem--listening" onClick={onStop} aria-label="Tap to stop">
+          <span className="ml-emblem__ring">
+            <span className="ml-emblem__core">
+              <span className="ml-listening__stopglyph" aria-hidden="true" />
+              <span className="ml-emblem__label">Tap to Stop</span>
+            </span>
           </span>
-        </span>
-      </button>
-      <div className="ml-emblem__caption">Stops by itself after 5 seconds of quiet</div>
-    </div>
+        </button>
+        <div className="ml-emblem__caption">Stops by itself after 5 seconds of quiet</div>
+      </div>
+    </>
   )
 }

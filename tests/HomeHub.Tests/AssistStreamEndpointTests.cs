@@ -117,6 +117,47 @@ public class AssistStreamEndpointTests
         Assert.Equal(["Stub ", "reply."], deltas);
     }
 
+    /// <summary>
+    /// The same question, asked twice, opens two chats.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// HomeHub names a Hermes session after the words that opened it, and Hermes will not hold two
+    /// sessions of one name. So the second "tell me a joke" was refused a session, and a turn with no
+    /// session is not attempted: the panel said the assistant was unreachable while that same agent
+    /// answered every conversation that already existed — those carry a session id and never ask for
+    /// another. It read as a broken app, a broken phone, and a broken agent in turn, and it was none
+    /// of them. Households repeat themselves; that is what a household assistant is for.
+    /// </para>
+    /// <para>
+    /// Asserted through the stream rather than at the client, because "unreachable" is what the
+    /// member saw and this is the seam that says it.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_question_asked_before_still_opens_a_chat()
+    {
+        using var gateway = new StubHermes();
+        using var app = new HubAppFactory { HermesBaseUrl = gateway.BaseUrl };
+        var client = app.CreateSeededClient();
+
+        var first = await StreamAsync(client, new AssistChatRequest(null, "barnaby", "tell me a joke", null, null, null));
+        var again = await StreamAsync(client, new AssistChatRequest(null, "barnaby", "tell me a joke", null, null, null));
+
+        foreach (var frames in (List<Frame>[])[first, again])
+        {
+            Assert.DoesNotContain(frames, f => f.Event == "error");
+            Assert.Contains(frames, f => f.Event == "delta");
+            Assert.Equal("done", frames[^1].Event);
+        }
+
+        // Two names, both taken by the gateway. Retrying under the *same* name would have been a
+        // second refusal, and sending no name at all would give up the only thing that makes a
+        // session legible to somebody reading Hermes directly.
+        Assert.Equal(2, gateway.CreatedTitles.Count);
+        Assert.Contains("tell me a joke", gateway.CreatedTitles);
+    }
+
     [Fact]
     public async Task The_done_frame_carries_what_the_screen_needs_and_arrives_last()
     {

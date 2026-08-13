@@ -7,6 +7,7 @@ using HomeHub.Api.Alerts;
 using HomeHub.Api.Auth;
 using HomeHub.Api.Baby;
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Calendar.Capture;
 using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
@@ -421,6 +422,82 @@ if (google?.IsConfigured == true)
     builder.Services.AddHttpClient<GoogleCalendarProvider>();
 }
 
+// --- E2: reading engagements off a photograph ---
+// Its own credential section, deliberately not the speech key in `Ai:` and deliberately not an
+// agent: this is HomeHub's own structured, tool-less call. Unconfigured — which is every panel that
+// has not opted into sending photographs off the LAN, and the whole test suite — resolves to the
+// not-connected implementation, so the seam always answers and the endpoint never 500s.
+builder.Services.Configure<EventCaptureOptions>(builder.Configuration.GetSection(EventCaptureOptions.Section));
+// The photograph store is registered whether or not a reader is: retention outlives the reading, so
+// serving and forgetting kept photographs must keep working on a panel that has since turned the
+// vision provider off.
+builder.Services.AddSingleton<EventPhotoStore>();
+/*
+ * Which reader, and why the house agent is the default.
+ *
+ * The design assumed extraction needed its own vision vendor, on the grounds that an assistant turn
+ * "streams text and nothing else". Tested rather than assumed, that is half true: Hermes ignores
+ * `response_format` and answers prose — but asked for JSON in words it returns the agreed shape and
+ * reads a flyer at least as well as a vision API does.
+ *
+ * That inverts the original argument. Every attached image *already* reaches the agent on the
+ * ordinary chat turn, so adding a vendor would have sent each of the household's flyers to two
+ * providers rather than one, and charged for the second. The vendor path stays for anyone who wants
+ * a schema the provider enforces rather than merely requests.
+ */
+var eventCapture = builder.Configuration.GetSection(EventCaptureOptions.Section).Get<EventCaptureOptions>();
+
+/*
+ * The private image-extractor listener — the qualified path, preferred over everything below it.
+ *
+ * A dedicated Hermes profile with no callable tools, no MCP servers, no skills, no memory and no
+ * delegation. Printed words in a flyer cannot cause a tool call because there is nothing to call,
+ * which is the architectural guarantee `event-capture.md` D1 asked for and neither earlier path
+ * could give: the vendor path sent the household's post to a second company, and the house-agent
+ * path handed untrusted pixels to a listener holding `set_climate_setpoint` and `add_todo`.
+ *
+ * Registered as a service dependency and deliberately not as an agent — it never appears in the
+ * household's roster, and nothing about it reaches the browser.
+ */
+builder.Services.Configure<ImageExtractorOptions>(builder.Configuration.GetSection(ImageExtractorOptions.Section));
+var imageExtractor = builder.Configuration.GetSection(ImageExtractorOptions.Section).Get<ImageExtractorOptions>();
+
+if (imageExtractor?.Configured == true)
+{
+    builder.Services.AddHttpClient<IImageExtractionClient, ImageExtractionClient>(http =>
+    {
+        http.BaseAddress = new Uri(imageExtractor.BaseUrl.TrimEnd('/') + "/");
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", imageExtractor.ApiKey);
+        // The per-call budget is enforced inside the client, which needs to tell a timeout from a
+        // cancellation; this is only the backstop for a socket that never answers at all.
+        http.Timeout = TimeSpan.FromSeconds(Math.Clamp(imageExtractor.TimeoutSeconds, 5, 180) + 30);
+    });
+    builder.Services.AddSingleton<IEventExtractor, ExtractorEventReader>();
+}
+else if (eventCapture?.UsesHouseAgent == false && eventCapture.Configured)
+{
+    // Legacy: a vision vendor. Kept reachable by explicit configuration, no longer a default — it is
+    // a second destination for the household's post and a second bill for a job now done in-house.
+    builder.Services.AddHttpClient<IEventExtractor, VisionEventExtractor>();
+}
+else if (eventCapture?.UsesHouseAgent != false)
+{
+    /*
+     * Legacy: the household's own agent.
+     *
+     * Hermes reviewed this path and declined it for production — the reading runs against a listener
+     * with write-capable tools available throughout, and the injection canary that passed is evidence
+     * of good behaviour rather than of isolation. It stays reachable for TEST evaluation only, and
+     * only when `ImageExtractor` is not configured.
+     */
+    builder.Services.AddSingleton<IEventExtractor, HermesEventExtractor>();
+}
+else
+{
+    builder.Services.AddSingleton<IEventExtractor, NotConfiguredEventExtractor>();
+}
+
 // --- Stage 5: tasks ---
 // Microsoft To Do (Graph) when configured; otherwise a local SQL tasks store so the panel is
 // fully usable without any linked account. UI depends only on ITaskProvider. DB-gated below.
@@ -749,6 +826,77 @@ if (string.IsNullOrWhiteSpace(keyRingPath))
         + "directory the service account owns (see deploy/deploy.env.example).");
 }
 
+/*
+ * Whether this panel can read photographs, said once at startup.
+ *
+ * <b>Because the alternative is a feature that is silent in three different ways.</b> A photograph
+ * attached with no reader configured is answered honestly by the endpoint — `available: false` — and
+ * the panel deliberately says nothing rather than blaming a picture that may be perfectly clear
+ * (`event-capture.md` D7). That is right for a household that has chosen not to send photographs off
+ * the LAN, and indistinguishable from a broken deployment for one that has: attach a flyer, watch
+ * nothing happen, and there is no way to tell "switched off" from "the release without this in it"
+ * from "the key is wrong". None of the three logged anything.
+ *
+ * So the log states which it is, in the household's terms, where `journalctl -u homehub` will find
+ * it. It names no secret — only whether one is present.
+ */
+// Asked of the reader that was actually registered, rather than re-deduced from configuration —
+// availability on the agent path is the Hermes roster's answer, not a key's.
+using (var probe = app.Services.CreateScope())
+{
+    var reader = probe.ServiceProvider.GetRequiredService<IEventExtractor>();
+    if (!reader.IsAvailable)
+    {
+        app.Logger.LogInformation(
+            "Reading engagements off photographs is OFF ({Reader}). Attached images stay on the panel "
+            + "and the calendar offer never appears. Set EventCapture__Agent to a configured agent, or "
+            + "EventCapture__Provider=openai with EventCapture__ApiKey.",
+            reader.GetType().Name);
+    }
+    else if (imageExtractor?.Configured == true)
+    {
+        app.Logger.LogInformation(
+            "Reading engagements off photographs is ON, using the private image-extractor at {BaseUrl} "
+            + "— a profile with no callable tools, no memory and no delegation.",
+            imageExtractor.BaseUrl);
+    }
+    else if (eventCapture?.UsesHouseAgent != false)
+    {
+        // Said as a warning, because it is one. Hermes reviewed this path and declined it for
+        // production: the reading runs against a listener with write-capable tools available
+        // throughout. It is here for TEST evaluation until ImageExtractor__* is configured.
+        /*
+         * Names the missing piece, because "configure ImageExtractor" is not actionable at 5pm.
+         *
+         * The likeliest cause by far is `Enabled`: the qualification asks for this to land behind a
+         * disabled-by-default flag, and the handoff's suggested environment block lists BaseUrl,
+         * ApiKey, TimeoutSeconds and MaxConcurrent — but not Enabled. Somebody following that
+         * document exactly gets a fully configured extractor that never runs, and a panel that looks
+         * broken in the same silent way it looked broken before any of this existed.
+         */
+        var missing =
+            string.IsNullOrWhiteSpace(imageExtractor?.BaseUrl) ? "ImageExtractor__BaseUrl is not set"
+            : string.IsNullOrWhiteSpace(imageExtractor.ApiKey) ? "ImageExtractor__ApiKey is not set"
+            : !imageExtractor.Enabled ? "ImageExtractor__Enabled is not true — the address and key are both present"
+            : "ImageExtractor is configured but was not selected";
+
+        app.Logger.LogWarning(
+            "Reading engagements off photographs is ON using the house agent '{Agent}' — the legacy "
+            + "path, which is NOT approved for production because that listener holds house tools. "
+            + "The private extractor was not used: {Missing}.",
+            eventCapture?.Agent ?? "barnaby",
+            missing);
+    }
+    else
+    {
+        app.Logger.LogInformation(
+            "Reading engagements off photographs is ON (model {Model} at {BaseUrl}). Attached images "
+            + "are sent to that endpoint, which is off the LAN.",
+            eventCapture.Model,
+            eventCapture.BaseUrl);
+    }
+}
+
 // Serve the built React SPA (client/dist copied into wwwroot at publish). In Development the SPA is
 // served by Vite (npm run dev) and proxied, so wwwroot is typically empty.
 //
@@ -765,7 +913,38 @@ if (string.IsNullOrWhiteSpace(keyRingPath))
 // would fetch — plus the household CA certificate, which is a public key that deploy/dev-https.md
 // tells devices to download from exactly this path.
 app.UseDefaultFiles();
-app.UseStaticFiles();
+
+/*
+ * How long a browser may believe it already has the panel.
+ *
+ * <b>Nothing here said anything, and silence is not "ask me every time".</b> With no
+ * `Cache-Control`, a browser falls back to heuristic freshness — roughly a tenth of the file's age —
+ * so a shell that had been sitting there a day was reused for a couple of hours without a word to
+ * the server. On a tab that is opened and closed, that is invisible. On a panel installed to a home
+ * screen and never deliberately reloaded, it is a version of the app that outlives its own deploy:
+ * one device answering with code that was replaced this morning while the machine beside it, whose
+ * developer tools disable the cache, gets the fix and reports the bug fixed.
+ *
+ * Two rules, because there are two kinds of file here:
+ *
+ *   * the shell — `index.html`, the manifest, the icons — is a stable name with changing contents,
+ *     so it must be revalidated every time. `no-cache` is that, and is not `no-store`: the copy is
+ *     kept and reused on a 304, so the cost of being correct is one conditional request.
+ *   * everything under /assets is content-addressed by the build (`index-CFU0mR3q.js`), so its name
+ *     changes whenever its bytes do. A year is not optimism, it is what the hash makes true, and
+ *     `immutable` stops a reload from revalidating what cannot have changed.
+ */
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        var path = ctx.Context.Request.Path.Value ?? "";
+        ctx.Context.Response.Headers.CacheControl =
+            path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase)
+                ? "public, max-age=31536000, immutable"
+                : "no-cache";
+    },
+});
 
 // Before MapControllers, and in this order: authentication decides who the caller is, authorisation
 // decides whether they may proceed, and the second is meaningless without the first having run.
@@ -808,7 +987,36 @@ if (mcp.IsConfigured)
             await next();
         }));
 
-    app.MapMcp(mcp.Route);
+    // Anonymous to the *authorisation middleware*, not to callers. These endpoints state no policy
+    // of their own, so the fallback policy above claimed them — and that policy is satisfied by a
+    // household cookie or a service token, neither of which an agent on another machine has or
+    // should need. It runs in UseAuthorization, several lines above the bearer branch, so a correct
+    // token was rejected before anything ever looked at it: POST /mcp answered 401, and GET — which
+    // matches no MCP endpoint and so was never claimed — passed the bearer check and fell through to
+    // the SPA fallback, which is the `text/html` the agent reports as "not an MCP response".
+    //
+    // The door is the UseWhen branch directly above, which covers every request to this route and
+    // resolves a credential or ends the request. What that credential may then *do* is still decided
+    // per method by McpMethodScoping. This removes a second, wrong lock from the same door; it does
+    // not remove the lock.
+    app.MapMcp(mcp.Route).AllowAnonymous();
+
+    // The transport is stateless, so there is no server-to-client stream to hold open and the SDK
+    // maps no GET here. Without this, an unmapped GET on this path is claimed by the SPA fallback at
+    // the bottom of the file and the agent is handed the HTML shell — which is what Barnaby reported
+    // as "returned Content-Type 'text/html' … most likely points at a web page rather than an MCP
+    // endpoint". Same reasoning as the /api fallback below: a request shaped for a machine must not
+    // be answered with a page meant for a person.
+    //
+    // A fallback rather than a MapGet, so that a future transport which *does* serve GET wins the
+    // route and this quietly stops applying, instead of colliding with it. 405 is what the Streamable
+    // HTTP spec has a server without an SSE stream answer GET with, and clients must handle it — so
+    // the agent goes on to POST rather than concluding it found a website. Anonymous for the same
+    // reason as the transport above: the bearer branch has already run, and refused anyone without a
+    // credential.
+    app.MapFallback(mcp.Route, () => Results.Json(
+        new { error = "This is an MCP endpoint. Use POST for Streamable HTTP; it serves no GET stream." },
+        statusCode: StatusCodes.Status405MethodNotAllowed)).AllowAnonymous();
 }
 
 // SPA fallback, so a deep link like /meals/plan or a kiosk reload on /dashboard serves the shell
@@ -828,7 +1036,14 @@ if (mcp.IsConfigured)
 // applies to it: an unknown API path is refused before it is reported missing, and only a caller
 // with a session learns the difference between "no such route" and "not for you".
 app.MapFallback("/api/{**rest}", () => Results.NotFound());
-app.MapFallbackToFile("index.html").AllowAnonymous();
+// The same `no-cache` the shell gets when it is served as a default file, because this is the same
+// file and a deep link — /assist/c, the route a panel is left sitting on — arrives here instead.
+// Setting it in one place and not the other would leave exactly the devices that never navigate to
+// `/` holding a version nobody can talk them out of.
+app.MapFallbackToFile("index.html", new StaticFileOptions
+{
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache",
+}).AllowAnonymous();
 
 app.Run();
 

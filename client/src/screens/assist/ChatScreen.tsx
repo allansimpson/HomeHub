@@ -12,9 +12,12 @@ import type { ConversationMessage } from '../../api/types'
 import { AssistComposer } from './AssistComposer'
 import { MessageText } from './MessageText'
 import { sizeLabel } from './attachments'
+import type { AttachmentDraft } from './attachments'
 import { takeHandoffAttachment } from './handoff'
 import { RenameChat } from './RenameChat'
 import { useStreamedTurn } from './useStreamedTurn'
+import { PhotoCapture } from './PhotoCapture'
+import { usePhotoCapture } from './usePhotoCapture'
 import { WaitingWord } from './WaitingWord'
 import type { PendingTurn } from './useStreamedTurn'
 import { useScrollEdge } from './useScrollEdge'
@@ -49,11 +52,66 @@ export function ChatScreen() {
   const { conversation, messages, loading, reload } = useConversation(conversationId)
   const { pending, live, run, cancel, settle, dismiss, retry } = useStreamedTurn(conversationId)
   const { ref: scrollRef, more, measure } = useScrollEdge<HTMLDivElement>()
+  const { capture, begin, answer, discard, added, undo } = usePhotoCapture()
+  /** Filled by the composer while it is mounted — the way ANOTHER PHOTO reopens the ATTACH panel. */
+  const attachControl = useRef<(() => void) | null>(null)
+  /** Distinguishes successive photographs handed over without a question. Never shown. */
+  const photoSeq = useRef(0)
+
+  /**
+   * A photograph with no question: read it, and do not spend a turn on it.
+   *
+   * Measured on this household's own endpoint, an agent turn carrying an image costs ~12,300 tokens —
+   * ~5,100 for the picture on top of ~7,200 of persona and tool definitions — and a turn with no
+   * question in it buys a description nobody asked for, competing with the offer underneath it. The
+   * reading still happens; it is the *second* look at the same picture that goes.
+   */
+  const takePhoto = useCallback((attachment: AttachmentDraft) => {
+    begin(`photo:${++photoSeq.current}`, { ...attachment, text: null }, '')
+  }, [begin])
+
+  /**
+   * A photograph attached to a turn is read for engagements — every one of them, whether or not
+   * anybody asked.
+   *
+   * <b>Beside the turn, not inside it.</b> The reading is a separate tool-less call against a fixed
+   * schema (`usePhotoCapture`), because a flyer is untrusted text and the agent holds house tools
+   * through the MCP seam. Started from here because this is where a turn first exists; everything
+   * after it outlives the turn, which settles into the stored transcript within seconds.
+   */
+  useEffect(() => {
+    for (const turn of pending) {
+      if (turn.attachment?.kind === 'image') begin(turn.key, turn.attachment, turn.prompt)
+    }
+  }, [pending, begin])
 
   /** The turn that opened this chat, which is the one that knows where the chat went. */
   const opener = pending[0] ?? null
   /** Turns that finished and are waiting for the ledger to catch up. */
   const settled = pending.filter((t) => t.done && !t.error)
+
+  /**
+   * Stop — the composer's square, and the only Stop on this screen.
+   *
+   * <b>It takes the queue with it.</b> It used to act on the reply in flight and nothing else, which
+   * left anything queued behind that reply with no control at all: the turn under it was cancelled,
+   * the next one started, and a member who had pressed Stop watched the agent begin answering a
+   * question they had just withdrawn. Pressing Stop means stop — not "stop this one and start the
+   * next".
+   *
+   * Newest first, so the queue is emptied before its head is cancelled: dropping a queued turn is
+   * immediate, and stopping the live one is a round trip that ends with the store looking for the next
+   * turn to run. Taking them from the back means there is nothing left for it to find.
+   *
+   * Finished and failed turns are skipped. They are on screen waiting for the ledger or for a Retry,
+   * and neither is something a Stop should reach into.
+   */
+  const stopEverything = useCallback(() => {
+    for (const turn of [...pending].reverse()) {
+      if (turn.done || turn.error) continue
+      cancel(turn.key)
+    }
+  }, [pending, cancel])
 
   /**
    * The first turn of a chat started from the inbox.
@@ -73,8 +131,13 @@ export function ChatScreen() {
     const attached = takeHandoffAttachment()
     if (!handoff && !attached) return
     handedOff.current = true
+    // Handed over from the inbox with no words, and a picture: same reasoning as `takePhoto`.
+    if (!handoff && attached?.kind === 'image') {
+      takePhoto(attached)
+      return
+    }
     void run(handoff ?? '', attached)
-  }, [handoff, run])
+  }, [handoff, run, takePhoto])
 
   /**
    * A new chat, once the server has named it.
@@ -271,7 +334,6 @@ export function ChatScreen() {
               memberName={memberName}
               agentName={agentName}
               showThinking={showThinking}
-              onStop={() => cancel(turn.key)}
               onRetry={() => void retry(turn.key)}
               onDismiss={() => dismiss(turn.key)}
             />
@@ -281,6 +343,22 @@ export function ChatScreen() {
 
           {/* The receipt, at the foot of the transcript where the last reply left it. */}
           <ItTouched messages={messages} />
+
+          {/* What a photograph turned into: the reading, the offer, the receipt — or nothing at all,
+              which is what a photo of the cat is supposed to produce. The confirm sheet it can open
+              is fixed to the bottom of the viewport and escapes this box. */}
+          {capture && (
+            <PhotoCapture
+              capture={capture}
+              agentName={agentName}
+              busy={live !== null}
+              onAnswer={answer}
+              onDiscard={discard}
+              onAdded={added}
+              onUndo={() => void undo()}
+              onAnotherPhoto={() => { discard(); attachControl.current?.() }}
+            />
+          )}
         </div>
 
         {/*
@@ -314,7 +392,9 @@ export function ChatScreen() {
         // The square's third reading. Only when there is nothing written — with something to send,
         // sending is what the square does, and the queue is what makes that possible mid-reply.
         replying={live !== null}
-        onStop={() => { if (live) cancel(live.key) }}
+        onStop={stopEverything}
+        attachControl={attachControl}
+        onPhotoOnly={takePhoto}
       />
 
       {renaming && (
@@ -399,9 +479,15 @@ function TurnAttachmentLine({ name, kind, bytes }: {
  * and when it is not, the selection is still there to do the finer job.
  *
  * It sits in the label row rather than under the text: a control below a reply reads as being about
- * what comes next, and this is about what was just said. It says COPIED for a beat afterwards
- * because a clipboard write is otherwise completely invisible, and an action with no feedback gets
- * pressed again.
+ * what comes next, and this is about what was just said.
+ *
+ * <b>A mark, not the word COPY.</b> The word was read as part of the conversation — a stray English
+ * word sitting in the message block, in a row of letterspaced caps that are otherwise the speaker's
+ * name and the time, which is furniture rather than a control. Two sheets of paper are not something
+ * anybody says; they are only ever something to press. The confirmation follows the same rule and
+ * swaps the mark for a check, which is the whole vocabulary this panel has for "that happened" — a
+ * clipboard write is otherwise completely invisible, and an action with no feedback gets pressed
+ * again. Both states keep their words in `aria-label`, where a word is exactly what is wanted.
  */
 function CopyTurn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -435,7 +521,7 @@ function CopyTurn({ text }: { text: string }) {
       onClick={() => void copy()}
       aria-label={copied ? 'Copied' : 'Copy this message'}
     >
-      {copied ? 'Copied' : 'Copy'}
+      <Icon id={copied ? 'ico-check' : 'ico-copy'} size="0.9375rem" />
     </button>
   )
 }
@@ -453,13 +539,19 @@ function CopyTurn({ text }: { text: string }) {
  * not this panel ever hears about it. Saying "unreachable" there — which is what the panel used to
  * say — was a report about the transport dressed up as a report about the answer, and it sent people
  * off to re-ask questions that had already been answered.
+ *
+ * <b>It draws no Stop.</b> There is one Stop on this screen and it is the composer's square, which
+ * turns into one for exactly as long as a reply is arriving (`AssistComposer`). A queued turn used to
+ * carry its own, on the grounds that the square acts on the reply in flight and cannot reach a message
+ * sitting behind it — true, but the price was two controls for one act, one of them scrolling away
+ * mid-answer. A queued message is stoppable a moment later, once the turn ahead of it ends and it
+ * becomes the one in flight.
  */
-function PendingTurnView({ turn, memberName, agentName, showThinking, onStop, onRetry, onDismiss }: {
+function PendingTurnView({ turn, memberName, agentName, showThinking, onRetry, onDismiss }: {
   turn: PendingTurn
   memberName: string
   agentName: string
   showThinking: boolean
-  onStop: () => void
   onRetry: () => void
   onDismiss: () => void
 }) {
@@ -554,16 +646,6 @@ function PendingTurnView({ turn, memberName, agentName, showThinking, onStop, on
               ))}
           </div>
         </div>
-      )}
-
-      {/* Only for a turn that has not been sent yet.
-          The reply being written is stopped from the composer, where the square turns into a Stop for
-          exactly as long as one is arriving (`AssistComposer`) — so a second Stop under the transcript
-          was two controls for one act, one of them scrolling away mid-answer. A queued turn is the
-          case the square cannot reach: it acts on the reply in flight, and this message is behind it.
-          It stops instantly, because nothing has been sent. */}
-      {turn.queued && !turn.stopping && (
-        <button type="button" className="ml-turn__stop" onClick={onStop}>Stop</button>
       )}
 
       {/*

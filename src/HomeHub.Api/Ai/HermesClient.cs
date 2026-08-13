@@ -5,6 +5,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using HomeHub.Api.Assist;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -141,11 +142,15 @@ public sealed class HermesClient
             //
             // `source` is sent for the record and is expected to come back as `api_server`: Hermes
             // normalises it through a closed allowlist. Nothing may depend on it.
+            // The title as sent, which is not always the title as asked for — see the `invalid_title`
+            // branch below.
+            var sending = title;
+
             for (var attempt = 0; attempt < 2; attempt++)
             {
                 var id = HomeHubSessionId.New(agentKey);
                 using var res = await http.PostAsJsonAsync(
-                    "api/sessions", new { id, title, source = "homehub" }, Timeout(ct));
+                    "api/sessions", new { id, title = sending, source = "homehub" }, Timeout(ct));
 
                 // A 409 means that id already exists. With a fresh GUID that should never happen, so
                 // one retry is generosity rather than a strategy — a second collision is a broken
@@ -156,24 +161,53 @@ public sealed class HermesClient
                     continue;
                 }
 
-                if (!res.IsSuccessStatusCode)
+                if (res.IsSuccessStatusCode) return await ReadCreatedAsync(res, id, agentKey, ct);
+
+                // The body, because the status on its own is not a diagnosis. A refusal here stops
+                // every *new* chat on this agent while existing ones carry on answering from the
+                // session they already hold — which reads as the panel being broken for some people
+                // and fine for others, and sent one of these hunts across two days and three devices.
+                // Hermes says why in the response; this is the only place that can hear it.
+                //
+                // Read as text rather than parsed: this runs when the shape of the answer is already
+                // not what was expected, so anything that assumed a shape would be the next thing to
+                // break.
+                var why = await res.Content.ReadAsStringAsync(ct);
+
+                /*
+                 * Hermes requires session titles to be unique, and HomeHub names a session after the
+                 * words that opened it.
+                 *
+                 * So asking an agent something it has been asked before — "tell me a joke", "what's
+                 * the weather" — refused the session, and with no session there is no chat: the panel
+                 * says the assistant is unreachable while that same agent answers every conversation
+                 * that already exists, because those carry a session id and never come through here.
+                 * Household phrasing repeats. That is not an edge case, it is Tuesday.
+                 *
+                 * Renamed rather than surfaced. The household asked a question; which of its previous
+                 * questions it happens to resemble is Hermes bookkeeping and not something anybody
+                 * here should have to think about. HomeHub's own title — the one on the row in the
+                 * inbox — is stored separately and keeps the words exactly as they were typed.
+                 *
+                 * Once, then the failure stands: a second collision on a title carrying six random
+                 * characters is not a name clash, it is something else wearing its clothes, and
+                 * looping on it would turn one bad answer into an argument.
+                 */
+                if (attempt == 0
+                    && res.StatusCode == HttpStatusCode.BadRequest
+                    && why.Contains("invalid_title", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogWarning("Hermes session create failed for '{Agent}': {Status}.", agentKey, res.StatusCode);
-                    return null;
+                    sending = Disambiguate(title);
+                    _logger.LogInformation(
+                        "Hermes already has a session titled this for '{Agent}'; retrying under a distinct name.",
+                        agentKey);
+                    continue;
                 }
 
-                using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
-                var created = ReadCreatedId(doc.RootElement);
-
-                // Trust what came back, not what was asked for. If a future Hermes stops honouring
-                // caller ids, the sessions must still work — they simply stop being provably ours,
-                // and this line is where that would first be visible.
-                if (created is not null && !string.Equals(created, id, StringComparison.Ordinal))
-                    _logger.LogWarning(
-                        "Hermes did not keep HomeHub's session id for '{Agent}' — ownership of this session "
-                      + "cannot be proved from its id.", agentKey);
-
-                return created;
+                _logger.LogWarning(
+                    "Hermes session create failed for '{Agent}': {Status}. {Body}",
+                    agentKey, res.StatusCode, why.Length > 500 ? why[..500] : why);
+                return null;
             }
 
             return null;
@@ -183,6 +217,46 @@ public sealed class HermesClient
             _logger.LogWarning(ex, "Hermes session create failed for '{Agent}'.", agentKey);
             return null;
         }
+    }
+
+    /// <summary>The id Hermes says it created, from a successful create.</summary>
+    private async Task<string?> ReadCreatedAsync(
+        HttpResponseMessage res, string asked, string agentKey, CancellationToken ct)
+    {
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
+        var created = ReadCreatedId(doc.RootElement);
+
+        // Trust what came back, not what was asked for. If a future Hermes stops honouring caller
+        // ids, the sessions must still work — they simply stop being provably ours, and this line is
+        // where that would first be visible.
+        if (created is not null && !string.Equals(created, asked, StringComparison.Ordinal))
+            _logger.LogWarning(
+                "Hermes did not keep HomeHub's session id for '{Agent}' — ownership of this session "
+              + "cannot be proved from its id.", agentKey);
+
+        return created;
+    }
+
+    /// <summary>
+    /// The same title, made distinct enough for a store that will not hold two of a name.
+    /// </summary>
+    /// <remarks>
+    /// A short random tag rather than a counter or a clock. A counter needs to know what is already
+    /// there, which is a listing of every session on the agent to settle a naming question nobody
+    /// asked; a timestamp collides for two people asking the same thing in the same minute, which on
+    /// a household panel is a normal morning rather than a coincidence.
+    /// <para>
+    /// The words come first and the tag is appended, so the title still reads as what was asked in
+    /// any list that truncates. Trimmed to leave room for the tag rather than letting the result grow
+    /// past what Hermes accepted for the original.
+    /// </para>
+    /// </remarks>
+    private static string Disambiguate(string title)
+    {
+        var tag = Guid.NewGuid().ToString("N")[..6];
+        var room = AssistFieldLimits.Title - (tag.Length + 3);
+        var stem = title.Length <= room ? title : title[..Math.Max(room, 0)].TrimEnd();
+        return $"{stem} ({tag})";
     }
 
     /// <summary>

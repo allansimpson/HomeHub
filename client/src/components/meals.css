@@ -1883,6 +1883,28 @@
   flex: 0 0 auto;
   color: var(--text-muted);
 }
+/* The name.
+ *
+ * Serif and set large, matching the recipe title it is editing rather than the mono amount fields
+ * below it — this is prose the household wrote, not a measurement. Brass border because it is
+ * always live: the amount rows are read-only until tapped, and a name box that looked the same
+ * would read as another one waiting for the keypad. */
+.ml-edit__name {
+  display: block;
+  width: calc(100% - 2 * var(--gutter));
+  margin: 0.875rem var(--gutter) 0;
+  border: var(--control-border) solid var(--brass);
+  background: none;
+  padding: 1.0625rem 1.125rem;
+  color: var(--text-primary);
+  font-family: var(--font-serif);
+  font-size: 1.1875rem;
+  caret-color: var(--brass-bright);
+}
+.ml-edit__name::placeholder {
+  font-family: inherit;
+  color: var(--text-disabled);
+}
 .ml-edit__lines {
   padding: 0 var(--gutter);
 }
@@ -2143,6 +2165,68 @@
   line-height: 1.6;
 }
 
+/* ---- Cuisine: one field, with the household's list under it (§9) ----
+ *
+ * The field's own 12px tail is moved onto the wrapper so `top: 100%` lands exactly on the input's
+ * bottom border — with the margin still on the input it collapses out of the wrapper and the list
+ * floats 12px high. The list overlays what follows rather than pushing it: this sits mid-form, and a
+ * section that shoves the paste box down every time it is touched is a section people stop touching.
+ */
+.ml-add__combo {
+  position: relative;
+  margin-bottom: 0.75rem;
+}
+.ml-add__combo .ml-add__combofield {
+  margin-bottom: 0;
+}
+.ml-add__combolist {
+  position: absolute;
+  z-index: 2;
+  top: 100%;
+  left: var(--gutter);
+  right: var(--gutter);
+  /* Eight rows and then it scrolls — enough that a household list reads as a list, short enough
+     that it never runs past the bottom of a phone. */
+  max-height: 22rem;
+  overflow-y: auto;
+  background: var(--bg-tile);
+  border: var(--control-border) solid var(--brass-dim);
+  border-top: none;
+}
+.ml-add__combooption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 1.125rem;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  background: none;
+  text-align: left;
+  font-size: 0.875rem;
+  letter-spacing: 0.16em;
+  color: var(--text-secondary);
+}
+.ml-add__combooption:last-child {
+  border-bottom: none;
+}
+.ml-add__combooption--active {
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+/* The new-cuisine row is brass because it does something the others don't — it adds to the
+   household's list — and that is worth seeing before the tap, not after. */
+.ml-add__combooption--new {
+  color: var(--brass-bright);
+}
+.ml-add__combonew {
+  flex: 0 0 auto;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-dim);
+}
+
 /* ---- Tap to paste ----
  *
  * The panel is a wall-mounted touchscreen with no physical keyboard, and the on-screen keyboard has
@@ -2273,9 +2357,8 @@
   color: var(--text-disabled);
   font-size: 0.6875rem;
 }
-/* OTHER's field on the add screen, and ＋ NEW on the settings screen: an input shaped like the chips
-   it sits among, so a typed cuisine reads as one more choice in the row rather than a form below it. */
-.ml-add__otherchip,
+/* ＋ NEW on the settings screen: an input shaped like the chips it sits among, so a typed cuisine
+   reads as one more choice in the row rather than a form below it. */
 .ml-mealset__newchip {
   border: var(--control-border) solid var(--border-inactive);
   background: none;
@@ -2286,14 +2369,8 @@
   font-size: 0.75rem;
   letter-spacing: 0.14em;
 }
-.ml-add__otherchip::placeholder,
 .ml-mealset__newchip::placeholder {
   color: var(--brass-bright);
-}
-/* Wider than ＋ NEW: this one holds a cuisine somebody is reading off a page, not a one-word tag. */
-.ml-add__otherchip {
-  width: 11rem;
-  border-color: var(--brass);
 }
 
 /* ==========================================================================

@@ -115,6 +115,30 @@ public class SettingsController : ControllerBase
     }
 
     /// <summary>
+    /// Whether a photograph read into an engagement is kept with it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Forward-looking only, and that is the whole design of the switch.</b> Turning it off stops
+    /// new engagements keeping their flyer; it does not go back and delete the ones already kept. A
+    /// privacy control that quietly removed things a household had been relying on would be a worse
+    /// surprise than the one it exists to prevent — and the household can still delete any of them by
+    /// hand, one engagement at a time, which is the version of that where nobody is surprised.
+    /// <para>
+    /// Its own route rather than a field on the conversation policy: the two are the same kind of
+    /// decision about two different subjects, and one switch for both would mean giving up chat
+    /// history in order to stop keeping photographs.
+    /// </para>
+    /// </remarks>
+    [HttpPut("event-photo-policy")]
+    public async Task<SettingsDto> SetEventPhotoPolicy(SetEventPhotoPolicyRequest req)
+    {
+        var s = await GetOrCreate();
+        s.KeepEventPhotos = req.KeepEventPhotos;
+        await _db.SaveChangesAsync();
+        return SettingsDto.From(s);
+    }
+
+    /// <summary>
     /// Where the weather is for — what is in force now, and whether the household chose it.
     /// </summary>
     /// <remarks>

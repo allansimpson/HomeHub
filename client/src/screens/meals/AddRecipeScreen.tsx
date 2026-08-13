@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { ScrollArea } from '../../components'
 import { api, ApiError } from '../../api/client'
@@ -27,25 +27,27 @@ export function AddRecipeScreen() {
   const { refresh, settings, updateSettings } = useMeals()
 
   const [url, setUrl] = useState('')
-  // Pre-filled when this was reached from "Save 'Pizza night' as a recipe" on the assign modal.
+  /**
+   * What to call it — sent on every path, and overriding whatever the importer read.
+   *
+   * Pre-filled when this was reached from "Save 'Pizza night' as a recipe" on the assign modal.
+   */
   const [title, setTitle] = useState(params.get('title') ?? '')
   const [linesText, setLinesText] = useState('')
-  const [cuisine, setCuisine] = useState<string | null>(null)
   /**
-   * OTHER — a cuisine the household's list does not have yet.
+   * The cuisine, as typed.
    *
-   * The chips are the canonical spellings, and that list is the whole reason the folder can group by
-   * cuisine at all ("Italy" and "italian" must not become two groups). But a fixed list of twelve is
-   * a wall as soon as somebody cooks Korean: without this the only way in was Config → Meals →
-   * CUISINES, three screens away from the recipe you are holding.
+   * One field rather than a grid of chips. The household's list is the whole reason the folder can
+   * group by cuisine at all ("Italy" and "italian" must not become two groups), so it is still the
+   * thing being offered — but offered as you type, underneath the box, instead of as twelve buttons
+   * that push the recipe itself off the screen. Whatever is left in the box is the answer: pick one
+   * of theirs, or keep typing and the new name is the cuisine.
    *
-   * What is typed here is *remembered* — it joins the canonical list on save, so the next Korean
-   * recipe is a chip rather than a second round of typing, and the folder groups both under one
-   * spelling. That is the same thing the settings screen's ＋ NEW field does, offered where the
-   * question actually comes up.
+   * A name they have not used before is *remembered* — it joins the canonical list on save, so the
+   * next Korean recipe completes from one keystroke and the folder groups both under one spelling.
+   * That is what the settings screen's ＋ NEW field does, offered where the question comes up.
    */
-  const [otherCuisine, setOtherCuisine] = useState('')
-  const [otherOpen, setOtherOpen] = useState(false)
+  const [cuisineText, setCuisineText] = useState('')
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
@@ -101,18 +103,31 @@ export function AddRecipeScreen() {
    */
   const sourceName = useMemo(() => hostLabel(url), [url])
 
-  /** The cuisine this recipe is being saved with — a chip, or whatever OTHER has been typed into. */
-  const chosenCuisine = otherOpen ? otherCuisine.trim() || null : cuisine
+  /**
+   * The cuisine this recipe is being saved with — whatever is in the box, in the household's
+   * spelling where they already have one.
+   *
+   * Matched on {@link cuisineTag} rather than lowercase, because that is the key the folder actually
+   * groups by: someone who types `middle eastern` over their own `Middle Eastern` has not named a
+   * second cuisine, and saving their spelling is what keeps it from looking like they did. An empty
+   * box is no cuisine — the UNCATEGORISED case, not an error.
+   */
+  const chosenCuisine = useMemo(() => {
+    const typed = cuisineText.trim()
+    if (!typed) return null
+    return settings.canonicalCuisines.find((c) => cuisineTag(c) === cuisineTag(typed)) ?? typed
+  }, [cuisineText, settings.canonicalCuisines])
 
   /**
-   * Keep a cuisine typed into OTHER, so it is a chip next time and the folder groups by one spelling.
+   * Keep a cuisine the household has not used before, so it completes next time and the folder
+   * groups every recipe that uses it under one spelling.
    *
    * Called on the way out of a *successful* save only. A name added by a form somebody abandoned
    * would be a household setting nobody chose.
    */
   const rememberCuisine = () => {
-    if (!otherOpen || !chosenCuisine) return
-    if (settings.canonicalCuisines.some((c) => c.toLowerCase() === chosenCuisine.toLowerCase())) return
+    if (!chosenCuisine) return
+    if (settings.canonicalCuisines.some((c) => cuisineTag(c) === cuisineTag(chosenCuisine))) return
     updateSettings({ canonicalCuisines: [...settings.canonicalCuisines, chosenCuisine] })
   }
 
@@ -137,7 +152,13 @@ export function AddRecipeScreen() {
     setImportError(null)
     setPasteNote(null)
     try {
-      const result = await api.importRecipe({ url: link, profileId: activeProfileId })
+      const result = await api.importRecipe({
+        url: link,
+        // The name field sits above both paths and applies to both. A publisher's title is a
+        // headline as often as a name, so whatever was typed wins over what the page calls itself.
+        title: title.trim() || null,
+        profileId: activeProfileId,
+      })
       if (result.confidence === 'Empty' || !result.recipe) {
         setImportError(result.reason ?? "That page doesn't publish recipe data the panel can read.")
         // Open the box and put the cursor where the answer is. `typing` is left alone so the
@@ -243,6 +264,30 @@ export function AddRecipeScreen() {
       }
     >
       <ScrollArea>
+        {/*
+          The name, above both paths and belonging to both.
+
+          It used to sit under OR PASTE THE RECIPE, which made it look like the paste path's field —
+          and the link importer did not send it, so a name typed before tapping IMPORT was silently
+          dropped in favour of whatever the publisher put in their `<h1>`. That is worth a field of
+          its own: "Our Best-Ever Weeknight Chili (Really!)" is a headline, and the folder is browsed
+          by the name somebody would actually say out loud.
+
+          Optional, and said so. Both importers bring a name back and most of the time it is fine.
+        */}
+        <MealsLabel label="NAME" status="OPTIONAL" />
+        <input
+          className="ml-add__field"
+          value={title}
+          placeholder="Leave it and the panel keeps the recipe's own name"
+          aria-label="Recipe name"
+          maxLength={300}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <RuleLine>A NAME TYPED HERE WINS OVER THE ONE ON THE PAGE · RENAME IT LATER FROM EDIT</RuleLine>
+
+        <div className="ml-add__grouprule" aria-hidden="true" />
+
         <MealsLabel label="PASTE A LINK" status={sourceName ? sourceName.toUpperCase() : undefined} />
         <div className="ml-add__urlrow">
           <input
@@ -296,52 +341,15 @@ export function AddRecipeScreen() {
         <RuleLine>SCHEMA.ORG RECIPE DATA ONLY · PAYWALLED PAGES IMPORT WHAT THEY SHOW</RuleLine>
 
         <MealsLabel label="CUISINE" />
-        <div className="ml-add__chips">
-          {settings.canonicalCuisines.map((name) => (
-            <button
-              key={name}
-              type="button"
-              className={'ml-add__chip' + (!otherOpen && cuisine === name ? ' ml-add__chip--active' : '')}
-              onClick={() => { setOtherOpen(false); setCuisine((c) => (c === name ? null : name)) }}
-            >
-              {name.toUpperCase()}
-            </button>
-          ))}
-          {/* Last, and a toggle rather than a separate control: OTHER is one of the cuisine choices,
-              not an escape hatch beside them. Choosing it clears any chip, because a recipe carries
-              one cuisine and two highlighted answers would not say which. */}
-          <button
-            type="button"
-            className={'ml-add__chip' + (otherOpen ? ' ml-add__chip--active' : '')}
-            onClick={() => { setOtherOpen((open) => !open); setCuisine(null) }}
-          >
-            OTHER
-          </button>
-          {otherOpen && (
-            <input
-              className="ml-add__otherchip"
-              value={otherCuisine}
-              placeholder="TYPE ONE"
-              aria-label="Cuisine"
-              onChange={(e) => setOtherCuisine(e.target.value)}
-            />
-          )}
-        </div>
+        <CuisineField value={cuisineText} options={settings.canonicalCuisines} onChange={setCuisineText} />
         {/* The spec's line credits the importer with guessing this, which is true from M2 onward and
-            a lie today — there is nothing doing any guessing. Says what the chip actually does now;
+            a lie today — there is nothing doing any guessing. Says what the field actually does now;
             the importer's version of the sentence lands with the importer. */}
-        <RuleLine>ONE CUISINE EACH · THIS IS WHAT THE FOLDER GROUPS BY</RuleLine>
+        <RuleLine>ONE CUISINE EACH · A NEW NAME IS KEPT FOR NEXT TIME · THIS IS WHAT THE FOLDER GROUPS BY</RuleLine>
 
         <div className="ml-add__grouprule" aria-hidden="true" />
 
         <MealsLabel label="OR PASTE THE RECIPE" status="AMOUNTS AND STEPS ARE READ" />
-        <input
-          className="ml-add__field"
-          value={title}
-          placeholder="Recipe name — or leave it, the paste usually says"
-          aria-label="Recipe name"
-          onChange={(e) => setTitle(e.target.value)}
-        />
         {/*
           The box, with a tap-to-paste panel over it while it is empty.
 
@@ -395,6 +403,149 @@ export function AddRecipeScreen() {
             actually being used on. */}
       </ScrollArea>
     </MealsModal>
+  )
+}
+
+/**
+ * The cuisine field: one box that offers the household's list as you type, and takes a new name when
+ * none of them is the answer.
+ *
+ * **The box's text is the cuisine — always.** Tapping a suggestion writes that spelling into the box
+ * rather than latching some selection beside it, so there is never a highlighted row saying one thing
+ * while the field says another. Nothing is auto-highlighted for the same reason: `ITA` half-typed
+ * with `ITALIAN` glowing underneath would save `ITA`, which is exactly the trap a chip grid does not
+ * have and a combobox has to earn its way out of.
+ *
+ * Focus opens the list unfiltered, because the wall panel's first move is a tap, not a keystroke —
+ * without that this reads as a field you must already know the answer to, which is worse than the
+ * twelve chips it replaces.
+ */
+function CuisineField({
+  value,
+  options,
+  onChange,
+}: {
+  value: string
+  options: string[]
+  onChange: (next: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  /** The keyboard's position in the list. -1 is "nothing picked", which is the state it starts in. */
+  const [active, setActive] = useState(-1)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  const typed = value.trim()
+
+  /**
+   * The household's cuisines that match what has been typed, the ones that *start* with it first.
+   *
+   * Substring rather than prefix-only so `east` still finds `Middle Eastern` — a cuisine people
+   * think of by its second word is common enough that prefix matching would look broken.
+   */
+  const matches = useMemo(() => {
+    const q = typed.toLowerCase()
+    if (!q) return options
+    return options
+      .filter((name) => name.toLowerCase().includes(q))
+      .sort((a, b) => Number(b.toLowerCase().startsWith(q)) - Number(a.toLowerCase().startsWith(q)))
+  }, [options, typed])
+
+  /**
+   * Whether the last row is the "this is a new one" row.
+   *
+   * Compared on {@link cuisineTag} so retyping `middle-eastern` over their `Middle Eastern` is not
+   * offered as a new cuisine — it is the same tag, and saying otherwise would invite two spellings
+   * of one group, which is the thing the canonical list exists to prevent.
+   */
+  const isNew = typed.length > 0 && !options.some((c) => cuisineTag(c) === cuisineTag(typed))
+  const rows: ({ kind: 'known'; name: string } | { kind: 'new'; name: string })[] = [
+    ...matches.map((name) => ({ kind: 'known' as const, name })),
+    ...(isNew ? [{ kind: 'new' as const, name: typed }] : []),
+  ]
+
+  const choose = (name: string) => {
+    onChange(name)
+    setOpen(false)
+    setActive(-1)
+  }
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      setOpen(false)
+      setActive(-1)
+      return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (!open) {
+        setOpen(true)
+        return
+      }
+      if (rows.length === 0) return
+      // Cycles through the rows *and* back out to -1, so arrowing past the end returns to whatever
+      // was typed rather than trapping the choice inside the list.
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      const slots = rows.length + 1
+      setActive((i) => ((i + 1 + step + slots) % slots) - 1)
+      return
+    }
+    if (e.key === 'Enter') {
+      // Never let Enter reach the form: on a screen whose other control is SAVE, a stray submit
+      // while the list is open would file the recipe from under the person still choosing.
+      e.preventDefault()
+      if (open && active >= 0 && active < rows.length) choose(rows[active].name)
+      else setOpen(false)
+    }
+  }
+
+  return (
+    <div
+      className="ml-add__combo"
+      ref={wrapRef}
+      onBlur={(e) => {
+        if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false)
+      }}
+    >
+      <input
+        className="ml-add__field ml-add__combofield"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={open ? 'cuisine-options' : undefined}
+        aria-autocomplete="list"
+        aria-activedescendant={open && active >= 0 ? `cuisine-option-${active}` : undefined}
+        aria-label="Cuisine"
+        value={value}
+        placeholder="Italian, Thai, Korean…"
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setActive(-1) }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKeyDown}
+      />
+      {open && rows.length > 0 && (
+        <div className="ml-add__combolist" id="cuisine-options" role="listbox" aria-label="Cuisines">
+          {rows.map((row, i) => (
+            <button
+              key={`${row.kind}:${row.name}`}
+              id={`cuisine-option-${i}`}
+              type="button"
+              role="option"
+              aria-selected={i === active}
+              className={
+                'ml-add__combooption'
+                + (i === active ? ' ml-add__combooption--active' : '')
+                + (row.kind === 'new' ? ' ml-add__combooption--new' : '')
+              }
+              // Keeps focus in the box, so the tap lands as a choice rather than as a blur that
+              // closes the list out from under the finger.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => choose(row.name)}
+            >
+              <span>{row.name.toUpperCase()}</span>
+              {row.kind === 'new' && <span className="ml-add__combonew">＋ NEW</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

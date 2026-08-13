@@ -11,7 +11,7 @@ import { useMeals } from '../app/MealsProvider'
 import { usePantry } from '../app/PantryProvider'
 import { useBaby } from '../app/BabyProvider'
 import { useCareSubjects } from '../app/careSubjects'
-import { useNeedsYou, alertTarget, type NeedsRow } from '../app/needsYou'
+import { useNeedsYou, alertTarget, alertHeadline, type NeedsRow } from '../app/needsYou'
 import { useNow } from '../app/useNow'
 import { Icon } from '../icons/Icon'
 import { formatTime } from '../app/dates'
@@ -82,6 +82,20 @@ export function DashboardScreen() {
    */
   const severeAlert = alerts.find((a) => a.severity === 'Severe')
 
+  /**
+   * Weather is the exception to severe-only, on the same test Weather itself uses.
+   *
+   * A watch or a warning is exactly the kind of thing the dashboard exists to say — it is the screen
+   * the panel sits on all day, and a household that has to open Weather to find out a storm is coming
+   * is a household that finds out late. NEEDS YOU carries the rest, but it is a list of chores with a
+   * hazard hidden in it; weather gets the banner.
+   *
+   * Severe still wins the slot outright, whatever its source: one banner, and the worst thing in the
+   * house is the thing it should be naming.
+   */
+  const weatherAlert = alerts.find((a) => a.source === 'weather')
+  const bannerAlert = severeAlert ?? weatherAlert
+
   const current = weather?.current
   const conditions = current?.tempF != null
     ? `${Math.round(current.tempF)}° ${(current.condition ?? '').toUpperCase()}${current.feelsLikeF != null ? ` · FEELS ${Math.round(current.feelsLikeF)}°` : ''}`.trim()
@@ -103,12 +117,12 @@ export function DashboardScreen() {
   return (
     <ScreenShell
       banner={
-        severeAlert && (
+        bannerAlert && (
           <AlertBanner
-            title="Severe Alert"
-            detail={severeAlert.message}
-            severe
-            onClick={() => navigate(alertTarget(severeAlert.source))}
+            title={alertHeadline(bannerAlert)}
+            detail={bannerAlert.message}
+            severe={bannerAlert.severity === 'Severe'}
+            onClick={() => navigate(alertTarget(bannerAlert.source))}
           />
         )
       }

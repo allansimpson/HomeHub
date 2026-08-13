@@ -195,6 +195,11 @@ public class RecipesController : ControllerBase
         if (string.IsNullOrWhiteSpace(input.Url)) return BadRequest("A link is required.");
         if (input.Url.Trim().Length > MealFieldLimits.Url)
             return BadRequest($"That link is longer than {MealFieldLimits.Url} characters.");
+        // A 400 rather than the Empty response below: the page is fine, the typed name is the
+        // problem, and telling someone their page publishes no recipe would send them to fix the
+        // wrong thing.
+        if (input.Title is { } typed && typed.Trim().Length > MealFieldLimits.Title)
+            return BadRequest($"That name is longer than {MealFieldLimits.Title} characters.");
 
         var (confidence, parsed, imageUrl, reason) = await _import.ReadAsync(input.Url.Trim(), ct);
 
@@ -203,6 +208,10 @@ public class RecipesController : ControllerBase
         // this, not a generic failure.
         if (confidence == ImportConfidence.Empty || parsed is null)
             return new RecipeImportResponse(nameof(ImportConfidence.Empty), null, reason);
+
+        // A typed name wins over the page's. Same rule the paste path already follows, and the same
+        // reason: whoever is standing at the panel knows what the household calls this.
+        if (!string.IsNullOrWhiteSpace(input.Title)) parsed = parsed with { Title = input.Title.Trim() };
 
         if (TooLong(parsed) is { } tooLong)
             return new RecipeImportResponse(nameof(ImportConfidence.Empty), null, tooLong);

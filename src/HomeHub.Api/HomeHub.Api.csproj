@@ -7,6 +7,53 @@
     <UserSecretsId>54c59da6-3fb5-407f-92e0-4381bb765932</UserSecretsId>
   </PropertyGroup>
 
+  <!--
+    Which build this is.
+
+    The panel has been able to say this since the client build learned to stamp itself
+    (`client/vite.config.ts` → `__BUILD__`, shown on CONFIG · Display). The API could not, and the
+    asymmetry is exactly the wrong way round: the server is the half that carries the database, the
+    migrations and the endpoints, and `/api/health` reported `version 1.0.0.0` — the SDK's default,
+    identical on every build ever made, which reads as an answer while telling you nothing.
+
+    What that cost: a TEST box ran the new panel in front of the old server for a day, and the only
+    way to establish it was to infer the API's age from how many migrations it thought were pending.
+
+    `SourceRevisionId` is appended to `InformationalVersion` by the SDK, so the commit travels in the
+    assembly without any code. Written to be impossible to fail a build with: if git will not answer
+    — a build account that does not own the checkout, a source tree copied without its `.git` — the
+    property is simply left unset and the stamp falls back to the timestamp, the same floor the
+    client's stamp uses and for the same reason.
+  -->
+  <Target Name="StampBuild" BeforeTargets="GetAssemblyVersion;CoreCompile">
+    <Exec Command="git rev-parse --short HEAD"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ConsoleToMsBuild="true" StandardOutputImportance="low"
+          ContinueOnError="true" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommit" />
+      <Output TaskParameter="ExitCode" PropertyName="GitExitCode" />
+    </Exec>
+    <Exec Command="git status --porcelain"
+          WorkingDirectory="$(MSBuildProjectDirectory)"
+          ConsoleToMsBuild="true" StandardOutputImportance="low"
+          ContinueOnError="true" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitDirty" />
+    </Exec>
+    <PropertyGroup Condition="'$(GitExitCode)' == '0' AND '$(GitCommit)' != ''">
+      <!-- A "+" for a build made from a tree with uncommitted changes: the commit alone would name a
+           state that is not what is running, which is worse than saying nothing precise. -->
+      <GitDirtyMark Condition="'$(GitDirty.Trim())' != ''">+</GitDirtyMark>
+      <SourceRevisionId>$(GitCommit.Trim())$(GitDirtyMark)</SourceRevisionId>
+    </PropertyGroup>
+
+    <!-- The floor, and the half that cannot fail. UTC and said so, because it is read against a
+         deploy log and a journal that are both UTC. -->
+    <ItemGroup>
+      <AssemblyMetadata Include="BuildTimestampUtc"
+                        Value="$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm'))Z" />
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
     <!-- The assistant's fuzzy list matching is pure, deterministic and easy to break by accident;
          exposing it to the test project is cheaper than routing every case through an HTTP call

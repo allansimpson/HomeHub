@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using HomeHub.Api.Calendar.Capture;
 using HomeHub.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -39,13 +40,17 @@ public sealed class GoogleCalendarProvider : ICalendarProvider, ICalendarListSyn
     private readonly HomeHubDbContext _db;
     private readonly GoogleCalendarOptions _options;
     private readonly ILogger<GoogleCalendarProvider> _logger;
+    /// <summary>Kept photographs, so a sync that prunes engagements can release theirs.</summary>
+    private readonly EventPhotoStore _photos;
 
     public GoogleCalendarProvider(
-        HttpClient http, HomeHubDbContext db, IOptions<GoogleCalendarOptions> options, ILogger<GoogleCalendarProvider> logger)
+        HttpClient http, HomeHubDbContext db, IOptions<GoogleCalendarOptions> options,
+        EventPhotoStore photos, ILogger<GoogleCalendarProvider> logger)
     {
         _http = http;
         _db = db;
         _options = options.Value;
+        _photos = photos;
         _logger = logger;
     }
 
@@ -96,10 +101,16 @@ public sealed class GoogleCalendarProvider : ICalendarProvider, ICalendarListSyn
             Title = input.Title.Trim(),
             StartUtc = input.StartUtc,
             EndUtc = input.EndUtc,
+            IsAllDay = input.IsAllDay,
             Location = input.Location,
             Notes = input.Notes,
             OwnerTags = input.OwnersCsv,
             Mark = input.NormalizedMark,
+            // Local like Mark — Google has nowhere to put either — and create-time only.
+            FromPhoto = input.FromPhoto,
+            PhotoFile = input.PhotoFile,
+            PhotoTakenUtc = input.PhotoTakenUtc,
+            CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow,
         };
 
@@ -129,6 +140,7 @@ public sealed class GoogleCalendarProvider : ICalendarProvider, ICalendarListSyn
         entity.Title = input.Title.Trim();
         entity.StartUtc = input.StartUtc;
         entity.EndUtc = input.EndUtc;
+        entity.IsAllDay = input.IsAllDay;
         entity.Location = input.Location;
         entity.Notes = input.Notes;
         entity.OwnerTags = input.OwnersCsv;
@@ -272,6 +284,9 @@ public sealed class GoogleCalendarProvider : ICalendarProvider, ICalendarListSyn
                     ev.Title = g.Summary ?? "(untitled)";
                     ev.StartUtc = startUtc;
                     ev.EndUtc = g.End?.EffectiveUtc ?? startUtc.AddHours(1);
+                    // Which field Google sent *is* the answer, so a synced row carries the fact
+                    // rather than leaving the panel to infer it from the boundaries.
+                    ev.IsAllDay = g.Start?.Date is not null;
                     ev.Location = g.Location;
                     ev.Notes = g.Description;
                     ev.GoogleCalendarId = cal.Id;
@@ -294,17 +309,45 @@ public sealed class GoogleCalendarProvider : ICalendarProvider, ICalendarListSyn
         // Prune from the collapsed set: drop rows on a now-deselected calendar, or that a *successfully
         // fetched* calendar no longer returns (deleted upstream). Rows on a calendar that failed to
         // fetch this round are kept (seen would be incomplete for it).
+        var prunedAPhotograph = false;
         foreach (var ev in byId.Values)
         {
             if (_db.Entry(ev).State is EntityState.Deleted or EntityState.Added) continue;
             var calId = ev.GoogleCalendarId;
             if (calId is null || !selectedIds.Contains(calId) || (fetchedIds.Contains(calId) && !seen.Contains(ev.GoogleId!)))
+            {
+                if (ev.PhotoFile is not null) prunedAPhotograph = true;
                 _db.CalendarEvents.Remove(ev);
+            }
         }
 
         // Always persist — upserts must save even when nothing was pruned (e.g. the first sync into an
         // empty cache), otherwise new events never reach the DB the outer query reads.
         await _db.SaveChangesAsync(ct);
+
+        /*
+         * Tidy the photographs those rows were holding.
+         *
+         * <b>The one deletion path nobody walks.</b> A person removing an engagement releases its
+         * photograph on the way out; a sync removes engagements without anybody pressing anything —
+         * a calendar deselected here, an event deleted on somebody's phone — and until now the files
+         * stayed on disk for ever with nothing on any screen pointing at them. A photograph of the
+         * household's post outliving every reference to it is precisely the leak this feature must
+         * not have.
+         *
+         * Only when a pruned row actually held one, so an ordinary sync — which is most of them —
+         * costs nothing at all. The set is read back from the database rather than inferred from
+         * what went, because one flyer can back four engagements and the file is shared.
+         */
+        if (prunedAPhotograph)
+        {
+            var referenced = await _db.CalendarEvents
+                .Where(e => e.PhotoFile != null)
+                .Select(e => e.PhotoFile!)
+                .Distinct()
+                .ToListAsync(ct);
+            _photos.Sweep(referenced.ToHashSet(StringComparer.Ordinal), DateTime.UtcNow);
+        }
     }
 
     private async Task<List<GCalendar>> FetchCalendarsAsync(GoogleAccountLink link, CancellationToken ct)
@@ -443,17 +486,51 @@ public sealed class GoogleCalendarProvider : ICalendarProvider, ICalendarListSyn
         return access;
     }
 
-    private static object ToGoogle(CalendarEventInput input) => new
-    {
-        summary = input.Title,
-        location = input.Location,
-        description = input.Notes,
-        start = new { dateTime = Iso(input.StartUtc), timeZone = "UTC" },
-        end = new { dateTime = Iso(input.EndUtc), timeZone = "UTC" },
-    };
+    /// <summary>
+    /// The event as Google wants it — a timed event, or an all-day one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>All-day is a different shape, not a different time.</b> Google distinguishes the two by
+    /// which field is present: a timed event carries <c>dateTime</c>, an all-day event carries a
+    /// bare <c>date</c>. Sending midnight-to-midnight as a <c>dateTime</c> produces an event every
+    /// other device in the house renders at 00:00 — or, once its own offset is applied, on the
+    /// evening before. That is why <see cref="CalendarEvent.IsAllDay"/> had to become a stored flag:
+    /// nothing else survives the round trip.
+    /// </para>
+    /// <para>
+    /// <b>The dates are read back in the same zone they were written in.</b> <c>date</c> is a local
+    /// calendar date with no offset, so this is the exact inverse of <see cref="GTime.EffectiveUtc"/>
+    /// — which anchors a bare date to local midnight — and the pair round-trips as long as the
+    /// server and the panel share a timezone, which in a house they do. Google's end date is
+    /// <b>exclusive</b>, and so is <see cref="CalendarEventInput.EndUtc"/> for an all-day event, so
+    /// the conversion is the same on both ends.
+    /// </para>
+    /// </remarks>
+    internal static object ToGoogle(CalendarEventInput input) => input.IsAllDay
+        ? new
+        {
+            summary = input.Title,
+            location = input.Location,
+            description = input.Notes,
+            start = new { date = LocalDate(input.StartUtc) },
+            end = new { date = LocalDate(input.EndUtc) },
+        }
+        : new
+        {
+            summary = input.Title,
+            location = input.Location,
+            description = input.Notes,
+            start = new { dateTime = Iso(input.StartUtc), timeZone = "UTC" },
+            end = new { dateTime = Iso(input.EndUtc), timeZone = "UTC" },
+        };
 
     private static string Iso(DateTime utc) =>
         DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
+
+    /// <summary>The calendar date a UTC instant falls on locally, as Google's bare <c>date</c>.</summary>
+    private static string LocalDate(DateTime utc) =>
+        DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     // ---- Google response shapes (partial) ----
     // OAuth token endpoint returns snake_case (access_token); map it explicitly.

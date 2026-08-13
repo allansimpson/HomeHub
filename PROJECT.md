@@ -119,6 +119,13 @@ standing target + class); `ClimateUnit` is the mini-split cache that used to be 
 `/api/climate/zones` serves the panel and every write on it moves a target; `/api/climate/units` is
 the machine surface, and nothing on the Climate screen calls it.
 
+**Every probe gets a row.** `ClimateBinder` matches unbound rooms to probes and units by name, then
+adopts any probe no room has claimed as a new `Watched` room named after the sensor. Without that
+last step the panel could only ever show the six seeded room names, and a real SensorPush sensor the
+vendor called "Basement" would report into SQL every minute with nowhere on Climate to appear.
+Adopted rows are `Watched`, never `ColdStorage`: an in-range band has to be a decision, and guessing
+34–40° for something called "Garage" is a guess the panel would then alarm on.
+
 - **The loop** (`ClimateLoop`, one tick a minute) corrects by 1/2/3° at most once every 20/10/6 min
   by correction strength. That interval is compressor protection, not a preference, so it is not on
   the panel — and it holds under *every* combination of override, promotion and quiet-hours
@@ -171,8 +178,13 @@ Routing is four facts, none of them a guess about what the prompt *means*:
   failures (429, outage) but never cancellation. `SimulatedAssistantProvider` is the floor, so a
   dead agent or a dead network never takes the panel with it.
 - **Placement:** models run on the **server**, never the Pi. **Privacy:** local/agent/simulated turns
-  stay on-LAN; only cloud-routed turns leave it. Camera→AI is out of scope — only deliberate image
-  uploads go out.
+  stay on-LAN; only cloud-routed turns leave it. **Camera *systems*→AI remain out of scope** — a
+  camera the panel watches by itself is outside this line and always will be. A photograph a person
+  deliberately attaches is inside it, and `event-capture.md` now scopes exactly that: an image
+  attached in Assist is read for an engagement by a **tool-less, schema-constrained call** (never the
+  tool-bearing agent — a flyer is untrusted text), and a person confirms every field before anything
+  is written. Images have no on-LAN path: the local and agent models have no vision, so this is the
+  one input that cannot degrade to a local read and must not pretend to.
 
 ## 7 · Offline model
 
@@ -242,7 +254,7 @@ and [`deploy/pi-kiosk.md`](deploy/pi-kiosk.md).
 
 ## 11 · Out of scope (future workstreams)
 
-Not built unless explicitly scoped: camera systems / camera-image→AI, message board,
+Not built unless explicitly scoped: camera systems, message board,
 lighting/lock/leak control, local-vision AI. Also deferred but
 additive behind existing seams: Govee-via-HA sensors (`ISensorProvider`), assistant *actions*
 (wiring the assistant to the calendar/todo/climate seams), HA WebSocket live push, and SignalR
@@ -251,6 +263,14 @@ backend→client push.
 **Now scoped, with their own authoritative design docs** (this file stays authoritative for
 architecture, seams and conventions; each doc owns its workstream's stages):
 
+- **`event-capture.md`** — photo → calendar event. Takes **camera-image→AI** out of the list above
+  and narrows §6's camera sentence: a photograph somebody deliberately attaches in Assist is read
+  for an engagement, a camera system the panel watches by itself is not. Stages **E1–E6**. The
+  reading is its own tool-less seam (`IEventExtractor`) rather than an assistant turn, because
+  printed words reaching a model that holds the MCP tools are an injection surface; the prose turn
+  is generated *from* its result. Nothing is written without a person confirming it on a sheet that
+  marks every guessed value in amber. Also lands the first **`IsAllDay`** flag end to end — all-day
+  events created by hand synced to Google wrong before E1.
 - **`huckleberry-integration.md`** — Huckleberry baby tracking via Home Assistant + BLE scale
   capture. Stages H1–H4, S1–S3. Consumes the HA WebSocket live push listed above (H4 builds it).
 - **`voice-tts.md`** — voice *output*; companion to §6 above, which owns STT and assistant

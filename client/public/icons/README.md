@@ -2,6 +2,8 @@
 
 Every file here is cut from the supplied artwork — `build/source-artwork.png`, the Art Deco keystone with the rising-sun fan. Nothing is redrawn.
 
+**Rebuilt 2026-08-10** from the revised artwork: brighter hammered-foil gold, heavier strokes, stronger bevel. Same geometry, same paddings — only the finish changed. The previous cut was a softer, flatter brass.
+
 ## How it was built
 
 1. The background is keyed out by luminance, leaving the brass mark on transparency with its metallic gradient intact → `png/mark.png` (817 × 965, the master).
@@ -14,7 +16,9 @@ Every file here is cut from the supplied artwork — `build/source-artwork.png`,
 | Apple touch icon | 66% (iOS adds its own corner mask) |
 | Favicon | 84%, on an ink plate with 19% corner radius |
 
-Brass reads `#C8A877` average; plate is ink `#141210` — the manifest theme and background colour.
+Brass reads `#E0B145` average (was `#C8A877` on the previous artwork); plate is ink `#141210` — the manifest theme and background colour.
+
+The project's `/icons/` folder is generated from the same master and kept in step — it previously held an older, unrelated gabled-roof mark.
 
 ## Files
 
@@ -24,7 +28,9 @@ browserconfig.xml         Windows tiles
 head-snippet.html         paste-in <head> tags
 favicon.ico               16 / 32 / 48 multi-resolution
 
-svg/favicon.svg           scalable favicon (the artwork, embedded)
+svg/favicon.svg           scalable favicon (vector redraw, ink plate)
+svg/mark.svg              the mark alone, on transparency
+svg/safari-pinned-tab.svg solid black silhouette, Safari pinned tabs
 
 png/mark.png              master — mark on transparency, full resolution
 png/icon-{48,72,96,128,144,192,256,384,512,1024}.png
@@ -39,6 +45,20 @@ build/source-artwork.png  the artwork as supplied
 build/mark-cutout.png     keyed master (same as png/mark.png)
 ```
 
+## One local edit, on purpose
+
+`manifest.webmanifest` ships `"theme_color": "#141210"` — the icon plate's ink. In this repo it is
+**`#15171A`**, the app's own `--bg-screen`, and `index.html` carries the same value in its
+`<meta name="theme-color">` for the same reason: that colour paints the browser chrome and the
+Android status bar, and on a panel running standalone that band sits directly above the app, where
+matching the screen is what makes it disappear. `background_color` stays on the plate ink, so the
+launch splash still reads as one piece with the mark on it.
+
+**Re-apply that line after any rebuild from the pack**, or the status bar goes a shade off.
+
+`build/` (3.1 MB of source artwork) and `head-snippet.html` are not committed — everything under
+`public/` is served verbatim, and neither is fetched by the app. They stay in the delivered pack.
+
 ## Installing
 
 Serve the folder at `/icons/` and paste `head-snippet.html` into `<head>`. That covers Chrome on Android (manifest + maskable + monochrome), iOS home screen, desktop tabs, Windows tiles and link previews.
@@ -47,38 +67,5 @@ Chrome's **Add to Home screen** reads `icon-maskable-192/512`, crops them to wha
 
 ## Two notes
 
-- **Safari pinned tabs** need a single-colour vector, which this artwork isn't. No `mask-icon` is declared, so Safari falls back to the favicon — correct behaviour, just not a silhouette.
-- **16 px** is below what an outlined mark can hold; `favicon-16.png` is a faithful downscale of the artwork and reads as a brass keystone rather than a legible fan. If the tab strip ever needs to be sharper, the fix is a simplified 16 px drawing, not a smaller scale of this one.
-
----
-
-## Integration notes (added when the pack was wired in)
-
-The pack is served from `client/public/icons/`, which `npm run build` copies verbatim into
-`src/HomeHub.Api/wwwroot/`. The tags live in `client/index.html` rather than in
-`head-snippet.html`, which is not shipped — it was the instruction, and it has been followed.
-
-Four things differ from the pack as delivered, all deliberate:
-
-1. **`svg/favicon.svg` is not linked.** Its `<image>` element carries no `href`, so it draws
-   nothing — and a browser prefers a declared SVG over every PNG beside it, which would leave the
-   tab blank. The file is kept for provenance. Replacing it with a real single-colour vector would
-   also earn Safari a pinned-tab mask, which this raster artwork cannot provide.
-2. **`theme_color` is `#15171A`, not `#141210`.** That property paints the browser chrome and the
-   Android status bar, which on a standalone panel sits directly above the app; matching
-   `--bg-screen` is what makes the band disappear. `background_color` stays on the icon plate
-   (`#141210`) so the launch splash reads as one piece with the mark on it, and `index.html`'s
-   `theme-color` meta carries the same value so the two cannot disagree.
-3. **`name` / `short_name` are "HomeHub".** This is what an installed home-screen icon is labelled,
-   and it cannot be edited on the device: Chrome takes the label from the manifest for a real PWA
-   install, unlike a plain bookmark shortcut. Changing it here is the only way to change it, and it
-   only takes effect after a rebuild, a redeploy, and removing and re-adding the icon on the phone.
-   `index.html` carries the same string in `<title>`, `apple-mobile-web-app-title` and `og:title` so
-   the four cannot disagree.
-4. **The masters were not copied.** `build/` is 2.3 MB of source artwork, and `png/mark.png` was
-   byte-identical to `build/mark-cutout.png` — neither has a reason to sit behind a public URL, and
-   everything under `client/public/` is served. Both stay in the original delivery. The `-1024`
-   outputs were kept: they are finished icons at a size a store listing may ask for, not sources.
-
-`display_override` may be flagged by an editor's JSON schema. It is a standard App Manifest member
-and is correct as written.
+- **The SVGs are a redraw, not the artwork.** The raster outputs are cut from the photograph and keep its hammered-foil texture; the SVGs are true vector paths (outline, nine rays, half-dome, base bar) fitted to that artwork at 90% pixel overlap, with a three-stop gradient standing in for the foil. Vector was necessary: an embedded raster is stripped by SVG sanitizers and would have shipped a blank plate. Scale is exact — geometry was measured off `png/mark.png`, not eyeballed.
+- **16 px** is below what an outlined mark can hold; `favicon-16.png` is a faithful downscale and reads as a brass keystone rather than a legible fan. The vector favicon degrades better at that size, and modern browsers prefer it.
