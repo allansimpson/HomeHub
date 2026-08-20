@@ -169,6 +169,12 @@ export function MealsProvider({ children }: { children: ReactNode }) {
             position: 0,
             role: 'Main' as const,
             totalMinutes: null,
+            // Deliberately null rather than carried over from `existing`: the night just changed,
+            // so whatever it used to say about stock is about a different night's worth of
+            // ingredients. The refresh that follows brings the re-settled word (KITCHEN_LOOP_ADDENDUM
+            // §1), and until then the row simply says nothing — which is the honest state and the
+            // one the pantry's advisory posture calls for.
+            stockSummary: null,
             version: existing?.version ?? 0,
             ...existing,
             ...patch,

@@ -44,7 +44,13 @@ public sealed class StockCheckService
     }
 
     /// <summary>Check a recipe's lines against the shelves at a given number of servings.</summary>
-    public async Task<StockCheckDto?> CheckAsync(int recipeId, int? servings, CancellationToken ct)
+    /// <param name="planEntryId">
+    /// The night being checked, when there is one. Supplying it is what lets the check see past the
+    /// raw shelf count to what the <i>earlier</i> nights have already spoken for — without it, a tin
+    /// Saturday is having still reads as available to Sunday (KITCHEN_LOOP_ADDENDUM §1).
+    /// </param>
+    public async Task<StockCheckDto?> CheckAsync(
+        int recipeId, int? servings, CancellationToken ct, int? planEntryId = null)
     {
         var recipe = await _db.Recipes
             .Include(r => r.Ingredients)
@@ -56,42 +62,23 @@ public sealed class StockCheckService
         // parser could not read has no quantity to scale and is simply asked about as written.
         var factor = recipe.Servings is > 0 && target > 0 ? (decimal)target / recipe.Servings.Value : 1m;
 
-        var items = await _db.PantryItems.Where(i => !i.IsArchived).ToListAsync(ct);
-        var lastSeen = await _ledger.LastSeenAsync(items.Select(i => i.Id).ToList(), ct);
-
-        var aliases = await _db.IngredientAliases
-            .Where(a => !a.Item!.IsArchived)
-            .ToDictionaryAsync(a => a.Alias, a => a.PantryItemId, ct);
-
-        // The pantry's own names are aliases too, and free ones — an item called "Chicken breasts"
-        // answers to "chicken breast" without anyone having taught it that.
-        var byName = new Dictionary<string, int>();
-        foreach (var item in items)
-        {
-            var key = IngredientNormaliser.Normalise(item.Name);
-            if (key.Length > 0) byName.TryAdd(key, item.Id);
-        }
+        var matcher = await PantryMatcher.LoadAsync(_db, ct);
+        var lastSeen = await _ledger.LastSeenAsync(matcher.Items.Select(i => i.Id).ToList(), ct);
+        var claimedByEarlier = await ClaimedByEarlierNightsAsync(planEntryId, ct);
 
         var lines = new List<StockCheckLineDto>();
         var notCounted = new List<string>();
 
         foreach (var ingredient in recipe.Ingredients.OrderBy(i => i.Position))
         {
-            var key = IngredientNormaliser.Normalise(ingredient.Name ?? ingredient.RawText);
-            var itemId = key.Length == 0
-                ? (int?)null
-                : aliases.TryGetValue(key, out var viaAlias) ? viaAlias
-                : byName.TryGetValue(key, out var viaName) ? viaName
-                : null;
-
-            var item = itemId is null ? null : items.FirstOrDefault(i => i.Id == itemId);
+            var item = matcher.Match(ingredient);
             var needed = NeededText(ingredient, factor);
 
             if (item is null)
             {
                 lines.Add(new StockCheckLineDto(
                     ingredient.Id, DisplayName(ingredient), needed,
-                    nameof(StockStatus.NoMatch), null, null, null, null, null));
+                    nameof(StockStatus.NoMatch), null, null, null, null, null, null, null));
                 continue;
             }
 
@@ -102,14 +89,26 @@ public sealed class StockCheckService
                 notCounted.Add(item.Name);
                 lines.Add(new StockCheckLineDto(
                     ingredient.Id, DisplayName(ingredient), needed,
-                    nameof(StockStatus.NotCounted), item.Id, null, item.Unit, null, seenAt));
+                    nameof(StockStatus.NotCounted), item.Id, null, item.Unit, null, seenAt, null, null));
                 continue;
             }
 
             var status = Verdict(item, ingredient, factor);
+            claimedByEarlier.TryGetValue(item.Id, out var spokenFor);
+
+            // A line that is fine against the shelf but not against what is left of it after the
+            // earlier nights is not short — the thing is here. It is spoken for, and that is a
+            // different problem with a different answer.
+            if (status == StockStatus.Fine && spokenFor.Quantity > 0
+                && WouldFallShort(item, ingredient, factor, spokenFor.Quantity))
+            {
+                status = StockStatus.ClaimedAway;
+            }
+
             lines.Add(new StockCheckLineDto(
                 ingredient.Id, DisplayName(ingredient), needed, status.ToString(), item.Id,
-                item.Quantity, item.Unit, item.EstimateState?.ToString(), seenAt));
+                item.Quantity, item.Unit, item.EstimateState?.ToString(), seenAt,
+                spokenFor.EntryId, spokenFor.Quantity > 0 ? spokenFor.Quantity : null));
         }
 
         var flagged = lines.Count(l => IsFlagged(l.Status));
@@ -122,7 +121,65 @@ public sealed class StockCheckService
     /// <summary>Which statuses 9b lists under `WORTH A LOOK`.</summary>
     public static bool IsFlagged(string status) =>
         status is nameof(StockStatus.Short) or nameof(StockStatus.Gone)
-            or nameof(StockStatus.Unknown) or nameof(StockStatus.NoMatch);
+            or nameof(StockStatus.Unknown) or nameof(StockStatus.NoMatch)
+            or nameof(StockStatus.ClaimedAway);
+
+    /// <summary>
+    /// How much of each item the nights <i>before</i> this one have already claimed, and which
+    /// night to name for it.
+    /// </summary>
+    /// <remarks>
+    /// Earlier means earlier in cooking order — date, then slot, then position — the same order the
+    /// settle walks in. The entry named is the first claimant, because "Saturday is having it" is
+    /// the useful sentence; listing all four nights that want the tin is not.
+    /// </remarks>
+    private async Task<Dictionary<int, (int? EntryId, decimal Quantity)>> ClaimedByEarlierNightsAsync(
+        int? planEntryId, CancellationToken ct)
+    {
+        var empty = new Dictionary<int, (int?, decimal)>();
+        if (planEntryId is not { } entryId) return empty;
+
+        var self = await _db.MealPlanEntries.FirstOrDefaultAsync(e => e.Id == entryId, ct);
+        if (self is null) return empty;
+
+        // Claims carry no date of their own; they are a projection of the plan, so the ordering
+        // question is asked of the plan.
+        var earlier = await _db.PlanClaims
+            .Join(_db.MealPlanEntries, c => c.PlanEntryId, e => e.Id, (c, e) => new { Claim = c, Entry = e })
+            .Where(x => x.Entry.Id != entryId)
+            .Where(x => x.Entry.Date < self.Date
+                || (x.Entry.Date == self.Date && (int)x.Entry.Slot < (int)self.Slot)
+                || (x.Entry.Date == self.Date && x.Entry.Slot == self.Slot && x.Entry.Position < self.Position))
+            .Select(x => new { x.Claim.PantryItemId, x.Claim.Quantity, x.Entry.Id, x.Entry.Date, x.Entry.Slot, x.Entry.Position })
+            .ToListAsync(ct);
+
+        return earlier
+            .GroupBy(x => x.PantryItemId)
+            .ToDictionary(
+                g => g.Key,
+                g => ((int?)g.OrderBy(x => x.Date).ThenBy(x => (int)x.Slot).ThenBy(x => x.Position).First().Id,
+                      g.Sum(x => x.Quantity ?? 0m)));
+    }
+
+    /// <summary>
+    /// Would this line come up short once the earlier nights' claims are taken off the shelf?
+    /// </summary>
+    /// <remarks>
+    /// Only ever asked of a line the shelf alone says is fine, so a false here means "fine, and
+    /// still fine after Saturday takes its share".
+    /// </remarks>
+    private static bool WouldFallShort(
+        PantryItem item, RecipeIngredient ingredient, decimal factor, decimal spokenFor)
+    {
+        if (item.Tracking != TrackingClass.Counted) return false;
+        if (ingredient.Quantity is not { } quantity) return false;
+
+        var needed = UnitConversion.Convert(
+            quantity * factor, ingredient.Unit, PantryAmounts.MeasureUnit(item));
+        if (needed is null) return false;
+
+        return PantryAmounts.OnHand(item) - spokenFor < needed.Value;
+    }
 
     /// <summary>
     /// The verdict for one matched line.

@@ -22,11 +22,13 @@ public sealed class DeductionService
 {
     private readonly HomeHubDbContext _db;
     private readonly PantryLedger _ledger;
+    private readonly TimeProvider _clock;
 
-    public DeductionService(HomeHubDbContext db, PantryLedger ledger)
+    public DeductionService(HomeHubDbContext db, PantryLedger ledger, TimeProvider clock)
     {
         _db = db;
         _ledger = ledger;
+        _clock = clock;
     }
 
     /// <summary>
@@ -47,8 +49,14 @@ public sealed class DeductionService
         if (entry.WasEaten != true) return null;
         if (entry.Recipe is null) return null;
 
+        // Deductions only. `Produced` shares the source pair with them, so an unfiltered guard would
+        // let a leftovers answer alone stand in for a deduction that never happened — and a night
+        // whose lines only started matching after somebody taught an alias would never come off the
+        // shelves at all.
         var existing = await _db.PantryEvents
-            .Where(e => e.SourceKind == PantryEventSource.PlanEntry && e.SourceId == planEntryId)
+            .Where(e => e.SourceKind == PantryEventSource.PlanEntry
+                && e.SourceId == planEntryId
+                && e.Kind == PantryEventKind.Deducted)
             .Include(e => e.Item)
             .OrderBy(e => e.Id)
             .ToListAsync(ct);
@@ -59,14 +67,11 @@ public sealed class DeductionService
         var servings = entry.ServingsOverride ?? recipe.Servings ?? 0;
         var factor = recipe.Servings is > 0 && servings > 0 ? (decimal)servings / recipe.Servings.Value : 1m;
 
-        var items = await _db.PantryItems.Where(i => !i.IsArchived).ToListAsync(ct);
-        var aliases = await _db.IngredientAliases.ToDictionaryAsync(a => a.Alias, a => a.PantryItemId, ct);
-        var byName = new Dictionary<string, int>();
-        foreach (var item in items)
-        {
-            var key = IngredientNormaliser.Normalise(item.Name);
-            if (key.Length > 0) byName.TryAdd(key, item.Id);
-        }
+        // The shared matcher, not a private copy of the same lookup. This is the one path that
+        // actually moves stock, so it is the path where a refused pairing matters most: a private
+        // alias-then-name lookup ignores `AliasRejection` and takes a tin off a shelf the household
+        // has already said is the wrong tin.
+        var matcher = await PantryMatcher.LoadAsync(_db, ct);
 
         var written = new List<PantryEvent>();
         // One event per item, not per ingredient line: a recipe naming butter twice took butter out
@@ -75,16 +80,10 @@ public sealed class DeductionService
 
         foreach (var ingredient in recipe.Ingredients.OrderBy(i => i.Position))
         {
-            var key = IngredientNormaliser.Normalise(ingredient.Name ?? ingredient.RawText);
-            if (key.Length == 0) continue;
+            var item = matcher.Match(ingredient);
+            // A recipe line nothing answers to changes nothing and does not appear on the receipt (§2).
+            if (item is null || !touched.Add(item.Id)) continue;
 
-            var itemId = aliases.TryGetValue(key, out var viaAlias) ? viaAlias
-                : byName.TryGetValue(key, out var viaName) ? viaName
-                : (int?)null;
-            // A recipe line with no alias changes nothing and does not appear on the receipt (§2).
-            if (itemId is null || !touched.Add(itemId.Value)) continue;
-
-            var item = items.First(i => i.Id == itemId.Value);
             // Staples are listed under LEFT ALONE and never touched.
             if (item.Tracking == TrackingClass.NotCounted) continue;
 
@@ -151,6 +150,11 @@ public sealed class DeductionService
         if (events.Count == 0) return false;
 
         foreach (var id in events) await _ledger.UndoAsync(id, byProfileId, ct);
+
+        // "Undo removes the produced item with the rest of the receipt" (§5). Leaving it behind
+        // would put a box of leftovers in the fridge for a night the household just said did not
+        // happen — and a later night would then claim it.
+        await ProduceAsync(planEntryId, location: null, portions: null, byProfileId, ct);
         return true;
     }
 
@@ -198,12 +202,131 @@ public sealed class DeductionService
 
         var leftAlone = await LeftAloneAsync(entry, ct);
 
+        var servings = entry.ServingsOverride ?? entry.Recipe?.Servings ?? 0;
+
+        // Who and when, from the deduction's own first event rather than from the request: the
+        // receipt is a record of what happened, and re-opening it later must name the person who
+        // confirmed the night, not whoever is standing at the panel now.
+        var first = events.FirstOrDefault(e => e.Kind == PantryEventKind.Deducted);
+        var writtenBy = first?.ByProfileId is { } profileId
+            ? await _db.Profiles.Where(p => p.Id == profileId).Select(p => p.Name).FirstOrDefaultAsync(ct)
+            : null;
+
         return new DeductionReceiptDto(
             entry.Id,
             entry.FreeText ?? entry.Recipe?.Title ?? "Dinner",
-            entry.ServingsOverride ?? entry.Recipe?.Servings ?? 0,
+            servings,
             entry.Date,
-            counted, estimated, leftAlone, hitNone);
+            counted, estimated, leftAlone, hitNone,
+            Leftovers(entry, servings),
+            writtenBy,
+            first?.AtUtc);
+    }
+
+    /// <summary>
+    /// What the night left over, or null when it left nothing (KITCHEN_LOOP_ADDENDUM §5).
+    /// </summary>
+    /// <remarks>
+    /// <b>Only a night answered "or some of it" leaves anything.</b> A plain "yes, we ate it" means
+    /// everyone sat down, so there is nothing spare and no card — which is why this returns null
+    /// rather than a card offering zero portions.
+    /// </remarks>
+    private static ProducedSuggestionDto? Leftovers(MealPlanEntry entry, int servings)
+    {
+        if (entry.WasEaten != true) return null;
+
+        var eaten = entry.PortionsEaten ?? servings;
+        var spare = servings - eaten;
+        if (spare <= 0) return null;
+
+        var dish = entry.Recipe?.Title ?? entry.FreeText;
+        if (string.IsNullOrWhiteSpace(dish)) return null;
+
+        return new ProducedSuggestionDto(
+            $"Leftover {dish}", spare, nameof(PantryLocation.Fridge));
+    }
+
+    /// <summary>
+    /// Act on the leftovers card — put the spare portions somewhere, or say there are none.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Creates an <b>ordinary</b> <see cref="TrackingClass.Counted"/> item measured in portions, not
+    /// a special kind of row. That is the whole point: a leftovers night then claims it through the
+    /// same settle as a tin (§1), and the grocery review stops asking anybody to buy for Tuesday.
+    /// </para>
+    /// <para>
+    /// <see cref="PantryItem.OpenedAt"/> is set to the cook time because a cooked thing is open from
+    /// the moment it exists — there is no unopened state for a box of leftovers.
+    /// </para>
+    /// </remarks>
+    public async Task<PantryItem?> ProduceAsync(
+        int planEntryId, PantryLocation? location, int? portions, int? byProfileId, CancellationToken ct)
+    {
+        var entry = await _db.MealPlanEntries
+            .Include(e => e.Recipe)
+            .FirstOrDefaultAsync(e => e.Id == planEntryId, ct);
+        if (entry is null) return null;
+
+        // Replace rather than add: answering the card twice is answering it once, and two boxes of
+        // Tuesday's leftovers is a fiction the fridge will not back up.
+        var existing = await _db.PantryItems
+            .Where(i => i.ProducedByPlanEntryId == planEntryId && !i.IsArchived)
+            .ToListAsync(ct);
+
+        if (location is null)
+        {
+            // `NONE LEFT`. Anything produced by an earlier answer goes away with it.
+            foreach (var item in existing) item.IsArchived = true;
+            await _db.SaveChangesAsync(ct);
+            return null;
+        }
+
+        var servings = entry.ServingsOverride ?? entry.Recipe?.Servings ?? 0;
+        var suggested = Leftovers(entry, servings);
+        var count = portions ?? suggested?.SuggestedPortions ?? 0;
+        if (count <= 0) return null;
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var name = suggested?.SuggestedName ?? $"Leftover {entry.Recipe?.Title ?? entry.FreeText}";
+
+        var produced = existing.FirstOrDefault();
+        if (produced is null)
+        {
+            produced = new PantryItem
+            {
+                Name = name,
+                Tracking = TrackingClass.Counted,
+                Unit = "portions",
+                CreatedUtc = now,
+                ProducedByPlanEntryId = planEntryId,
+            };
+            _db.PantryItems.Add(produced);
+        }
+
+        produced.Location = location.Value;
+        produced.IsArchived = false;
+        produced.OpenedAt = now;
+        produced.OpenedByProfileId = byProfileId;
+        produced.UpdatedUtc = now;
+        await _db.SaveChangesAsync(ct);
+
+        // Through the ledger like every other change of stock, so the row and its history agree.
+        _db.PantryEvents.Add(new PantryEvent
+        {
+            PantryItemId = produced.Id,
+            Kind = PantryEventKind.Produced,
+            Delta = count - (produced.Quantity ?? 0),
+            ResultingQuantity = count,
+            AtUtc = now,
+            ByProfileId = byProfileId,
+            SourceKind = PantryEventSource.PlanEntry,
+            SourceId = planEntryId,
+        });
+        produced.Quantity = count;
+        await _db.SaveChangesAsync(ct);
+
+        return produced;
     }
 
     /// <summary>

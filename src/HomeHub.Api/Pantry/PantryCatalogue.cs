@@ -30,6 +30,18 @@ public class ProductCatalogueEntry
     /// <summary>Pack weight in pounds, when the pack is sold by weight. Feeds the `about 6` guess.</summary>
     public decimal? PackSize { get; set; }
 
+    /// <summary>
+    /// What <see cref="PackSize"/> is measured in, so the entry reads <b>"1 tin = 400 g"</b>
+    /// (KITCHEN_LOOP_ADDENDUM §2).
+    /// </summary>
+    /// <remarks>
+    /// Stated in the direction people speak, deliberately. Grocy users ask for exactly this and get
+    /// a fractional conversion factor instead — "1 piece is 0.167 of a pack" — which is the same
+    /// arithmetic said in a way nobody can check at a glance. A size without a unit is worse again:
+    /// "400" could be grams or millilitres, and the check would have to guess.
+    /// </remarks>
+    public string? PackUnit { get; set; }
+
     /// <summary>Household entries win over global ones.</summary>
     public CatalogueScope Scope { get; set; } = CatalogueScope.Household;
 
@@ -60,5 +72,32 @@ public class IngredientAlias
     /// <summary>Promoted to <see cref="AliasConfidence.Confirmed"/> when a human accepts or corrects it.</summary>
     public AliasConfidence Confidence { get; set; } = AliasConfidence.Seeded;
 
+    /// <summary>Where this join came from — drives M3's attribution.</summary>
+    public AliasSource Source { get; set; } = AliasSource.Seed;
+
     public DateTime CreatedUtc { get; set; }
+}
+
+/// <summary>
+/// A pairing the household has said is wrong (MATCHING_AND_ALIASES §5).
+/// </summary>
+/// <remarks>
+/// <b>"A match undone is never suggested again for that pair."</b> Without this, the ranked
+/// candidate list would keep offering chicken stock for beef stock every time the question came
+/// round, and the household would learn that saying no achieves nothing. It suppresses one pair, not
+/// one name — the ingredient stays matchable against everything else on the shelves.
+/// </remarks>
+public class AliasRejection
+{
+    public int Id { get; set; }
+
+    /// <summary>The normalised ingredient name that was offered a home.</summary>
+    public string CanonicalName { get; set; } = string.Empty;
+
+    /// <summary>The item it was offered, and refused.</summary>
+    public int PantryItemId { get; set; }
+    public PantryItem? Item { get; set; }
+
+    public DateTime CreatedUtc { get; set; }
+    public int? ByProfileId { get; set; }
 }

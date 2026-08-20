@@ -69,6 +69,17 @@ public class MealPlanEntry
     /// </summary>
     public bool? WasEaten { get; set; }
 
+    /// <summary>
+    /// How many portions were actually eaten, when the household answered "or some of it"
+    /// (COOKING_AND_AFTER §2).
+    /// </summary>
+    /// <remarks>
+    /// Null on a plain yes, which means everyone ate and there is nothing spare. The difference
+    /// between this and <see cref="ServingsOverride"/> is what the leftovers card offers to put in
+    /// the fridge — and it is a guess, which is why C3 labels it one rather than presenting a keypad.
+    /// </remarks>
+    public int? PortionsEaten { get; set; }
+
     public DateTime CreatedUtc { get; set; }
     public DateTime UpdatedUtc { get; set; }
 

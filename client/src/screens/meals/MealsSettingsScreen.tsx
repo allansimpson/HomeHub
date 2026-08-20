@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router'
 import { ScreenShell, DrillInHeader, ScrollArea, Toggle } from '../../components'
 import { useMeals } from '../../app/MealsProvider'
 import { formatClock, parseClock } from '../../app/mealsDomain'
+import { clockFromStored } from '../../app/dates'
 import { ALL_SLOTS } from '../../app/mealsPrefs'
 import type { MealSlotName } from '../../api/types'
 import { Chevron, MealsLabel, RuleLine } from './parts'
@@ -76,7 +77,9 @@ export function MealsSettingsScreen() {
             >
               −
             </button>
-            <span className="ml-mealset__timevalue serif">{settings.dinnerTime}</span>
+            {/* The stepper writes `formatClock` back to the server, which is the stored form; what
+                stands between the two buttons is the same value said out loud. */}
+            <span className="ml-mealset__timevalue serif">{clockFromStored(settings.dinnerTime)}</span>
             <button
               type="button"
               className="ml-mealset__timestep"

@@ -34,6 +34,8 @@ import type {
  */
 
 const item = (over: Partial<PantryItemDto> = {}): PantryItemDto => ({
+  openedAtUtc: null,
+  goodUntil: null,
   id: 1,
   name: 'Chicken breasts',
   location: 'Fridge',
@@ -207,6 +209,8 @@ describe('groupByLocation', () => {
 
 describe('the stock check wording', () => {
   const line = (over: Partial<StockCheckLineDto> = {}): StockCheckLineDto => ({
+    claimedByEntryId: null,
+    claimedQuantity: null,
     ingredientId: 1,
     name: 'Chicken breasts',
     needed: '6',
@@ -226,6 +230,9 @@ describe('the stock check wording', () => {
     expect(isFlagged('Unknown')).toBe(true)
     // NoMatch is listed too. Silence about a line you cannot resolve is how the check starts lying.
     expect(isFlagged('NoMatch')).toBe(true)
+    // Spoken for by an earlier night. The shelf agrees with you until Saturday, which is what
+    // makes reading this as "already in" worse than a plain shortfall.
+    expect(isFlagged('ClaimedAway')).toBe(true)
     expect(isFlagged('Fine')).toBe(false)
     expect(isFlagged('NotCounted')).toBe(false)
   })
@@ -281,6 +288,7 @@ describe('moveTarget', () => {
         entries: planned.includes(date)
           ? [{
               id: 1, date, slot: 'Dinner' as const, position: 0, role: 'Main' as const,
+              stockSummary: null,
               recipeId: 1, recipeTitle: 'Something', recipeHasImage: false, freeText: null,
               servingsOverride: null, wasEaten: null, totalMinutes: null, version: 1,
             }]
@@ -314,6 +322,8 @@ describe('moveTarget', () => {
 
 describe('the grocery list', () => {
   const line = (over: Partial<GroceryLineDto> = {}): GroceryLineDto => ({
+    aisle: null,
+    store: null,
     id: 1,
     text: 'Lemons',
     quantity: 3,

@@ -78,6 +78,18 @@ public enum PantryEventKind
     /// <see cref="PantryEvent.UndoneByEventId"/> for why that matters to <c>lastSeenAt</c>.
     /// </summary>
     Undone = 8,
+
+    // New kinds take the next free values. These are persisted as integers, so an existing member's
+    // number can never be reused or shifted — every stored row would silently change meaning.
+
+    /// <summary>Cooking produced stock — leftovers going into the fridge (§5).</summary>
+    Produced = 9,
+
+    /// <summary>Opened, by one deliberate tap. Never inferred, and never changes a quantity (§4).</summary>
+    MarkedOpened = 10,
+
+    /// <summary>An opened thing finished, closing the window <see cref="MarkedOpened"/> began.</summary>
+    MarkedFinished = 11,
 }
 
 /// <summary>What caused an event, so a receipt or a run list can be reversed as a unit.</summary>
@@ -117,6 +129,16 @@ public enum StockStatus
 
     /// <summary>No pantry item answers to this ingredient at all. Listed, never silently "fine".</summary>
     NoMatch = 5,
+
+    /// <summary>
+    /// Wanted, present, and already spoken for by an earlier night (KITCHEN_LOOP_ADDENDUM §1).
+    /// </summary>
+    /// <remarks>
+    /// Distinct from <see cref="Short"/> on purpose. "You have none" and "you have one and Saturday
+    /// is having it" call for different answers — buy some, or move the night — and collapsing them
+    /// into one word would hide the only fact that tells you which.
+    /// </remarks>
+    ClaimedAway = 6,
 }
 
 /// <summary>Why a line is on the grocery list — drives its section and its provenance line.</summary>
@@ -189,4 +211,51 @@ public enum AliasConfidence
 
     /// <summary>A human accepted or corrected it.</summary>
     Confirmed = 1,
+}
+
+/// <summary>
+/// How the household came to know one name means another (MATCHING_AND_ALIASES §5).
+/// </summary>
+/// <remarks>
+/// Kept because M3 shows it: coverage attributed by source is what tells the household the thing is
+/// being taught by shopping rather than by configuring — "most of it was earned by shopping, which
+/// is the point". A bare percentage would not.
+/// </remarks>
+public enum AliasSource
+{
+    /// <summary>Shipped in the seeded dictionary — the ~1,200 names the app knows on day one.</summary>
+    Seed = 0,
+
+    /// <summary>Learned from a barcode somebody scanned.</summary>
+    Scan = 1,
+
+    /// <summary>Learned from a delivery line that was matched.</summary>
+    OrderLine = 2,
+
+    /// <summary>Learned from a substitution accepted with `SAME THING`.</summary>
+    Substitution = 3,
+
+    /// <summary>Sorted out by hand, one line at a time (M2).</summary>
+    Manual = 4,
+}
+
+/// <summary>
+/// Where a <see cref="PantryItem.GoodUntil"/> date came from (ADD_TO_PANTRY §6).
+/// </summary>
+/// <remarks>
+/// Recorded rather than assumed because the whole exception rests on provenance: a date somebody
+/// read off a packet is worth having, and one the app worked out for itself is exactly what the
+/// expiry ban exists to prevent. There is deliberately no <c>Inferred</c> member — the type makes
+/// the thing unrepresentable rather than merely discouraged.
+/// </remarks>
+public enum GoodUntilSource
+{
+    /// <summary>Read off the packet by a person.</summary>
+    Typed = 0,
+
+    /// <summary>Carried in by a barcode scan that happened to know it.</summary>
+    Scanned = 1,
+
+    /// <summary>Carried in on an order line.</summary>
+    OrderLine = 2,
 }

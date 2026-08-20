@@ -24,7 +24,18 @@ public record PantryItemDto(
     string? LastSeenByName,
     string? CatalogueRef,
     bool IsArchived,
-    int Version);
+    int Version,
+    /// <summary>
+    /// When it was opened, if it has been — the `OPEN 5 D` label (KITCHEN_LOOP_ADDENDUM §4).
+    /// </summary>
+    /// <remarks>
+    /// Null is the ordinary case and means "not opened", not "unknown". Nothing infers it: this is
+    /// the observable fact the section ranks freshness by, precisely because it refuses to store
+    /// expiry dates it would have to guess.
+    /// </remarks>
+    DateTime? OpenedAtUtc = null,
+    /// <summary>A date the packet stated, if one did. Sorts; never warns (ADD_TO_PANTRY §6).</summary>
+    DateOnly? GoodUntil = null);
 
 /// <summary>
 /// Everything 9a renders in one response: the list, the hedged tally, and who last touched it.
@@ -102,7 +113,11 @@ public record PantryItemInput(
     /// </remarks>
     string? Barcode = null,
     /// <summary>The symbology, for the ambiguous 8-digit case. Same meaning as on a scan.</summary>
-    string? BarcodeFormat = null);
+    string? BarcodeFormat = null,
+    /// <summary>
+    /// A date the packet states (ADD_TO_PANTRY §6). Optional, never inferred, never notified.
+    /// </summary>
+    DateOnly? GoodUntil = null);
 
 /// <summary>One row of an item's history, for the row sheet and the run list.</summary>
 public record PantryEventDto(
@@ -207,7 +222,14 @@ public record StockCheckLineDto(
     decimal? LastSeenQuantity,
     string? LastSeenUnit,
     string? LastSeenState,
-    DateTime? LastSeenAtUtc);
+    DateTime? LastSeenAtUtc,
+    /// <summary>
+    /// The earlier night that already spoke for this item, when one has (KITCHEN_LOOP_ADDENDUM §1).
+    /// Null when nothing earlier wants it. Names the first claimant so the row can say which night.
+    /// </summary>
+    int? ClaimedByEntryId = null,
+    /// <summary>How much the earlier nights hold, in the item's own measure unit.</summary>
+    decimal? ClaimedQuantity = null);
 
 /// <summary>"We've got these — the panel's wrong": mark every listed item seen today.</summary>
 public record CorrectStockInput(IReadOnlyList<CorrectStockLine> Lines, int? ProfileId);
@@ -230,7 +252,43 @@ public record DeductionReceiptDto(
     /// <summary>Staples, named but untouched. `LEFT ALONE`.</summary>
     IReadOnlyList<string> LeftAlone,
     /// <summary>Items this deduction took to zero — the footer's offer to add them to the list.</summary>
-    IReadOnlyList<int> HitNone);
+    IReadOnlyList<int> HitNone,
+    /// <summary>
+    /// What the night left over, when it left anything (KITCHEN_LOOP_ADDENDUM §5). Null when
+    /// everyone ate, which is the common case and needs no card.
+    /// </summary>
+    ProducedSuggestionDto? Produced = null,
+    /// <summary>
+    /// Who confirmed the night, and when — C3's `Written by Aiden · just now`.
+    /// </summary>
+    /// <remarks>
+    /// PANTRY_SHELVES §2 makes naming who and how a rule for every event, and this is the one
+    /// operation that moves the most stock at once. A wrong number is arguable when somebody's name
+    /// is on it and merely annoying when it is not. Null before anyone is signed in.
+    /// </remarks>
+    string? WrittenByName = null,
+    DateTime? WrittenAtUtc = null);
+
+/// <summary>
+/// The leftovers a night produced, offered rather than assumed (C3's `AND WHAT'S LEFT OVER`).
+/// </summary>
+/// <remarks>
+/// <see cref="SuggestedPortions"/> is <b>a guess and is labelled one</b> on the panel. Three answers
+/// and no keypad: the number is inferred from how many sat down, which nobody promised was exact.
+/// </remarks>
+public record ProducedSuggestionDto(
+    /// <summary>"Leftover Piccata" — the dish, said the way the fridge will need to read it.</summary>
+    string SuggestedName,
+    /// <summary>Servings cooked minus portions eaten.</summary>
+    int SuggestedPortions,
+    /// <summary>Where it would go by default. Fridge; the freezer is the other button.</summary>
+    string Location);
+
+/// <summary>
+/// What the household chose to do with the leftovers — <c>Fridge</c>, <c>Freezer</c> or
+/// <c>None</c>.
+/// </summary>
+public record ProducedDecisionInput(string Decision, int? Portions = null, int? ProfileId = null);
 
 public record ReceiptLineDto(
     int EventId,
@@ -257,7 +315,11 @@ public record GroceryLineDto(
     DateTime? CheckedAtUtc,
     /// <summary>"Put 1 lb in the fridge" — the return trip, shown in place of provenance once ticked.</summary>
     string? ReturnTrip,
-    int Version);
+    int Version,
+    /// <summary>Aisle, for grouping in the shop. Null sorts last under ELSEWHERE.</summary>
+    string? Aisle = null,
+    /// <summary>Shop, when the line is meant for a particular one.</summary>
+    string? Store = null);
 
 public record GroceryProvenanceDto(string Label, DateOnly? ForDate);
 
@@ -270,7 +332,11 @@ public record GroceryInput(
     int? SourceRecipeId,
     string? SourceRecipeTitle,
     DateOnly? SourceDate,
-    int? ProfileId);
+    int? ProfileId,
+    /// <summary>Which aisle it falls in, for the shop's grouping (KITCHEN_LOOP_ADDENDUM §6).</summary>
+    string? Aisle = null,
+    /// <summary>Which shop it is meant for. Null means "whoever is out" — the common case.</summary>
+    string? Store = null);
 
 /// <summary>A batch, for 9b's `ADD THE THREE TO THE GROCERY LIST`. Merges per §1.</summary>
 public record GroceryBatchInput(IReadOnlyList<GroceryInput> Lines);
@@ -341,3 +407,94 @@ public record ImportLineInput(
     int? MatchedPantryItemId);
 
 public record ApplyImportInput(int? ProfileId);
+
+/// <summary>
+/// A recipe worth cooking soon, and what it would use up (KITCHEN_LOOP_ADDENDUM §4).
+/// </summary>
+/// <remarks>
+/// <see cref="Uses"/> is named rather than counted because the lead card says which things are
+/// turning — "Spinach, cream, open tomatoes" — and a bare number would leave the household to open
+/// the recipe to find out whether it is worth it.
+/// </remarks>
+public record DueRecipeDto(int RecipeId, string Title, int Score, IReadOnlyList<string> Uses);
+
+/// <summary>
+/// Save what one pack holds — "a tin is 400 g" (KITCHEN_LOOP_ADDENDUM §2, panel `1d`).
+/// </summary>
+/// <remarks>
+/// Said in the direction the household speaks: how much is in <b>one</b> of them. The panel never
+/// asks for a conversion factor, and never shows one.
+/// </remarks>
+public record PackSizeInput(
+    /// <summary>How much one pack holds. Null or zero clears the mapping back to a loose row.</summary>
+    decimal? PackSize,
+    /// <summary>What that amount is measured in — the `g` in "400 g".</summary>
+    string? PackUnit,
+    int? ProfileId = null);
+
+/// <summary>
+/// The answer to saving a pack size: the row as it now stands, and the check that was blocked on
+/// it, re-run.
+/// </summary>
+/// <remarks>
+/// Returned together because the mapping exists to unblock something. §2 requires saving one to
+/// "re-run any pending check or grocery calculation that was blocked on it" — handing back a bare
+/// item would leave the caller to work out what changed and ask again.
+/// </remarks>
+public record PackSizeResultDto(PantryItemDto Item, StockCheckDto? Recheck);
+
+// ---- Matching (MATCHING_AND_ALIASES) ----
+
+/// <summary>M3 in one response: where matching stands, how it got there, and what to do next.</summary>
+public record MatchingCoverageDto(
+    /// <summary>`83%` — recipe lines that resolve to something on the shelves.</summary>
+    int Percent,
+    int MatchedLines,
+    int TotalLines,
+    /// <summary>`HOW IT GOT LEARNED` — counts by <see cref="AliasSource"/>.</summary>
+    IReadOnlyDictionary<string, int> BySource,
+    /// <summary>`WORTH SORTING`, ordered by how many recipes each one unblocks.</summary>
+    IReadOnlyList<MatchingGapDto> WorthSorting,
+    /// <summary>`WHAT WE GET WRONG` — pairings the household undid, never suggested again.</summary>
+    int Undone);
+
+public record MatchingGapDto(string Name, int RecipesBlocked);
+
+/// <summary>`YES · REMEMBER IT` — teach one match, household-wide and reversible.</summary>
+public record TeachMatchInput(string Ingredient, int PantryItemId, int? ProfileId = null);
+
+/// <summary>
+/// `NONE OF THESE`, or undoing a match that was wrong.
+/// </summary>
+/// <remarks>
+/// Suppresses that <b>pair</b> permanently — the ingredient stays matchable against everything else.
+/// Without it the same wrong suggestion returns every time the question comes round, and the
+/// household learns that saying no achieves nothing.
+/// </remarks>
+public record RefuseMatchInput(string Ingredient, int PantryItemId, int? ProfileId = null);
+
+/// <summary>
+/// Where one recipe stands against the shelves — the folder's band (RECIPES §1).
+/// </summary>
+/// <remarks>
+/// <see cref="Band"/> is <c>Ready</c>, <c>Short</c> or <c>CantSay</c>. The third is the honest one
+/// and is never folded into the other two: a recipe listed as ready that turns out to be missing
+/// two things at seven in the evening costs more than one that admitted it did not know.
+/// </remarks>
+public record CookabilityDto(int RecipeId, string Band, int ShortCount, int UnmatchedCount);
+
+/// <summary>
+/// A night that has spoken for this item (PANTRY_SHELVES §2, KITCHEN_LOOP_ADDENDUM §1).
+/// </summary>
+/// <remarks>
+/// The item sheet shows this as <c>claimed for Saturday</c> — the row knowing it is spoken for is
+/// what stops the household counting the same tin twice when they look at two different screens.
+/// </remarks>
+public record ItemClaimDto(
+    int PlanEntryId,
+    DateOnly Date,
+    string Slot,
+    /// <summary>The dish that wants it, so the sheet can name a night rather than an id.</summary>
+    string? DishName,
+    /// <summary>How much, in the item's own measure unit. Null for an estimated item.</summary>
+    decimal? Quantity);

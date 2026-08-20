@@ -6,9 +6,10 @@ import { api } from '../../api/client'
 import { useMeals } from '../../app/MealsProvider'
 import { useNow } from '../../app/useNow'
 import {
-  countWord, durationLabel, entriesFor, formatClock, nightSchedule, schedulableEntries, plannedCount,
+  countWord, durationLabel, entriesFor, nightSchedule, schedulableEntries, plannedCount,
   shortDate, shortWeekday, startBy, todayKey, unconfirmedPastDinner,
 } from '../../app/mealsDomain'
+import { clockLabel } from '../../app/dates'
 import { cuisineNameOf } from '../../app/mealsPrefs'
 import type { MealPlanEntryDto, RecipeSummaryDto } from '../../api/types'
 import { Chevron, MealAlert, MealsSegment } from './parts'
@@ -52,7 +53,9 @@ export function MealsHomeScreen() {
   // The rest of the week, from tomorrow. Today is already the top of the screen.
   const rest = (week?.days ?? []).filter((d) => d.date > today)
 
-  const clock = `${shortDate(today)} · ${formatClock(now.getHours() * 60 + now.getMinutes())}`
+  // Same stamp as every other dated header, through the same helper — see `dates.clockLabel` for
+  // why the time half is not the meals domain's `formatClock`.
+  const clock = `${shortDate(today)} · ${clockLabel(now)}`
 
   /**
    * The one-tap YES on the LAST NIGHT row — the same act as answering `yes` on the confirm screen,

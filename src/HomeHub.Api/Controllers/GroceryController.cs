@@ -248,6 +248,8 @@ public class GroceryController : ControllerBase
                 SourceKind = Enum.TryParse<GroceryLineSource>(input.SourceKind, true, out var s)
                     ? s
                     : GroceryLineSource.Hand,
+                Aisle = Blank(input.Aisle),
+                Store = Blank(input.Store),
                 CreatedUtc = now,
                 AddedByProfileId = this.CallerId(),
                 MirrorPending = true,
@@ -333,8 +335,13 @@ public class GroceryController : ControllerBase
 
         return new GroceryLineDto(
             line.Id, line.Text, line.Quantity, line.Unit, line.PantryItemId,
-            line.SourceKind.ToString(), provenance, line.CheckedAtUtc, returnTrip, line.Version);
+            line.SourceKind.ToString(), provenance, line.CheckedAtUtc, returnTrip, line.Version,
+            line.Aisle, line.Store);
     }
+
+    /// <summary>Trimmed, or null when there was nothing but whitespace.</summary>
+    private static string? Blank(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string Trim(decimal value) =>
         (value == decimal.Truncate(value) ? decimal.Truncate(value) : value)

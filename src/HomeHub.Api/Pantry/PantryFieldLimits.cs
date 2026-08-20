@@ -45,5 +45,11 @@ public static class PantryFieldLimits
     /// <summary>Graph task id for the mirror.</summary>
     public const int TodoTaskId = 200;
 
+    /// <summary>"Produce", "Chilled" — the household's own word for a part of a shop.</summary>
+    public const int AisleName = 80;
+
+    /// <summary>"Tesco", "Butcher". A label the household types, not a vendor code.</summary>
+    public const int StoreName = 80;
+
     public const int TodoListName = 200;
 }

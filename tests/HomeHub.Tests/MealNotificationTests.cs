@@ -33,9 +33,7 @@ public class MealNotificationTests
     /// <remarks>
     /// Before AUDIT A1, "somebody else changed this" was expressed by putting their id in the
     /// request body. That is exactly what A1.2 removed — attribution now comes from the session —
-    /// so a test about somebody else's change has to actually be somebody else. The
-    /// <c>ModifiedByProfileId</c> fields left in the payloads below are deliberately still there
-    /// and deliberately ignored: they prove the server no longer reads them.
+    /// so a test about somebody else's change has to actually be somebody else.
     /// </remarks>
     private static HttpClient TheirClient(HubAppFactory app, int them) => app.CreateSeededClient(them);
 
@@ -47,8 +45,8 @@ public class MealNotificationTests
         ((await client.GetFromJsonAsync<FeedRow>("/api/notifications"))!)
             .Items.Where(i => i.Source == NotificationSources.Meals).ToList();
 
-    private static Task<HttpResponseMessage> AddRecipeAsync(HttpClient client, string title, int? by) =>
-        client.PostAsJsonAsync("/api/recipes", new RecipeInput(title, ModifiedByProfileId: by));
+    private static Task<HttpResponseMessage> AddRecipeAsync(HttpClient client, string title) =>
+        client.PostAsJsonAsync("/api/recipes", new RecipeInput(title));
 
     /// <summary>
     /// The governing rule: nothing in this section notifies anyone about their own action. On a
@@ -61,7 +59,7 @@ public class MealNotificationTests
         var client = app.CreateSeededClient();
         var (me, _) = await SignInAsync(client);
 
-        await AddRecipeAsync(client, "Mine", me);
+        await AddRecipeAsync(client, "Mine");
 
         Assert.Empty(await MealNoticesAsync(client));
     }
@@ -73,7 +71,7 @@ public class MealNotificationTests
         var client = app.CreateSeededClient();
         var (_, them) = await SignInAsync(client);
 
-        await AddRecipeAsync(TheirClient(app, them), "Laksa", them);
+        await AddRecipeAsync(TheirClient(app, them), "Laksa");
 
         var notice = Assert.Single(await MealNoticesAsync(client));
         Assert.Contains("Laksa", notice.Headline);
@@ -91,12 +89,12 @@ public class MealNotificationTests
         var client = app.CreateSeededClient();
         var (_, them) = await SignInAsync(client);
         var theirs = TheirClient(app, them);
-        var recipe = (await (await AddRecipeAsync(client, "Ragu", null)).Content.ReadFromJsonAsync<RecipeDto>())!;
+        var recipe = (await (await AddRecipeAsync(client, "Ragu")).Content.ReadFromJsonAsync<RecipeDto>())!;
 
         for (var i = 0; i < 4; i++)
         {
             await theirs.PutAsJsonAsync($"/api/recipes/{recipe.Id}",
-                new RecipeInput("Ragu", Servings: 4 + i, ModifiedByProfileId: them));
+                new RecipeInput("Ragu", Servings: 4 + i));
         }
 
         Assert.Single(await MealNoticesAsync(client));
@@ -123,7 +121,7 @@ public class MealNotificationTests
         // that can appear is the one under test (AUDIT A1.2 made every HTTP write attributed).
         await SignInAsync(client);
 
-        await AddRecipeAsync(client, "From a script", null);
+        await AddRecipeAsync(client, "From a script");
 
         Assert.Empty(await MealNoticesAsync(client));
     }
@@ -142,7 +140,7 @@ public class MealNotificationTests
         using var app = new HubAppFactory();
         var client = app.CreateSeededClient();
         var (_, them) = await SignInAsync(client);
-        var recipe = (await (await AddRecipeAsync(client, "Curry", null)).Content.ReadFromJsonAsync<RecipeDto>())!;
+        var recipe = (await (await AddRecipeAsync(client, "Curry")).Content.ReadFromJsonAsync<RecipeDto>())!;
         var date = DateOnly.FromDateTime(DateTime.Now).AddDays(dayOffset);
 
         await TheirClient(app, them).PutAsJsonAsync("/api/meals/plan",
@@ -251,10 +249,10 @@ public class MealNotificationTests
         using var app = new HubAppFactory();
         var client = app.CreateSeededClient();
         var (_, them) = await SignInAsync(client);
-        var original = (await (await AddRecipeAsync(client, "Chicken Piccata", null)).Content.ReadFromJsonAsync<RecipeDto>())!;
+        var original = (await (await AddRecipeAsync(client, "Chicken Piccata")).Content.ReadFromJsonAsync<RecipeDto>())!;
 
         await TheirClient(app, them).PostAsJsonAsync($"/api/recipes/{original.Id}/fork",
-            new ForkRecipeInput("Chicken Piccata - ours", ModifiedByProfileId: them));
+            new ForkRecipeInput("Chicken Piccata - ours"));
 
         var notice = Assert.Single(await MealNoticesAsync(client));
         Assert.Contains("added", notice.Headline, StringComparison.OrdinalIgnoreCase);

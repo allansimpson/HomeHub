@@ -25,6 +25,9 @@ public class PantryController : ControllerBase
     private readonly DeductionService _deduction;
     private readonly IProductLookup _lookup;
     private readonly UnitRegistry _units;
+    private readonly DueScoreService _due;
+    private readonly MatchingService _matching;
+    private readonly CookabilityService _cookability;
     private readonly TimeProvider _clock;
 
     public PantryController(
@@ -34,6 +37,9 @@ public class PantryController : ControllerBase
         DeductionService deduction,
         IProductLookup lookup,
         UnitRegistry units,
+        DueScoreService due,
+        MatchingService matching,
+        CookabilityService cookability,
         TimeProvider clock)
     {
         _db = db;
@@ -42,6 +48,9 @@ public class PantryController : ControllerBase
         _deduction = deduction;
         _lookup = lookup;
         _units = units;
+        _due = due;
+        _matching = matching;
+        _cookability = cookability;
         _clock = clock;
     }
 
@@ -150,6 +159,10 @@ public class PantryController : ControllerBase
             Unit = _units.Normalise(input.Unit),
             PackSize = Pack(input.PackSize),
             PackUnit = Pack(input.PackSize) is null ? null : _units.Normalise(input.PackUnit),
+            // Typed by a person off a packet. The enum has no "inferred" member, so a date can
+            // only ever arrive from somewhere that actually read one (§6).
+            GoodUntil = input.GoodUntil,
+            GoodUntilSource = input.GoodUntil is null ? null : Pantry.GoodUntilSource.Typed,
             CreatedUtc = now,
             UpdatedUtc = now,
         };
@@ -570,7 +583,7 @@ public class PantryController : ControllerBase
             return NoContent();
         }
 
-        var result = await _check.CheckAsync(recipeId, servings, ct);
+        var result = await _check.CheckAsync(recipeId, servings, ct, planEntryId);
         return result is null ? NotFound() : Ok(result);
     }
 
@@ -643,6 +656,37 @@ public class PantryController : ControllerBase
         if (receipt is null) return NoContent();
         if (receipt.Counted.Count == 0 && receipt.Estimated.Count == 0) return NoContent();
         return Ok(receipt);
+    }
+
+    /// <summary>
+    /// Answer the leftovers card — `FRIDGE`, `FREEZER` or `NONE LEFT` (KITCHEN_LOOP_ADDENDUM §5).
+    /// </summary>
+    /// <remarks>
+    /// Three answers and no keypad. What it creates is an ordinary counted item measured in
+    /// portions, so a linked leftovers night claims it through the same settle as anything else —
+    /// which is what makes Tuesday read as covered without buying a thing.
+    /// </remarks>
+    [HttpPost("deduct/{planEntryId:int}/produced")]
+    public async Task<ActionResult<PantryItemDto>> Produced(
+        int planEntryId, ProducedDecisionInput input, CancellationToken ct)
+    {
+        // Three answers, and anything else is a caller error rather than a server one.
+        var decision = input.Decision?.Trim();
+        PantryLocation? location;
+        if (string.Equals(decision, "Fridge", StringComparison.OrdinalIgnoreCase))
+            location = PantryLocation.Fridge;
+        else if (string.Equals(decision, "Freezer", StringComparison.OrdinalIgnoreCase))
+            location = PantryLocation.Freezer;
+        else if (string.Equals(decision, "None", StringComparison.OrdinalIgnoreCase))
+            location = null;
+        else
+            return BadRequest("The answer is Fridge, Freezer or None.");
+
+        var produced = await _deduction.ProduceAsync(
+            planEntryId, location, input.Portions, this.CallerId(), ct);
+        if (produced is null) return NoContent();
+
+        return await SingleAsync(produced.Id, ct);
     }
 
     /// <summary>`UNDO ALL` — reverses the whole night. Individual lines use the event undo.</summary>
@@ -734,6 +778,456 @@ public class PantryController : ControllerBase
         return ToDto(item, lastSeen, new Dictionary<int, int?> { [item.Id] = by }, names);
     }
 
+    /// <summary>
+    /// `MARK OPENED` / `MARK FINISHED` — one tap, and it never changes a quantity
+    /// (KITCHEN_LOOP_ADDENDUM §4, PANTRY_SHELVES §2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Opening is never inferred.</b> A deduction that empties a counted item does not open
+    /// anything, and this does not move stock — the two facts are independent, and conflating them
+    /// is how a shelf count starts changing for reasons nobody performed.
+    /// </para>
+    /// <para>
+    /// Writes a ledger event like every other change, so the item sheet's history can name who
+    /// opened it and when.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/opened")]
+    public async Task<ActionResult<PantryItemDto>> Opened(
+        int id, [FromQuery] bool finished = false, CancellationToken ct = default)
+    {
+        var item = await _db.PantryItems.FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (item is null) return NotFound();
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var by = this.CallerId();
+
+        // Marking finished closes the window rather than deleting it: the row goes back to
+        // unopened, and the ledger keeps both events so the history still reads truthfully.
+        item.OpenedAt = finished ? null : now;
+        item.OpenedByProfileId = finished ? null : by;
+        item.UpdatedUtc = now;
+
+        _db.PantryEvents.Add(new PantryEvent
+        {
+            PantryItemId = item.Id,
+            Kind = finished ? PantryEventKind.MarkedFinished : PantryEventKind.MarkedOpened,
+            // No delta and no resulting quantity: nothing about how much there is has changed.
+            AtUtc = now,
+            ByProfileId = by,
+        });
+
+        await _db.SaveChangesAsync(ct);
+        return await SingleAsync(item.Id, ct);
+    }
+
+    /// <summary>
+    /// What to cook first, ranked by what is already open (KITCHEN_LOOP_ADDENDUM §4).
+    /// </summary>
+    /// <remarks>
+    /// Feeds the <c>USE IT OR LOSE IT</c> band on the Kitchen home and the <c>USES SOMETHING
+    /// TURNING</c> lead card on L3. <b>A sort, never a warning</b> — nothing here notifies, badges
+    /// or counts down, and a household with nothing open simply gets an empty list rather than a
+    /// screen telling them off.
+    /// </remarks>
+    [HttpGet("due")]
+    public async Task<ActionResult<IReadOnlyList<DueRecipeDto>>> Due(
+        [FromQuery] int take = 5, CancellationToken ct = default)
+    {
+        var ranked = await _due.RankAsync(ct);
+
+        // Zero-scored recipes are listed elsewhere, not ranked here: the band is about things that
+        // are actually turning, and padding it with cupboard recipes would make it meaningless.
+        return ranked
+            .Where(r => r.Score > 0)
+            .Take(Math.Clamp(take, 1, 20))
+            .Select(r => new DueRecipeDto(r.RecipeId, r.Title, r.Score, r.Uses))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Say how much is in one pack, and re-run what that was blocking (KITCHEN_LOOP_ADDENDUM §2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is `1d`'s primary action. Until a tin has a size, a recipe wanting 400 g of tomatoes and
+    /// a shelf holding three tins cannot be compared at all, and the check honestly answers
+    /// <see cref="StockStatus.Unknown"/>. Saving the mapping is what turns that into an answer.
+    /// </para>
+    /// <para>
+    /// The mapping is written to the household's own row, and to the catalogue entry behind it when
+    /// there is one, so the next pack of the same thing arrives already knowing.
+    /// </para>
+    /// </remarks>
+    [HttpPost("{id:int}/pack-size")]
+    public async Task<ActionResult<PackSizeResultDto>> SetPackSize(
+        int id, PackSizeInput input, [FromQuery] int? recipeId, [FromQuery] int? servings,
+        CancellationToken ct)
+    {
+        var item = await _db.PantryItems.FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (item is null) return NotFound();
+
+        await _units.LoadAsync(ct);
+        var size = input.PackSize is > 0 ? input.PackSize : null;
+        var unit = size is null ? null : _units.Normalise(input.PackUnit);
+
+        // A size without a unit cannot be compared to anything — "400" is not an amount. Refused
+        // rather than stored, because a half-written mapping reads as a working one.
+        if (size is not null && string.IsNullOrWhiteSpace(unit))
+            return BadRequest("A pack size needs a unit — \"400\" on its own is not an amount.");
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        item.PackSize = size;
+        item.PackUnit = unit;
+        item.PackSizeByProfileId = size is null ? null : this.CallerId() ?? input.ProfileId;
+        item.PackSizeAtUtc = size is null ? null : now;
+        item.UpdatedUtc = now;
+
+        // Teach the catalogue too, so the second pack of the same thing resolves without asking.
+        if (item.CatalogueRef is { } barcode)
+        {
+            var entry = await _db.ProductCatalogue
+                .FirstOrDefaultAsync(e => e.Barcode == barcode && e.Scope == CatalogueScope.Household, ct);
+            if (entry is not null)
+            {
+                entry.PackSize = size;
+                entry.PackUnit = unit;
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        // What the mapping was blocking, answered now that it exists.
+        var recheck = recipeId is { } r ? await _check.CheckAsync(r, servings, ct) : null;
+        var dto = await SingleAsync(id, ct);
+        return new PackSizeResultDto(dto.Value!, recheck);
+    }
+
+    /// <summary>
+    /// Where every recipe stands against the shelves — the folder's two bands (RECIPES §1).
+    /// </summary>
+    /// <remarks>
+    /// One request for the whole folder. The per-night check answers a different question and would
+    /// be a query per row here, on a screen that lists dozens at once.
+    /// </remarks>
+    [HttpGet("cookable")]
+    public async Task<ActionResult<IReadOnlyList<CookabilityDto>>> Cookable(CancellationToken ct) =>
+        (await _cookability.StandingAsync(ct))
+            .Select(s => new CookabilityDto(s.RecipeId, s.Band.ToString(), s.ShortCount, s.UnmatchedCount))
+            .ToList();
+
+    /// <summary>
+    /// Which nights have spoken for this item, in cooking order (PANTRY_SHELVES §2).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Answered nights are excluded, by the same test the settler uses</b>
+    /// (<see cref="PlanClaimService"/>): a night answered "yes" has already deducted and a night
+    /// answered "no" was never cooked, so neither is holding anything. Filtering on the date alone
+    /// disagreed with the claim table in both directions — it hid a night that passed yesterday
+    /// unanswered and genuinely is still holding a tin, and it showed one already off the shelf.
+    /// </para>
+    /// <para>
+    /// The date still bounds it, at the settler's own <see cref="PlanClaimService.LookbackDays"/>.
+    /// Past that the walk no longer re-settles the night, so anything left in the table for it is
+    /// residue rather than a reservation — and without the bound a night from 2020 that nobody ever
+    /// answered would speak for a tin forever.
+    /// </para>
+    /// </remarks>
+    [HttpGet("{id:int}/claims")]
+    public async Task<ActionResult<IReadOnlyList<ItemClaimDto>>> Claims(
+        int id, CancellationToken ct)
+    {
+        if (!await _db.PantryItems.AnyAsync(i => i.Id == id, ct)) return NotFound();
+
+        var horizon = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime)
+            .AddDays(-PlanClaimService.LookbackDays);
+
+        return await _db.PlanClaims
+            .Where(c => c.PantryItemId == id)
+            .Join(_db.MealPlanEntries, c => c.PlanEntryId, e => e.Id, (c, e) => new { Claim = c, Entry = e })
+            .Where(x => x.Entry.WasEaten == null && x.Entry.Date >= horizon)
+            .OrderBy(x => x.Entry.Date).ThenBy(x => x.Entry.Slot).ThenBy(x => x.Entry.Position)
+            .Select(x => new ItemClaimDto(
+                x.Entry.Id,
+                x.Entry.Date,
+                x.Entry.Slot.ToString(),
+                x.Entry.Recipe != null ? x.Entry.Recipe.Title : x.Entry.FreeText,
+                x.Claim.Quantity))
+            .ToListAsync(ct);
+    }
+
+    // ---- How long things last (SETTINGS_AND_IMPORT §1) ----
+
+    /// <summary>
+    /// The household's shelf-life assumptions, seeding the defaults on first read.
+    /// </summary>
+    /// <remarks>
+    /// Seeded lazily rather than in a migration: the defaults are content, not schema, and a
+    /// household that has edited them should never have a later deploy quietly reintroduce rows it
+    /// removed. Seeding on the first read of an empty table does that once and never again.
+    /// </remarks>
+    [HttpGet("shelf-life")]
+    public async Task<ActionResult<IReadOnlyList<ShelfLifeDto>>> ShelfLife(CancellationToken ct)
+    {
+        if (!await _db.ShelfLife.AnyAsync(ct))
+        {
+            var now = _clock.GetUtcNow().UtcDateTime;
+            _db.ShelfLife.AddRange(ShelfLifeSeed.Defaults.Select(d => new ShelfLifeAssumption
+            {
+                FoodKind = d.Kind, State = d.State, Days = d.Days, IsSeeded = true, UpdatedUtc = now,
+            }));
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return await _db.ShelfLife
+            .OrderBy(a => a.State).ThenBy(a => a.FoodKind)
+            .Select(a => new ShelfLifeDto(a.Id, a.FoodKind, a.State.ToString(), a.Days, a.IsSeeded))
+            .ToListAsync(ct);
+    }
+
+    /// <summary>Change one assumption. Editing marks it as no longer a default.</summary>
+    [HttpPatch("shelf-life/{id:int}")]
+    public async Task<ActionResult<ShelfLifeDto>> SetShelfLife(
+        int id, ShelfLifeInput input, CancellationToken ct)
+    {
+        var row = await _db.ShelfLife.FirstOrDefaultAsync(a => a.Id == id, ct);
+        if (row is null) return NotFound();
+
+        // A day is the floor. Zero would mean "already gone", which is a fact about an item rather
+        // than an assumption about a kind of food.
+        if (input.Days < 1) return BadRequest("A shelf life is at least a day.");
+
+        row.Days = input.Days;
+        row.IsSeeded = false;
+        row.UpdatedUtc = _clock.GetUtcNow().UtcDateTime;
+        await _db.SaveChangesAsync(ct);
+
+        return new ShelfLifeDto(row.Id, row.FoodKind, row.State.ToString(), row.Days, row.IsSeeded);
+    }
+
+    /// <summary>`PUT THEM BACK` — restore every assumption to the shipped default.</summary>
+    [HttpPost("shelf-life/reset")]
+    public async Task<ActionResult<IReadOnlyList<ShelfLifeDto>>> ResetShelfLife(CancellationToken ct)
+    {
+        var rows = await _db.ShelfLife.ToListAsync(ct);
+        var defaults = ShelfLifeSeed.Defaults.ToDictionary(d => (d.Kind, d.State), d => d.Days);
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        foreach (var row in rows)
+        {
+            if (!defaults.TryGetValue((row.FoodKind, row.State), out var days)) continue;
+            row.Days = days;
+            row.IsSeeded = true;
+            row.UpdatedUtc = now;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await ShelfLife(ct);
+    }
+
+    // ---- Knowing what matches what (MATCHING_AND_ALIASES) ----
+
+    /// <summary>Where matching stands overall — M3.</summary>
+    [HttpGet("matching")]
+    public async Task<ActionResult<MatchingCoverageDto>> Matching(CancellationToken ct)
+    {
+        var c = await _matching.CoverageAsync(ct);
+        return new MatchingCoverageDto(
+            c.Percent, c.MatchedLines, c.TotalLines, c.BySource,
+            c.WorthSorting.Select(g => new MatchingGapDto(g.Name, g.RecipesBlocked)).ToList(),
+            c.Undone);
+    }
+
+    /// <summary>Ranked candidates for one unmatched line — M2's `IS IT ONE OF THESE?`.</summary>
+    [HttpGet("matching/candidates")]
+    public async Task<ActionResult<IReadOnlyList<PantryItemDto>>> Candidates(
+        [FromQuery] string ingredient, [FromQuery] int take = 3, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(ingredient)) return BadRequest("An ingredient is required.");
+
+        var items = await _matching.CandidatesAsync(ingredient, take, ct);
+        var lastSeen = await _ledger.LastSeenAsync(items.Select(i => i.Id).ToList(), ct);
+        var names = await ProfileNamesAsync(ct);
+        var none = new Dictionary<int, int?>();
+
+        return items.Select(i => ToDto(i, lastSeen, none, names)).ToList();
+    }
+
+    /// <summary>
+    /// `YES · REMEMBER IT` — teach one match (M2).
+    /// </summary>
+    /// <remarks>
+    /// Household-wide and reversible: every recipe wanting that ingredient resolves from now on, and
+    /// so does any future delivery line like it. Teaching also clears any earlier refusal of the same
+    /// pair — saying yes is a newer answer than saying no.
+    /// </remarks>
+    [HttpPost("matching/teach")]
+    public async Task<ActionResult<MatchingCoverageDto>> Teach(TeachMatchInput input, CancellationToken ct)
+    {
+        var key = IngredientNormaliser.Normalise(input.Ingredient ?? string.Empty);
+        if (key.Length == 0) return BadRequest("An ingredient is required.");
+        if (!await _db.PantryItems.AnyAsync(i => i.Id == input.PantryItemId && !i.IsArchived, ct))
+            return NotFound($"Pantry item {input.PantryItemId} does not exist.");
+
+        var refusals = await _db.AliasRejections
+            .Where(r => r.CanonicalName == key && r.PantryItemId == input.PantryItemId)
+            .ToListAsync(ct);
+        _db.AliasRejections.RemoveRange(refusals);
+
+        var existing = await _db.IngredientAliases.FirstOrDefaultAsync(a => a.Alias == key, ct);
+        if (existing is null)
+        {
+            _db.IngredientAliases.Add(new IngredientAlias
+            {
+                Alias = key,
+                PantryItemId = input.PantryItemId,
+                // A human said so, which is the difference between this and a seeded guess.
+                Confidence = AliasConfidence.Confirmed,
+                Source = AliasSource.Manual,
+                CreatedUtc = _clock.GetUtcNow().UtcDateTime,
+            });
+        }
+        else
+        {
+            // One alias points at one item: the second answer is a correction of the first, not a
+            // fork, and two answers would make the check non-deterministic.
+            existing.PantryItemId = input.PantryItemId;
+            existing.Confidence = AliasConfidence.Confirmed;
+            existing.Source = AliasSource.Manual;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await Matching(ct);
+    }
+
+    /// <summary>
+    /// `NONE OF THESE`, or undoing a match — the pair is never suggested again.
+    /// </summary>
+    /// <remarks>
+    /// The line goes back to unmatched rather than being forced somewhere. Not owning a thing is an
+    /// answer too: it gets bought rather than matched.
+    /// </remarks>
+    [HttpPost("matching/refuse")]
+    public async Task<ActionResult<MatchingCoverageDto>> Refuse(RefuseMatchInput input, CancellationToken ct)
+    {
+        var key = IngredientNormaliser.Normalise(input.Ingredient ?? string.Empty);
+        if (key.Length == 0) return BadRequest("An ingredient is required.");
+
+        var already = await _db.AliasRejections
+            .AnyAsync(r => r.CanonicalName == key && r.PantryItemId == input.PantryItemId, ct);
+        if (!already)
+        {
+            _db.AliasRejections.Add(new AliasRejection
+            {
+                CanonicalName = key,
+                PantryItemId = input.PantryItemId,
+                CreatedUtc = _clock.GetUtcNow().UtcDateTime,
+                ByProfileId = this.CallerId() ?? input.ProfileId,
+            });
+        }
+
+        // Drop the alias itself when it pointed at the refused item, so the line stops resolving
+        // there immediately rather than at the next reload.
+        var alias = await _db.IngredientAliases
+            .FirstOrDefaultAsync(a => a.Alias == key && a.PantryItemId == input.PantryItemId, ct);
+        if (alias is not null) _db.IngredientAliases.Remove(alias);
+
+        await _db.SaveChangesAsync(ct);
+        return await Matching(ct);
+    }
+
+    // ---- The order a shop is walked (SETTINGS_AND_IMPORT §2) ----
+
+    /// <summary>
+    /// The walk order for one shop, with how many open lines currently fall in each aisle.
+    /// </summary>
+    /// <remarks>
+    /// <b>Aisles the order does not name are still returned</b>, after the ones it does. S2 is
+    /// explicit that an unlisted or empty aisle stays visible reading <c>empty</c> rather than
+    /// vanishing — an order you can only half see is one you cannot correct.
+    /// </remarks>
+    [HttpGet("aisles")]
+    public async Task<ActionResult<AisleOrderDto>> Aisles([FromQuery] string store, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(store)) return BadRequest("A shop is required.");
+        var shop = store.Trim();
+
+        var ordered = await _db.AisleOrder
+            .Where(a => a.Store == shop)
+            .OrderBy(a => a.Position)
+            .ToListAsync(ct);
+
+        // Counted over open lines only: a reorder is judged against what is still to be bought.
+        //
+        // Grouped case-insensitively, and it has to be: `named` below compares that way, so an
+        // ordinal count would drop "produce" out of ELSEWHERE for matching "Produce" *and* leave
+        // the "Produce" row reading `empty` — the aisle would disappear from the panel entirely.
+        var openAisles = await _db.GroceryLines
+            .Where(l => l.CheckedAtUtc == null && l.Aisle != null)
+            .Select(l => l.Aisle!)
+            .ToListAsync(ct);
+
+        var counts = openAisles
+            .GroupBy(a => a, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+        var lines = ordered
+            .Select(a => new AisleOrderLineDto(a.Aisle, a.Position, counts.GetValueOrDefault(a.Aisle)))
+            .ToList();
+
+        // Anything on the list that the order has never named sorts last, under ELSEWHERE.
+        var named = ordered.Select(a => a.Aisle).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        lines.AddRange(counts.Keys
+            .Where(a => !named.Contains(a))
+            .OrderBy(a => a, StringComparer.OrdinalIgnoreCase)
+            .Select((a, i) => new AisleOrderLineDto(a, lines.Count + i, counts[a])));
+
+        return new AisleOrderDto(shop, lines);
+    }
+
+    /// <summary>Replace a shop's walk order. Array order is the order.</summary>
+    /// <remarks>
+    /// Dragging always wins (S2): this overwrites whatever was there, including anything the seed
+    /// guessed, and nothing re-infers it afterwards.
+    /// </remarks>
+    [HttpPut("aisles")]
+    public async Task<ActionResult<AisleOrderDto>> SetAisles(
+        [FromQuery] string store, AisleOrderInput input, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(store)) return BadRequest("A shop is required.");
+        var shop = store.Trim();
+
+        var aisles = (input.Aisles ?? [])
+            .Select(a => a?.Trim() ?? string.Empty)
+            .Where(a => a.Length > 0)
+            .ToList();
+
+        if (aisles.Any(a => a.Length > PantryFieldLimits.AisleName))
+            return BadRequest($"An aisle name is longer than {PantryFieldLimits.AisleName} characters.");
+
+        // Case-insensitively distinct, keeping the first spelling sent: the same aisle twice in one
+        // order is a drag that half-failed, not two aisles.
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        aisles = aisles.Where(a => seen.Add(a)).ToList();
+
+        var existing = await _db.AisleOrder.Where(a => a.Store == shop).ToListAsync(ct);
+        _db.AisleOrder.RemoveRange(existing);
+
+        var now = DateTime.UtcNow;
+        for (var i = 0; i < aisles.Count; i++)
+        {
+            _db.AisleOrder.Add(new AisleOrderEntry
+            {
+                Store = shop, Aisle = aisles[i], Position = i, UpdatedUtc = now,
+            });
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return await Aisles(shop, ct);
+    }
+
     private static PantryItemDto ToDto(
         PantryItem item,
         IReadOnlyDictionary<int, DateTime> lastSeen,
@@ -747,6 +1241,6 @@ public class PantryController : ControllerBase
             item.PackSize, item.PackUnit,
             lastSeen.TryGetValue(item.Id, out var at) ? at : null,
             by is { } id ? names.GetValueOrDefault(id) : null,
-            item.CatalogueRef, item.IsArchived, item.Version);
+            item.CatalogueRef, item.IsArchived, item.Version, item.OpenedAt, item.GoodUntil);
     }
 }

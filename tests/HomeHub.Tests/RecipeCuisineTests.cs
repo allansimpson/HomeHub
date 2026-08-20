@@ -69,7 +69,7 @@ public class RecipeCuisineTests
         var recipe = await CreateAsync(client, Simple("Tacos", "cuisine:italian", "quick"));
 
         var updated = await (await client.PutAsJsonAsync(
-            $"/api/recipes/{recipe.Id}/cuisine", new RecipeCuisineInput("Mexican", ProfileId: 1)))
+            $"/api/recipes/{recipe.Id}/cuisine", new RecipeCuisineInput("Mexican")))
             .Content.ReadFromJsonAsync<RecipeDto>();
 
         Assert.Contains("cuisine:mexican", updated!.Tags);
@@ -111,11 +111,12 @@ public class RecipeCuisineTests
         var recipe = await CreateAsync(client, Simple("Pasta", "cuisine:italian"));
 
         var updated = await (await client.PutAsJsonAsync(
-            $"/api/recipes/{recipe.Id}/cuisine", new RecipeCuisineInput("Italian", ProfileId: 2)))
+            $"/api/recipes/{recipe.Id}/cuisine", new RecipeCuisineInput("Italian")))
             .Content.ReadFromJsonAsync<RecipeDto>();
 
         Assert.Equal(1, updated!.Version);
-        Assert.Null(updated.ModifiedByProfileId);
+        Assert.Equal(recipe.ModifiedByProfileId, updated.ModifiedByProfileId);
+        Assert.Equal(recipe.ModifiedAtUtc, updated.ModifiedAtUtc);
     }
 
     /// <summary>A user edit persists through an ordinary amend, which sends the tag list back whole.</summary>

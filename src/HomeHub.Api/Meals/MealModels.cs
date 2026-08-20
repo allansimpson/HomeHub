@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Meals;
 
+using HomeHub.Api.Pantry;
+
 // ---------- Recipes: read ----------
 
 /// <summary>
@@ -124,8 +126,7 @@ public record ForkRecipeInput(
     /// Record where it came from. Unchecking the box on the naming sheet makes it a clean unlinked
     /// copy — a deliberate choice, not a default.
     /// </summary>
-    bool KeepLink = true,
-    int? ModifiedByProfileId = null);
+    bool KeepLink = true);
 
 /// <summary><see cref="RawText"/> is what the panel renders; the parsed fields are for scaling and merging (doc D3).</summary>
 public record RecipeIngredientDto(
@@ -172,13 +173,7 @@ public record RecipeInput(
     IReadOnlyList<string>? Tags = null,
     bool IsArchived = false,
     int? LeadMinutes = null,
-    string? PrepNote = null,
-    /// <summary>
-    /// Who is making this edit. Optional: an unattributed write (a script, the Stage M2 importer)
-    /// leaves the previous attribution in place rather than blanking it, because "nobody changed
-    /// this last" is never true of a recipe that has been changed.
-    /// </summary>
-    int? ModifiedByProfileId = null);
+    string? PrepNote = null);
 
 /// <summary>
 /// One ingredient line to save. Only <see cref="RawText"/> is required — the parsed fields are
@@ -222,12 +217,22 @@ public record MealPlanEntryDto(
     string Role,
     /// <summary>Total cook time of the recipe behind this entry, for deriving the night's order.</summary>
     int? TotalMinutes,
-    int Version)
+    int Version,
+    /// <summary>
+    /// The one word the week row carries — <c>Covered</c>, <c>Short</c>, <c>Unknown</c> or
+    /// <c>NoClaim</c> (KITCHEN_LOOP_ADDENDUM §1, PLAN_WEEK §1).
+    /// </summary>
+    /// <remarks>
+    /// Null when the caller did not ask for it. It is on the week response rather than fetched per
+    /// night because the alternative is a stock check per row — seven round trips to draw seven
+    /// words, on the screen that opens most.
+    /// </remarks>
+    string? StockSummary = null)
 {
-    public static MealPlanEntryDto From(MealPlanEntry e) => new(
+    public static MealPlanEntryDto From(MealPlanEntry e, PlanStockSummary? summary = null) => new(
         e.Id, e.Date, e.Slot.ToString(), e.RecipeId, e.Recipe?.Title, e.Recipe?.ImagePath is not null,
         e.FreeText, e.ServingsOverride, e.WasEaten, e.Position, e.Role.ToString(),
-        e.Recipe?.TotalMinutes, e.Version);
+        e.Recipe?.TotalMinutes, e.Version, summary?.ToString());
 }
 
 /// <summary>
@@ -273,11 +278,18 @@ public record RemovePlanEntryInput(int EntryId);
 /// flag or silently clears it, and the second of those is how "we ate that" quietly becomes
 /// "unanswered" when someone changes the servings.
 /// </remarks>
-public record MealEatenInput(DateOnly Date, MealSlot Slot, bool? WasEaten);
+public record MealEatenInput(
+    DateOnly Date,
+    MealSlot Slot,
+    bool? WasEaten,
+    /// <summary>
+    /// How many actually sat down, when fewer did than were cooked for (COOKING_AND_AFTER §2's
+    /// `OR SOME OF IT`). Null means everyone — a plain yes, and nothing spare.
+    /// </summary>
+    int? PortionsEaten = null);
 
 /// <summary>
-/// Import a recipe from a link. <see cref="ProfileId"/> is optional and only sets attribution —
-/// there is no authentication on this endpoint to derive it from (meals-planning.md D6).
+/// Import a recipe from a link. Attribution comes only from the authenticated caller.
 /// </summary>
 public record RecipeImportInput(
     string Url,
@@ -286,8 +298,7 @@ public record RecipeImportInput(
     /// title rather than filling in for it: a publisher's "Our Best-Ever Weeknight Chili (Really!)"
     /// is a headline, and the folder is browsed by the name the household would actually say.
     /// </summary>
-    string? Title = null,
-    int? ProfileId = null);
+    string? Title = null);
 
 /// <summary>
 /// A recipe copied off a page and pasted in, for publishers that refuse the fetcher.
@@ -306,8 +317,7 @@ public record RecipePasteInput(
     /// </summary>
     string? Title = null,
     /// <summary>The cuisine chip, which the parser has no way to read off a block of text.</summary>
-    IReadOnlyList<string>? Tags = null,
-    int? ProfileId = null);
+    IReadOnlyList<string>? Tags = null);
 
 /// <summary>
 /// Set (or clear) the one thing the folder groups by.
@@ -326,5 +336,24 @@ public record RecipePasteInput(
 /// </remarks>
 public record RecipeCuisineInput(
     /// <summary>A cuisine in the household's own words — "Middle Eastern". Null or blank clears it.</summary>
-    string? Cuisine,
-    int? ProfileId = null);
+    string? Cuisine);
+
+// ---- Saved weeks (KITCHEN_LOOP_ADDENDUM §6) ----
+
+/// <summary>A saved week as the picker lists it.</summary>
+public record MealPlanTemplateDto(
+    int Id,
+    string Name,
+    /// <summary>How many nights it fills — enough to choose between two saved weeks.</summary>
+    int NightCount,
+    DateTime CreatedUtc);
+
+/// <summary>`SAVE THIS WEEK` — names the week starting <see cref="Start"/> and keeps its shape.</summary>
+public record SaveWeekInput(string Name, DateOnly Start);
+
+/// <summary>What applying a template did.</summary>
+/// <remarks>
+/// <see cref="Skipped"/> is not an error count. A template whose recipe was later deleted simply
+/// leaves that night alone, and saying so is more useful than failing the whole apply.
+/// </remarks>
+public record ApplyTemplateResultDto(int Written, int Skipped);

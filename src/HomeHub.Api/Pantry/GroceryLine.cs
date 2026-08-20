@@ -27,6 +27,25 @@ public class GroceryLine
 
     public GroceryLineSource SourceKind { get; set; } = GroceryLineSource.Hand;
 
+    /// <summary>
+    /// Which aisle this falls in, for grouping in the shop (KITCHEN_LOOP_ADDENDUM §6).
+    /// </summary>
+    /// <remarks>
+    /// Seeded from the catalogue when the line is created and editable per household item. Null is
+    /// ordinary and expected — an unfiled line sorts last under <c>ELSEWHERE</c> rather than being
+    /// hidden or guessed at.
+    /// </remarks>
+    public string? Aisle { get; set; }
+
+    /// <summary>
+    /// Which shop it is meant to be bought at, when the household cares.
+    /// </summary>
+    /// <remarks>
+    /// §6 is explicit that this is <b>one list filtered by shop, not a list per shop</b> — a line
+    /// with no store is on the list for whoever is out, which is the common case and so the default.
+    /// </remarks>
+    public string? Store { get; set; }
+
     public DateTime CreatedUtc { get; set; }
     public int? AddedByProfileId { get; set; }
 

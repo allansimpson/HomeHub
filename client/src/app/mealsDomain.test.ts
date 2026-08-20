@@ -110,13 +110,15 @@ const at = (h: number, m: number) => new Date(2026, 7, 1, h, m)
 describe('startBy', () => {
   it('works back from dinner and rounds down to five minutes', () => {
     const s = startBy('18:30', 35, at(17, 0))!
-    expect(s.start).toBe('17:55')
-    expect(s.serve).toBe('18:30')
+    // The dinner time goes in as the stored `HH:mm` and comes back out the way the screen says it —
+    // nothing the household reads is 24-hour (`dates.clockFromMinutes`).
+    expect(s.start).toBe('5:55 PM')
+    expect(s.serve).toBe('6:30 PM')
   })
 
   it('rounds down rather than up, so the cook time is never shortened', () => {
     // 18:30 − 12 = 18:18, which floors to 18:15 — three minutes of slack, not a lost three.
-    expect(startBy('18:30', 12, at(17, 0))!.start).toBe('18:15')
+    expect(startBy('18:30', 12, at(17, 0))!.start).toBe('6:15 PM')
   })
 
   /**
@@ -144,7 +146,7 @@ describe('startBy', () => {
 const entry = (over: Partial<MealPlanEntryDto>): MealPlanEntryDto => ({
   id: 1, date: '2026-08-01', slot: 'Dinner', recipeId: 1, recipeTitle: 'Dish',
   recipeHasImage: false, freeText: null, servingsOverride: null, wasEaten: null,
-  position: 0, role: 'Main', totalMinutes: null, version: 1, ...over,
+  position: 0, role: 'Main', totalMinutes: null, version: 1, stockSummary: null, ...over,
 })
 
 describe('nightSchedule', () => {
@@ -155,9 +157,12 @@ describe('nightSchedule', () => {
     ]), '18:30').rows
 
     expect(rows.map((r) => [r.start, r.title])).toEqual([
-      ['17:55', 'Bolognese'],
-      ['18:15', 'Garlic Toast'],
+      ['5:55 PM', 'Bolognese'],
+      ['6:15 PM', 'Garlic Toast'],
     ])
+    // Ordered on the minutes, not on the words: `6:15 PM` sorts before `5:55 PM` as text, which is
+    // exactly what the old `localeCompare` on `HH:mm` strings would now do.
+    expect(rows.map((r) => r.startMinutes)).toEqual([17 * 60 + 55, 18 * 60 + 15])
   })
 
   /**

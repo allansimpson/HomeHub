@@ -2,7 +2,6 @@ import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { ScrollArea } from '../../components'
 import { api, ApiError } from '../../api/client'
-import { useSession } from '../../app/SessionProvider'
 import { useMeals } from '../../app/MealsProvider'
 import { cuisineTag } from '../../app/mealsPrefs'
 import { MealAlert, MealsLabel, MealsModal, RuleLine } from './parts'
@@ -23,7 +22,6 @@ import { MealAlert, MealsLabel, MealsModal, RuleLine } from './parts'
 export function AddRecipeScreen() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const { activeProfileId } = useSession()
   const { refresh, settings, updateSettings } = useMeals()
 
   const [url, setUrl] = useState('')
@@ -157,7 +155,6 @@ export function AddRecipeScreen() {
         // The name field sits above both paths and applies to both. A publisher's title is a
         // headline as often as a name, so whatever was typed wins over what the page calls itself.
         title: title.trim() || null,
-        profileId: activeProfileId,
       })
       if (result.confidence === 'Empty' || !result.recipe) {
         setImportError(result.reason ?? "That page doesn't publish recipe data the panel can read.")
@@ -202,7 +199,6 @@ export function AddRecipeScreen() {
           sourceUrl: url.trim() || null,
           title: name || null,
           tags: chosenCuisine ? [cuisineTag(chosenCuisine)] : [],
-          profileId: activeProfileId,
         })
         if (result.confidence !== 'Empty' && result.recipe) {
           rememberCuisine()
@@ -239,7 +235,6 @@ export function AddRecipeScreen() {
         .filter(Boolean)
         .map((rawText) => ({ rawText })),
       tags: chosenCuisine ? [cuisineTag(chosenCuisine)] : [],
-      modifiedByProfileId: activeProfileId,
     })
     rememberCuisine()
     await refresh()

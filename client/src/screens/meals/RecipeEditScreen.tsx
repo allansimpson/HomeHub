@@ -3,7 +3,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { ScrollArea, Stepper } from '../../components'
 import { Icon } from '../../icons/Icon'
 import { api, ApiError } from '../../api/client'
-import { useSession } from '../../app/SessionProvider'
 import { useMeals } from '../../app/MealsProvider'
 import { agoLabel } from '../../app/mealsDomain'
 // Canonical units are a Pantry idea the recipe folder shares, exactly as on the server: the stock
@@ -38,7 +37,6 @@ export function RecipeEditScreen() {
   const navigate = useNavigate()
   const { id } = useParams()
   const [params] = useSearchParams()
-  const { activeProfileId } = useSession()
   const { refresh } = useMeals()
 
   const recipeId = Number(id)
@@ -117,7 +115,7 @@ export function RecipeEditScreen() {
     if (!recipe || !title.trim()) return
     setSaving(true)
     try {
-      await api.updateRecipe(recipeId, buildInput(recipe, title, lines, servings, activeProfileId), recipe.version)
+      await api.updateRecipe(recipeId, buildInput(recipe, title, lines, servings), recipe.version)
       await refresh()
       close()
     } catch (err) {
@@ -132,7 +130,7 @@ export function RecipeEditScreen() {
       setSaving(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, recipeId, title, lines, servings, activeProfileId, refresh])
+  }, [recipe, recipeId, title, lines, servings, refresh])
 
   /**
    * The name to open the fork sheet with.
@@ -166,19 +164,18 @@ export function RecipeEditScreen() {
           })),
         servings,
         keepLink,
-        modifiedByProfileId: activeProfileId,
       })
       await refresh()
       navigate(`/meals/recipes/${created.id}`, { replace: true })
     } finally {
       setSaving(false)
     }
-  }, [recipe, forkName, lines, servings, keepLink, activeProfileId, refresh, navigate])
+  }, [recipe, forkName, lines, servings, keepLink, refresh, navigate])
 
   /** Re-save my values over theirs, against the version they left behind. */
   const keepMine = async () => {
     if (!recipe || !theirs || !title.trim()) return
-    await api.updateRecipe(recipeId, buildInput(recipe, title, lines, servings, activeProfileId), theirs.version)
+    await api.updateRecipe(recipeId, buildInput(recipe, title, lines, servings), theirs.version)
     await refresh()
     close()
   }
@@ -699,9 +696,7 @@ function parseAmount(text: string): number | null {
  * source's wording survives an edit that only ever meant to change a number. `sourceUrl` and
  * `importMethod` are not sent at all, which is what keeps provenance intact through the round trip.
  */
-function buildInput(
-  recipe: RecipeDto, title: string, lines: Draft[], servings: number | null, editor: number | null,
-) {
+function buildInput(recipe: RecipeDto, title: string, lines: Draft[], servings: number | null) {
   const ingredients: RecipeIngredientInput[] = lines
     .filter((l) => l.amount.trim() || l.unit.trim() || l.tail.trim())
     .map((l) => ({
@@ -732,7 +727,6 @@ function buildInput(
     isArchived: recipe.isArchived,
     leadMinutes: recipe.leadMinutes,
     prepNote: recipe.prepNote,
-    modifiedByProfileId: editor,
   }
 }
 

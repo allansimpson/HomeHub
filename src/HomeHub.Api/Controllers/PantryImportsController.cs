@@ -1,6 +1,8 @@
 namespace HomeHub.Api.Controllers;
 
+using HomeHub.Api.Calendar.Capture;
 using HomeHub.Api.Data;
+using HomeHub.Api.Kitchen;
 using HomeHub.Api.Pantry;
 using HomeHub.Api.Auth;
 using Microsoft.AspNetCore.Mvc;
@@ -22,14 +24,56 @@ public class PantryImportsController : ControllerBase
     private readonly PantryLedger _ledger;
     private readonly UnitRegistry _units;
     private readonly TimeProvider _clock;
+    private readonly IKitchenPhotoReader _photos;
 
     public PantryImportsController(
-        HomeHubDbContext db, PantryLedger ledger, UnitRegistry units, TimeProvider clock)
+        HomeHubDbContext db,
+        PantryLedger ledger,
+        UnitRegistry units,
+        TimeProvider clock,
+        IKitchenPhotoReader photos)
     {
         _db = db;
         _ledger = ledger;
         _units = units;
         _clock = clock;
+        _photos = photos;
+    }
+
+    /// <summary>
+    /// Read one screenshot of an order, or a photograph of a till receipt. Writes nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Screenshots, not credentials.</b> There is no consumer API worth having for a supermarket
+    /// order, and no reason to ask a household to hand over an account password to get one. A
+    /// photograph of the finished order says the same thing and costs nobody a secret.
+    /// </para>
+    /// <para>
+    /// <b>One shot rarely covers a big order</b>, so this reads a single image and hands the lines
+    /// back; the panel collects several readings and posts them as one payload to <c>POST /</c>.
+    /// Keeping the read separate from the create is what lets somebody add another shot after
+    /// seeing what the first one caught, and keeps the import a single reviewable thing rather than
+    /// four half-orders.
+    /// </para>
+    /// </remarks>
+    [HttpPost("read-photo")]
+    public async Task<ActionResult<PurchaseReadingDto>> ReadPhoto(
+        ReadKitchenPhotoRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrEmpty(request.ImageBase64)) return BadRequest("A photograph is required.");
+
+        if ((long)request.ImageBase64.Length * 3L / 4L > EventCaptureLimits.MaxImageBytes)
+            return BadRequest("That picture is too large to read.");
+
+        var reading = await _photos.ReadPurchasesAsync(
+            new NormalizedImage(
+                request.ImageBase64,
+                string.IsNullOrWhiteSpace(request.MediaType) ? "image/jpeg" : request.MediaType),
+            ct);
+
+        return Ok(PurchaseReadingDto.From(reading));
     }
 
     /// <summary>Imports still waiting, for the ruled row above the list on 9a.</summary>

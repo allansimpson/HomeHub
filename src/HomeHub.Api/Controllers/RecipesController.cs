@@ -2,6 +2,8 @@ namespace HomeHub.Api.Controllers;
 
 using HomeHub.Api.Auth;
 using HomeHub.Api.Data;
+using HomeHub.Api.Calendar.Capture;
+using HomeHub.Api.Kitchen;
 using HomeHub.Api.Meals;
 // Units are a Pantry concept the recipe folder shares: the stock check joins the two, so both sides
 // have to spell "oz" the same way. See UnitRegistry.
@@ -23,14 +25,57 @@ public class RecipesController : ControllerBase
     private readonly RecipeImportService _import;
     private readonly MealNotifier _notifier;
     private readonly UnitRegistry _units;
+    private readonly IKitchenPhotoReader _photos;
 
     public RecipesController(
-        HomeHubDbContext db, RecipeImportService import, MealNotifier notifier, UnitRegistry units)
+        HomeHubDbContext db,
+        RecipeImportService import,
+        MealNotifier notifier,
+        UnitRegistry units,
+        IKitchenPhotoReader photos)
     {
         _db = db;
         _import = import;
         _notifier = notifier;
         _units = units;
+        _photos = photos;
+    }
+
+    /// <summary>
+    /// Read a photograph of a recipe. Returns what it says; writes nothing, and stores nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Photographs are where most of a household's recipes actually live</b> — cookbook pages,
+    /// handwritten cards, screenshots of a message. So this is the lead route on the add screen
+    /// rather than one option among four.
+    /// </para>
+    /// <para>
+    /// <b>Nothing is saved here.</b> What comes back goes into the editor as ordinary fields, and
+    /// the save is the existing paste import — which means a photographed recipe is parsed by the
+    /// same <c>IngredientParser</c> as every other one and therefore scales the same way. A second
+    /// parser living inside a model would diverge from the first, and nobody would notice until a
+    /// recipe doubled for eight bought half of what it should.
+    /// </para>
+    /// </remarks>
+    [HttpPost("read-photo")]
+    public async Task<ActionResult<RecipeReadingDto>> ReadPhoto(
+        ReadKitchenPhotoRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.IsNullOrEmpty(request.ImageBase64)) return BadRequest("A photograph is required.");
+
+        // Measured on the decoded length, so the number means what it says on a file listing.
+        if ((long)request.ImageBase64.Length * 3L / 4L > EventCaptureLimits.MaxImageBytes)
+            return BadRequest("That picture is too large to read.");
+
+        var reading = await _photos.ReadRecipeAsync(
+            new NormalizedImage(
+                request.ImageBase64,
+                string.IsNullOrWhiteSpace(request.MediaType) ? "image/jpeg" : request.MediaType),
+            ct);
+
+        return Ok(RecipeReadingDto.From(reading));
     }
 
     /// <summary>
@@ -166,7 +211,7 @@ public class RecipesController : ControllerBase
             CreatedUtc = now,
             UpdatedUtc = now,
         };
-        Apply(recipe, input, now, _units);
+        Apply(recipe, input, now, _units, this.CallerId());
 
         _db.Recipes.Add(recipe);
         await _db.SaveChangesAsync(ct);
@@ -295,7 +340,7 @@ public class RecipesController : ControllerBase
             CreatedUtc = now,
             UpdatedUtc = now,
         };
-        Apply(recipe, parsed, now, _units);
+        Apply(recipe, parsed, now, _units, profileId);
         // Apply() is shared with the manual path and does not know about import-only fields.
         recipe.ImageSourceUrl = imageUrl is null ? null : Truncate(imageUrl, MealFieldLimits.Url);
         recipe.ModifiedByProfileId = profileId;
@@ -553,12 +598,12 @@ public class RecipesController : ControllerBase
         await _units.LoadAsync(ct);
         var now = DateTime.UtcNow;
         recipe.Title = input.Title.Trim();
-        Apply(recipe, input, now, _units);
+        Apply(recipe, input, now, _units, this.CallerId());
         recipe.UpdatedUtc = now;
         recipe.Version++;
 
         await _db.SaveChangesAsync(ct);
-        await _notifier.RecipeChangedAsync(recipe, input.ModifiedByProfileId, ct);
+        await _notifier.RecipeChangedAsync(recipe, this.CallerId(), ct);
         return RecipeDto.From(recipe, await EditorNameAsync(recipe, ct), await ParentTitleAsync(recipe, ct));
     }
 
@@ -629,7 +674,8 @@ public class RecipesController : ControllerBase
     /// churn is a handful of rows, and diffing by value would be more code and more ways to be wrong.
     /// Position comes from array order, so the client reorders by reordering.
     /// </summary>
-    private static void Apply(Recipe recipe, RecipeInput input, DateTime now, UnitRegistry units)
+    private static void Apply(
+        Recipe recipe, RecipeInput input, DateTime now, UnitRegistry units, int? editorProfileId)
     {
         recipe.Description = Blank(input.Description);
         recipe.SourceUrl = Blank(input.SourceUrl);
@@ -643,10 +689,10 @@ public class RecipesController : ControllerBase
         recipe.LeadMinutes = input.LeadMinutes;
         recipe.PrepNote = Blank(input.PrepNote);
 
-        // Only stamped when the caller says who they are. An unattributed write leaves the previous
-        // attribution standing rather than clearing it — the strip's job is to name whoever last
-        // changed the recipe, and a scripted or imported write does not make that person nobody.
-        if (input.ModifiedByProfileId is { } editor)
+        // Attribution is a claim from the authenticated principal, never a request field. An
+        // unattributed service write leaves the previous attribution standing rather than letting a
+        // machine erase or impersonate the last household editor.
+        if (editorProfileId is { } editor)
         {
             recipe.ModifiedByProfileId = editor;
             recipe.ModifiedAtUtc = now;

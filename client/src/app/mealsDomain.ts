@@ -9,6 +9,9 @@
 import type {
   MealDayDto, MealPlanEntryDto, MealRoleName, MealSlotName, MealWeekDto, RecipeSummaryDto,
 } from '../api/types'
+// Times a household reads are said the same way everywhere — see `dates.clockFromMinutes`. The
+// storage form stays here, in `formatClock`.
+import { clockFromMinutes } from './dates'
 
 // ---- The panel's own address ----
 
@@ -95,16 +98,23 @@ export function parseClock(hhmm: string): number | null {
   return h * 60 + min
 }
 
-/** Minutes since midnight → `HH:MM`, wrapping across midnight so a long cook shows yesterday's start. */
+/**
+ * Minutes since midnight → `HH:MM`, wrapping across midnight so a long cook shows yesterday's start.
+ *
+ * <b>The storage form, not the reading form.</b> `dinnerTime` is written back through this and read
+ * again by `parseClock`, and `<input type="time">` accepts nothing else — so it stays padded and
+ * 24-hour. Everything shown to a household goes through `dates.clockFromMinutes` instead; the two
+ * were the same function once, which is how `18:00` ended up on screens beside `6:00 PM`.
+ */
 export function formatClock(minutes: number): string {
   const wrapped = ((minutes % 1440) + 1440) % 1440
   return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`
 }
 
 export interface StartBy {
-  /** `HH:MM` to begin cooking. */
+  /** `6:15 PM` — when to begin cooking, as the screen says it. */
   start: string
-  /** `HH:MM` the food reaches the table. */
+  /** `6:30 PM` — when the food reaches the table. */
   serve: string
   /** Total cook time in minutes — the "35 min to the table" number. */
   minutes: number
@@ -128,8 +138,8 @@ export function startBy(dinnerTime: string, totalMinutes: number | null, now: Da
   const rounded = Math.floor(startMinutes / 5) * 5
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
   return {
-    start: formatClock(rounded),
-    serve: formatClock(dinner),
+    start: clockFromMinutes(rounded),
+    serve: clockFromMinutes(dinner),
     minutes: totalMinutes,
     lateBy: nowMinutes - rounded,
   }
@@ -262,8 +272,18 @@ export const schedulableEntries = (entries: MealPlanEntryDto[]): SchedulableComp
   }))
 
 export interface ScheduleRow {
-  /** `HH:MM` to start this component, or null when the recipe never said how long it takes. */
+  /** `6:15 PM` to start this component, or null when the recipe never said how long it takes. */
   start: string | null
+  /**
+   * The same moment as minutes since midnight — what the ordering and "what's next" are computed on.
+   *
+   * <b>Carried rather than re-derived from `start`.</b> The rows used to be sorted by
+   * `start.localeCompare(...)` and `nextComponent` re-parsed the string with `parseClock`, both of
+   * which worked only while `start` was a zero-padded 24-hour clock: `6:15 PM` sorts before
+   * `5:00 PM` lexically, and parses to nothing at all. Sorting formatted text was fragile before the
+   * display changed — this is the number the arithmetic wanted in the first place.
+   */
+  startMinutes: number | null
   title: string
   role: MealRoleName
   minutes: number | null
@@ -291,24 +311,28 @@ export function nightSchedule(
   const dinner = parseClock(dinnerTime)
   if (dinner == null) return { rows: [], serve: null }
 
-  const rows: ScheduleRow[] = entries.map((e) => ({
-    start: e.totalMinutes != null ? formatClock(Math.floor((dinner - e.totalMinutes) / 5) * 5) : null,
-    title: e.title,
-    role: e.role,
-    minutes: e.totalMinutes,
-    recipeId: e.recipeId,
-  }))
+  const rows: ScheduleRow[] = entries.map((e) => {
+    const startMinutes = e.totalMinutes != null ? Math.floor((dinner - e.totalMinutes) / 5) * 5 : null
+    return {
+      start: startMinutes != null ? clockFromMinutes(startMinutes) : null,
+      startMinutes,
+      title: e.title,
+      role: e.role,
+      minutes: e.totalMinutes,
+      recipeId: e.recipeId,
+    }
+  })
 
   // Earliest start first — that is the order someone actually works through. Untimed components
   // sort last rather than being interleaved at an invented position.
   rows.sort((a, b) => {
-    if (a.start === null && b.start === null) return 0
-    if (a.start === null) return 1
-    if (b.start === null) return -1
-    return a.start.localeCompare(b.start)
+    if (a.startMinutes === null && b.startMinutes === null) return 0
+    if (a.startMinutes === null) return 1
+    if (b.startMinutes === null) return -1
+    return a.startMinutes - b.startMinutes
   })
 
-  return { rows, serve: formatClock(dinner) }
+  return { rows, serve: clockFromMinutes(dinner) }
 }
 
 /**
@@ -334,11 +358,9 @@ export function nextComponent(
   const HORIZON_MINUTES = 6 * 60
 
   for (const row of rows) {
-    if (row.start === null) continue
+    if (row.startMinutes === null) continue
     if (excludeRecipeId != null && row.recipeId === excludeRecipeId) continue
-    const start = parseClock(row.start)
-    if (start == null) continue
-    const away = start - nowMinutes
+    const away = row.startMinutes - nowMinutes
     // `away >= 0` rather than `> 0`: a component due this very minute is due, not passed.
     if (away >= 0 && away <= HORIZON_MINUTES) return { row, minutesAway: away }
   }

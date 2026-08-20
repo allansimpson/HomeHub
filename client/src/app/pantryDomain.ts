@@ -184,9 +184,17 @@ export function emptyShelfLine(location: PantryLocationName): string {
 
 // ---- 9b · the stock check ----
 
-/** Statuses that appear under `WORTH A LOOK`. `NotCounted` and `Fine` never do. */
+/**
+ * Statuses that appear under `WORTH A LOOK`. `NotCounted` and `Fine` never do.
+ *
+ * **`ClaimedAway` counts.** The tin is on the shelf and it is not this night's — an earlier night
+ * already spoke for it. Reading that as "already in" is the exact double-count `PlanClaim` exists
+ * to prevent, and it is worse than a plain shortfall because the number on the shelf agrees with
+ * you right up until Saturday.
+ */
 export function isFlagged(status: StockStatusName): boolean {
-  return status === 'Short' || status === 'Gone' || status === 'Unknown' || status === 'NoMatch'
+  return status === 'Short' || status === 'Gone' || status === 'Unknown'
+    || status === 'NoMatch' || status === 'ClaimedAway'
 }
 
 /**

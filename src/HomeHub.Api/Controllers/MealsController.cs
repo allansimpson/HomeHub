@@ -2,6 +2,7 @@ namespace HomeHub.Api.Controllers;
 
 using HomeHub.Api.Data;
 using HomeHub.Api.Meals;
+using HomeHub.Api.Pantry;
 using HomeHub.Api.Auth;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -18,11 +19,13 @@ public class MealsController : ControllerBase
 
     private readonly HomeHubDbContext _db;
     private readonly MealNotifier _notifier;
+    private readonly PlanClaimService _claims;
 
-    public MealsController(HomeHubDbContext db, MealNotifier notifier)
+    public MealsController(HomeHubDbContext db, MealNotifier notifier, PlanClaimService claims)
     {
         _db = db;
         _notifier = notifier;
+        _claims = claims;
     }
 
     /// <summary>
@@ -41,6 +44,10 @@ public class MealsController : ControllerBase
             .Where(e => e.Date >= from && e.Date <= to)
             .ToListAsync(ct);
 
+        // One word per planned night, settled across the whole week so an earlier night's hold is
+        // visible on the later one (KITCHEN_LOOP_ADDENDUM §1). A read, so it settles nothing.
+        var summaries = await _claims.SummariseAsync(from, to, ct);
+
         var days = Enumerable.Range(0, DaysInWeek)
             .Select(offset => from.AddDays(offset))
             .Select(date => new MealDayDto(
@@ -49,7 +56,8 @@ public class MealsController : ControllerBase
                     // Slot then Position, so an arrangement arrives in the order it is cooked and
                     // the client never has to re-sort a night to render it.
                     .OrderBy(e => e.Slot).ThenBy(e => e.Position)
-                    .Select(MealPlanEntryDto.From)
+                    .Select(e => MealPlanEntryDto.From(
+                        e, summaries.TryGetValue(e.Id, out var s) ? s : null))
                     .ToList()))
             .ToList();
 
@@ -181,6 +189,11 @@ public class MealsController : ControllerBase
         // edit-vs-edit on a single entry.
         await _db.SaveChangesAsync(ct);
 
+        // What is planned changed, so what the plan has spoken for changed with it
+        // (KITCHEN_LOOP_ADDENDUM §1). Claims are derived, so they are recomputed here
+        // rather than edited — no caller ever authors one.
+        await _claims.SettleAroundAsync(entry.Date, ct);
+
         await _db.Entry(entry).Reference(e => e.Recipe).LoadAsync(ct);
 
         // Only today and tomorrow notify, and only when somebody else did it — the notifier owns
@@ -222,6 +235,11 @@ public class MealsController : ControllerBase
         }
 
         await _db.SaveChangesAsync(ct);
+
+        // What is planned changed, so what the plan has spoken for changed with it
+        // (KITCHEN_LOOP_ADDENDUM §1). Claims are derived, so they are recomputed here
+        // rather than edited — no caller ever authors one.
+        await _claims.SettleAroundAsync(entry.Date, ct);
         return NoContent();
     }
 
@@ -259,6 +277,10 @@ public class MealsController : ControllerBase
         foreach (var e in entries)
         {
             e.WasEaten = input.WasEaten;
+            // Only meaningful alongside a yes: "four sat down" says nothing about a night that
+            // did not happen, and carrying it over a no would leave a stale number behind the
+            // leftovers card.
+            e.PortionsEaten = input.WasEaten == true ? input.PortionsEaten : null;
             e.UpdatedUtc = now;
             e.Version++;
         }
@@ -301,6 +323,125 @@ public class MealsController : ControllerBase
 
         _db.MealPlanEntries.RemoveRange(entries);
         await _db.SaveChangesAsync(ct);
+
+        // What is planned changed, so what the plan has spoken for changed with it
+        // (KITCHEN_LOOP_ADDENDUM §1). Claims are derived, so they are recomputed here
+        // rather than edited — no caller ever authors one.
+        await _claims.SettleAroundAsync(onDate, ct);
         return NoContent();
+    }
+
+    // ---- Saved weeks (KITCHEN_LOOP_ADDENDUM §6) ----
+
+    /// <summary>The saved weeks, newest first.</summary>
+    [HttpGet("templates")]
+    public async Task<ActionResult<IReadOnlyList<MealPlanTemplateDto>>> Templates(CancellationToken ct) =>
+        await _db.MealPlanTemplates
+            .OrderByDescending(t => t.CreatedUtc)
+            .Select(t => new MealPlanTemplateDto(t.Id, t.Name, t.Entries.Count, t.CreatedUtc))
+            .ToListAsync(ct);
+
+    /// <summary>
+    /// `SAVE THIS WEEK` — keep the shape of a week to use again.
+    /// </summary>
+    /// <remarks>
+    /// Stored as day offsets rather than dates, so the same saved week lands on any Monday. Nothing
+    /// about stock is captured: a template says what to cook, never what was in the cupboard when it
+    /// was saved.
+    /// </remarks>
+    [HttpPost("templates")]
+    public async Task<ActionResult<MealPlanTemplateDto>> SaveWeek(SaveWeekInput input, CancellationToken ct)
+    {
+        var name = input.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return BadRequest("A saved week needs a name.");
+        if (name.Length > MealFieldLimits.FreeText)
+            return BadRequest($"That name is longer than {MealFieldLimits.FreeText} characters.");
+
+        var to = input.Start.AddDays(DaysInWeek - 1);
+        var entries = await _db.MealPlanEntries
+            .Where(e => e.Date >= input.Start && e.Date <= to)
+            .OrderBy(e => e.Date).ThenBy(e => e.Slot).ThenBy(e => e.Position)
+            .ToListAsync(ct);
+
+        if (entries.Count == 0) return BadRequest("There is nothing planned that week to save.");
+
+        var template = new MealPlanTemplate
+        {
+            Name = name,
+            CreatedUtc = DateTime.UtcNow,
+            CreatedByProfileId = this.CallerId(),
+            Entries = entries.Select(e => new MealPlanTemplateEntry
+            {
+                DayOffset = e.Date.DayNumber - input.Start.DayNumber,
+                Slot = e.Slot,
+                Position = e.Position,
+                Role = e.Role,
+                RecipeId = e.RecipeId,
+                FreeText = e.FreeText,
+                ServingsOverride = e.ServingsOverride,
+            }).ToList(),
+        };
+
+        _db.MealPlanTemplates.Add(template);
+        await _db.SaveChangesAsync(ct);
+
+        return new MealPlanTemplateDto(template.Id, template.Name, template.Entries.Count, template.CreatedUtc);
+    }
+
+    /// <summary>
+    /// Apply a saved week from <paramref name="start"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Writes plan entries and <b>re-settles claims</b>, because what is planned changed. It never
+    /// touches stock: no deduction, no grocery line, nothing added to a shelf. A template is a
+    /// shortcut for the picking.
+    /// </para>
+    /// <para>
+    /// A night whose recipe has since been deleted is skipped and counted, not failed — a saved week
+    /// that stops working because one dish was archived would be worse than one with a gap.
+    /// </para>
+    /// </remarks>
+    [HttpPost("templates/{id:int}/apply")]
+    public async Task<ActionResult<ApplyTemplateResultDto>> ApplyTemplate(
+        int id, [FromQuery] DateOnly start, CancellationToken ct)
+    {
+        var template = await _db.MealPlanTemplates
+            .Include(t => t.Entries)
+            .FirstOrDefaultAsync(t => t.Id == id, ct);
+        if (template is null) return NotFound();
+
+        var recipeIds = template.Entries.Where(e => e.RecipeId is not null)
+            .Select(e => e.RecipeId!.Value).Distinct().ToList();
+        var alive = await _db.Recipes.Where(r => recipeIds.Contains(r.Id))
+            .Select(r => r.Id).ToListAsync(ct);
+
+        var now = DateTime.UtcNow;
+        var written = 0;
+        var skipped = 0;
+
+        foreach (var entry in template.Entries.OrderBy(e => e.DayOffset).ThenBy(e => e.Position))
+        {
+            if (entry.RecipeId is { } recipeId && !alive.Contains(recipeId)) { skipped++; continue; }
+
+            _db.MealPlanEntries.Add(new MealPlanEntry
+            {
+                Date = start.AddDays(entry.DayOffset),
+                Slot = entry.Slot,
+                Position = entry.Position,
+                Role = entry.Role,
+                RecipeId = entry.RecipeId,
+                FreeText = entry.FreeText,
+                ServingsOverride = entry.ServingsOverride,
+                CreatedUtc = now,
+                UpdatedUtc = now,
+            });
+            written++;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        await _claims.SettleAroundAsync(start, ct);
+
+        return new ApplyTemplateResultDto(written, skipped);
     }
 }

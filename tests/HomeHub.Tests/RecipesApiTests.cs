@@ -45,6 +45,38 @@ public class RecipesApiTests
     }
 
     [Fact]
+    public void Recipe_write_contracts_do_not_accept_profile_attribution()
+    {
+        foreach (var type in new Type[]
+        {
+            typeof(RecipeInput), typeof(ForkRecipeInput), typeof(RecipeImportInput),
+            typeof(RecipePasteInput), typeof(RecipeCuisineInput),
+        })
+        {
+            Assert.DoesNotContain(type.GetProperties(), property =>
+                property.Name.Contains("ProfileId", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task Recipe_attribution_comes_from_the_authenticated_member_not_the_request()
+    {
+        using var app = new HubAppFactory();
+        var member = app.CreateSeededClient(profileId: 2);
+
+        var created = await (await member.PostAsJsonAsync(
+            "/api/recipes", new { title = "Soup", modifiedByProfileId = 3 }))
+            .Content.ReadFromJsonAsync<RecipeDto>();
+        Assert.Equal(2, created!.ModifiedByProfileId);
+
+        var replaced = await (await member.PutAsJsonAsync(
+            $"/api/recipes/{created.Id}",
+            new { title = "Better soup", modifiedByProfileId = 3 }))
+            .Content.ReadFromJsonAsync<RecipeDto>();
+        Assert.Equal(2, replaced!.ModifiedByProfileId);
+    }
+
+    [Fact]
     public async Task Tags_are_trimmed_deduped_case_insensitively_and_blanks_dropped()
     {
         using var app = new HubAppFactory();

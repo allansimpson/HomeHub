@@ -188,7 +188,7 @@ public class MealGroupsController : ControllerBase
 
         await _db.SaveChangesAsync(ct);
         foreach (var entry in created) await _db.Entry(entry).Reference(e => e.Recipe).LoadAsync(ct);
-        return created.Select(MealPlanEntryDto.From).ToList();
+        return created.Select(e => MealPlanEntryDto.From(e)).ToList();
     }
 
     /// <summary>

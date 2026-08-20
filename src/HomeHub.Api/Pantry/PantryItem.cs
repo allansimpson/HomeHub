@@ -86,6 +86,71 @@ public class PantryItem
     public string? CatalogueRef { get; set; }
 
     /// <summary>Archived rather than deleted: the ledger references it (§2).</summary>
+    /// <summary>Who saved this row's pack-size mapping, for "pack size saved by Eleanor, 3 Aug".</summary>
+    /// <remarks>
+    /// §2 requires the mapping and its provenance to be stated wherever the arithmetic depends on
+    /// it. A mapping the household cannot see is a mapping it cannot correct — and this one silently
+    /// changes what every recipe wanting that ingredient concludes.
+    /// </remarks>
+    public int? PackSizeByProfileId { get; set; }
+
+    /// <summary>When that mapping was saved.</summary>
+    public DateTime? PackSizeAtUtc { get; set; }
+
+    /// <summary>
+    /// A date the packet actually states (ADD_TO_PANTRY §6).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The one sanctioned exception to the expiry ban</b>, and it is narrow on purpose.
+    /// <c>PANTRY_DATA_CONTRACT</c> §5 rules out expiry dates because nobody enters them and nothing
+    /// can infer them reliably — a wrong date being worse than none. This field survives that
+    /// reasoning by refusing everything the ban was actually about:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>Optional, and never blocks a save.</item>
+    /// <item><b>Typed only from what the packet says</b>, or carried in by a scan or an order line.
+    /// Never inferred from a shelf-life table, never guessed.</item>
+    /// <item>One date per entry — four tins bought together share one, rather than becoming four
+    /// rows.</item>
+    /// <item><b>Never the subject of a notification, badge or counter.</b> It sorts; it does not
+    /// warn.</item>
+    /// </list>
+    /// <para>
+    /// Shelf-life assumptions remain a separate mechanism and are still what drives <i>use it or
+    /// lose it</i>. A typed date takes precedence for that entry; its absence changes nothing.
+    /// </para>
+    /// </remarks>
+    public DateOnly? GoodUntil { get; set; }
+
+    /// <summary>Where <see cref="GoodUntil"/> came from — the guard against an inferred date.</summary>
+    public GoodUntilSource? GoodUntilSource { get; set; }
+
+    /// <summary>
+    /// When this was opened, if it has been (KITCHEN_LOOP_ADDENDUM §4).
+    /// </summary>
+    /// <remarks>
+    /// <b>Never inferred.</b> Opening is one tap and nothing else sets it: a deduction that empties a
+    /// counted item does not open anything, and marking opened never changes a quantity. It exists
+    /// because it is the one thing about freshness the panel can actually observe — the section
+    /// refuses to store expiry dates it would have to guess (§7), and ranks by how long something
+    /// has been open instead.
+    /// </remarks>
+    public DateTime? OpenedAt { get; set; }
+
+    /// <summary>Who opened it. Null when nobody has, or when it predates the field.</summary>
+    public int? OpenedByProfileId { get; set; }
+
+    /// <summary>
+    /// The night that produced this, for leftovers created by cooking (§5).
+    /// </summary>
+    /// <remarks>
+    /// Provenance, not a link the loop depends on: a leftovers item is an ordinary
+    /// <see cref="TrackingClass.Counted"/> row measured in portions, and the plan claims it the same
+    /// way it claims a tin. This is what lets the receipt's undo find and remove it again.
+    /// </remarks>
+    public int? ProducedByPlanEntryId { get; set; }
+
     public bool IsArchived { get; set; }
 
     public DateTime CreatedUtc { get; set; }
