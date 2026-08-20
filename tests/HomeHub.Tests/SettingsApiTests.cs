@@ -1,5 +1,6 @@
 namespace HomeHub.Tests;
 
+using System.Net;
 using System.Net.Http.Json;
 using HomeHub.Api.Settings;
 
@@ -67,5 +68,35 @@ public class SettingsApiTests
             new SetActiveProfileRequest(999)))
             .Content.ReadFromJsonAsync<SettingsDto>();
         Assert.Null(stale!.ActiveProfileId);
+    }
+
+    [Theory]
+    [InlineData("/api/settings")]
+    [InlineData("/api/settings/cat-name")]
+    [InlineData("/api/settings/baby-name")]
+    [InlineData("/api/settings/litter-full-percent")]
+    [InlineData("/api/settings/conversation-policy")]
+    [InlineData("/api/settings/event-photo-policy")]
+    [InlineData("/api/settings/weather-location")]
+    public async Task An_ordinary_member_cannot_change_household_settings(string path)
+    {
+        using var app = new HubAppFactory();
+        var ordinaryMember = app.CreateSeededClient(profileId: 2);
+
+        var response = await ordinaryMember.PutAsJsonAsync(path, new { });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_ordinary_member_can_still_switch_the_shared_panels_active_profile()
+    {
+        using var app = new HubAppFactory();
+        var ordinaryMember = app.CreateSeededClient(profileId: 2);
+
+        var response = await ordinaryMember.PutAsJsonAsync(
+            "/api/settings/active-profile", new SetActiveProfileRequest(2));
+
+        response.EnsureSuccessStatusCode();
     }
 }

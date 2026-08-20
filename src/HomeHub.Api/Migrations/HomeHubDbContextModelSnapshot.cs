@@ -507,6 +507,159 @@ namespace HomeHub.Api.Migrations
                     b.ToTable("SyncedCalendars");
                 });
 
+            modelBuilder.Entity("HomeHub.Api.Care.CareEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<double?>("Amount")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ChildKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("Consistency")
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool?>("DiaperRash")
+                        .HasColumnType("bit");
+
+                    b.Property<double?>("DurationMinutes")
+                        .HasColumnType("float");
+
+                    b.Property<string>("ExternalKey")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<double?>("HeadInches")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("HeightInches")
+                        .HasColumnType("float");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<double?>("Ounces")
+                        .HasColumnType("float");
+
+                    b.Property<string>("PeeAmount")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<string>("PooAmount")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<double?>("Pounds")
+                        .HasColumnType("float");
+
+                    b.Property<string>("Side")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<DateTime?>("UpdatedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalKey")
+                        .IsUnique()
+                        .HasFilter("[ExternalKey] IS NOT NULL");
+
+                    b.HasIndex("ChildKey", "AtUtc");
+
+                    b.HasIndex("ChildKey", "Type", "AtUtc");
+
+                    b.ToTable("CareEntries");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Care.CareTimer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<double>("AccumulatedMinutes")
+                        .HasColumnType("float");
+
+                    b.Property<string>("ChildKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("EndedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("PausedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("Phase")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PhaseOneMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<double?>("PhaseTwoAtMinutes")
+                        .HasColumnType("float");
+
+                    b.Property<int?>("PhaseTwoMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Side")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<DateTime>("StartedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChildKey", "Type")
+                        .IsUnique();
+
+                    b.ToTable("CareTimers");
+                });
+
             modelBuilder.Entity("HomeHub.Api.Cats.LitterRobotRecovery", b =>
                 {
                     b.Property<int>("Id")
@@ -1008,6 +1161,9 @@ namespace HomeHub.Api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int?>("PortionsEaten")
+                        .HasColumnType("int");
+
                     b.Property<int>("Position")
                         .HasColumnType("int");
 
@@ -1039,6 +1195,70 @@ namespace HomeHub.Api.Migrations
                     b.HasIndex("Date", "Slot", "Position");
 
                     b.ToTable("MealPlanEntries");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Meals.MealPlanTemplate", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("CreatedByProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("MealPlanTemplates");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Meals.MealPlanTemplateEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("DayOffset")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FreeText")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RecipeId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ServingsOverride")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Slot")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TemplateId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TemplateId");
+
+                    b.ToTable("MealPlanTemplateEntry");
                 });
 
             modelBuilder.Entity("HomeHub.Api.Meals.Recipe", b =>
@@ -1325,6 +1545,70 @@ namespace HomeHub.Api.Migrations
                     b.ToTable("NotificationSources");
                 });
 
+            modelBuilder.Entity("HomeHub.Api.Pantry.AisleOrderEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Aisle")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Store")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Store", "Aisle")
+                        .IsUnique();
+
+                    b.ToTable("AisleOrder");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Pantry.AliasRejection", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ByProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("CanonicalName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("PantryItemId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PantryItemId");
+
+                    b.HasIndex("CanonicalName", "PantryItemId")
+                        .IsUnique();
+
+                    b.ToTable("AliasRejections");
+                });
+
             modelBuilder.Entity("HomeHub.Api.Pantry.GroceryLine", b =>
                 {
                     b.Property<int>("Id")
@@ -1335,6 +1619,10 @@ namespace HomeHub.Api.Migrations
 
                     b.Property<int?>("AddedByProfileId")
                         .HasColumnType("int");
+
+                    b.Property<string>("Aisle")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<DateTime?>("CheckedAtUtc")
                         .HasColumnType("datetime2");
@@ -1357,6 +1645,10 @@ namespace HomeHub.Api.Migrations
 
                     b.Property<int>("SourceKind")
                         .HasColumnType("int");
+
+                    b.Property<string>("Store")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
 
                     b.Property<string>("Text")
                         .IsRequired()
@@ -1480,6 +1772,9 @@ namespace HomeHub.Api.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<int>("PantryItemId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Source")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
@@ -2663,6 +2958,12 @@ namespace HomeHub.Api.Migrations
                     b.Property<int?>("EstimateState")
                         .HasColumnType("int");
 
+                    b.Property<DateOnly?>("GoodUntil")
+                        .HasColumnType("date");
+
+                    b.Property<int?>("GoodUntilSource")
+                        .HasColumnType("int");
+
                     b.Property<bool>("IsArchived")
                         .HasColumnType("bit");
 
@@ -2674,13 +2975,28 @@ namespace HomeHub.Api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<DateTime?>("OpenedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("OpenedByProfileId")
+                        .HasColumnType("int");
+
                     b.Property<decimal?>("PackSize")
                         .HasPrecision(9, 3)
                         .HasColumnType("decimal(9,3)");
 
+                    b.Property<DateTime?>("PackSizeAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("PackSizeByProfileId")
+                        .HasColumnType("int");
+
                     b.Property<string>("PackUnit")
                         .HasMaxLength(40)
                         .HasColumnType("nvarchar(40)");
+
+                    b.Property<int?>("ProducedByPlanEntryId")
+                        .HasColumnType("int");
 
                     b.Property<decimal?>("Quantity")
                         .HasPrecision(9, 3)
@@ -2706,6 +3022,40 @@ namespace HomeHub.Api.Migrations
                     b.HasIndex("IsArchived", "Location", "Name");
 
                     b.ToTable("PantryItems");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Pantry.PlanClaim", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("PantryItemId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PlanEntryId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<DateTime>("SettledAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PantryItemId");
+
+                    b.HasIndex("PlanEntryId");
+
+                    b.ToTable("PlanClaims");
                 });
 
             modelBuilder.Entity("HomeHub.Api.Pantry.ProductCatalogueEntry", b =>
@@ -2743,6 +3093,9 @@ namespace HomeHub.Api.Migrations
                         .HasPrecision(9, 3)
                         .HasColumnType("decimal(9,3)");
 
+                    b.Property<string>("PackUnit")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Scope")
                         .HasColumnType("int");
 
@@ -2752,6 +3105,39 @@ namespace HomeHub.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("ProductCatalogue");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Pantry.ShelfLifeAssumption", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Days")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FoodKind")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsSeeded")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FoodKind", "State")
+                        .IsUnique();
+
+                    b.ToTable("ShelfLife");
                 });
 
             modelBuilder.Entity("HomeHub.Api.Pantry.StockCheckDismissal", b =>
@@ -2988,6 +3374,9 @@ namespace HomeHub.Api.Migrations
 
                     b.Property<int?>("ActiveProfileId")
                         .HasColumnType("int");
+
+                    b.Property<string>("BabyName")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("CatName")
                         .HasColumnType("nvarchar(max)");
@@ -3278,6 +3667,17 @@ namespace HomeHub.Api.Migrations
                     b.Navigation("Recipe");
                 });
 
+            modelBuilder.Entity("HomeHub.Api.Meals.MealPlanTemplateEntry", b =>
+                {
+                    b.HasOne("HomeHub.Api.Meals.MealPlanTemplate", "Template")
+                        .WithMany("Entries")
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Template");
+                });
+
             modelBuilder.Entity("HomeHub.Api.Meals.RecipeIngredient", b =>
                 {
                     b.HasOne("HomeHub.Api.Meals.Recipe", "Recipe")
@@ -3309,6 +3709,17 @@ namespace HomeHub.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Recipe");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Pantry.AliasRejection", b =>
+                {
+                    b.HasOne("HomeHub.Api.Pantry.PantryItem", "Item")
+                        .WithMany()
+                        .HasForeignKey("PantryItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Item");
                 });
 
             modelBuilder.Entity("HomeHub.Api.Pantry.GroceryLine", b =>
@@ -3376,6 +3787,21 @@ namespace HomeHub.Api.Migrations
                     b.Navigation("Item");
                 });
 
+            modelBuilder.Entity("HomeHub.Api.Pantry.PlanClaim", b =>
+                {
+                    b.HasOne("HomeHub.Api.Pantry.PantryItem", null)
+                        .WithMany()
+                        .HasForeignKey("PantryItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("HomeHub.Api.Meals.MealPlanEntry", null)
+                        .WithMany()
+                        .HasForeignKey("PlanEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("HomeHub.Api.Sensors.SensorReading", b =>
                 {
                     b.HasOne("HomeHub.Api.Sensors.SensorZone", "Zone")
@@ -3397,6 +3823,11 @@ namespace HomeHub.Api.Migrations
             modelBuilder.Entity("HomeHub.Api.Meals.Meal", b =>
                 {
                     b.Navigation("Components");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Meals.MealPlanTemplate", b =>
+                {
+                    b.Navigation("Entries");
                 });
 
             modelBuilder.Entity("HomeHub.Api.Meals.Recipe", b =>

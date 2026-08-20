@@ -69,6 +69,27 @@ public class EventPhotoTests
     }
 
     [Fact]
+    public async Task Another_member_cannot_fetch_a_profile_owned_photograph()
+    {
+        using var app = new HubAppFactory();
+        var owner = app.CreateSeededClient(profileId: 1);
+        var created = await CreateAsync(owner, FromAFlyer());
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            var owned = await db.CalendarEvents.FindAsync(created.Id);
+            owned!.ProfileId = 1;
+            await db.SaveChangesAsync();
+        }
+        var otherMember = app.CreateSeededClient(profileId: 2);
+
+        var response = await otherMember.GetAsync(
+            new Uri($"/api/calendar/events/{created.Id}/photo", UriKind.Relative));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
     public async Task A_screenshot_with_no_exif_is_kept_without_inventing_a_taken_date()
     {
         using var app = new HubAppFactory();

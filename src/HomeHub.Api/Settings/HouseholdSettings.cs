@@ -114,6 +114,20 @@ public class HouseholdSettings
     public string? CatName { get; set; }
 
     /// <summary>
+    /// What the household calls the child — the name the Baby tab leads with.
+    /// </summary>
+    /// <remarks>
+    /// Kept by the panel for the same reason as <see cref="CatName"/>: the household edits it, so it
+    /// cannot sit in a config file. It also cannot come from the integration it used to come from —
+    /// the Care log is HomeHub's own now, and a panel whose header says "Baby" until an upstream
+    /// service is reachable is a panel naming a child after a system outage.
+    /// <para>
+    /// Null falls back to the literal word "Baby", which is what the nav cell says in every state.
+    /// </para>
+    /// </remarks>
+    public string? BabyName { get; set; }
+
+    /// <summary>
     /// Waste-drawer fullness, as a percentage, at which the panel asks for the litter to be changed.
     /// </summary>
     /// <remarks>

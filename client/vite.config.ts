@@ -1,8 +1,8 @@
 import { execSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -49,7 +49,13 @@ function buildStamp(): string {
   // The first version of this had it the other way round: any stumble in git and the whole stamp
   // collapsed to the word `dev`, which is indistinguishable from every other build that ever
   // stumbled. A stamp that says nothing is worse than no stamp, because it looks like an answer.
-  const when = `${new Date().toISOString().slice(0, 16).replace('T', ' ')}Z`
+  //
+  // <b>To the second, since the worker started depending on it.</b> This was minutes, which is all a
+  // person reading it off a panel needs. But the stamp is now what makes each release's `sw.js` a
+  // different file, and two builds of the same dirty tree inside one minute produced byte-identical
+  // workers — so the second deploy would be invisible to every device that had taken the first. That
+  // is precisely the workflow this is for: pushing to test twice while chasing something down.
+  const when = `${new Date().toISOString().slice(0, 19).replace('T', ' ')}Z`
 
   try {
     const git = (args: string) => execSync(`git ${args}`, { cwd: here, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
@@ -66,12 +72,58 @@ function buildStamp(): string {
   }
 }
 
+/**
+ * Write the build into the two files that have to say it out loud.
+ *
+ * <b>`sw.js`</b> ships from `public/`, which Vite copies verbatim — so the stamp cannot be a
+ * `define`, and the file is rewritten in place after the copy instead. Its placeholder is what makes
+ * every release a new worker: identical bytes are how a browser decides there is nothing to install,
+ * and identical bytes are what left panels sitting on months-old shells.
+ *
+ * <b>`build.json`</b> is for the devices that have no worker at all. A service worker needs a secure
+ * context, and a phone opening the panel over plain `http://<server>:5000` on the house LAN gets
+ * none — so the whole mechanism above is simply absent there. A four-line JSON file, served
+ * `no-cache` like the rest of the shell, gives that phone the same answer by the plainest means
+ * available: the app asks what the server is serving and compares it to what it is running.
+ *
+ * `closeBundle` rather than `writeBundle`, so this lands after the public directory has been copied
+ * rather than racing it.
+ */
+function stampBuild(stamp: string): Plugin {
+  let outDir = ''
+  return {
+    name: 'homehub-build-stamp',
+    apply: 'build',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir)
+    },
+    closeBundle() {
+      const worker = resolve(outDir, 'sw.js')
+      if (existsSync(worker)) {
+        const source = readFileSync(worker, 'utf8')
+        // Said out loud if it ever stops matching: a worker that shipped with its placeholder intact
+        // is one every device would consider unchanged for the rest of time, and it would fail
+        // silently and permanently.
+        if (!source.includes('__BUILD_STAMP__')) {
+          throw new Error('sw.js has no __BUILD_STAMP__ placeholder — every build would look identical to a browser')
+        }
+        writeFileSync(worker, source.replaceAll('__BUILD_STAMP__', stamp))
+      }
+      writeFileSync(resolve(outDir, 'build.json'), `${JSON.stringify({ build: stamp }, null, 2)}\n`)
+    },
+  }
+}
+
+const BUILD = buildStamp()
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), stampBuild(BUILD)],
   // Frozen into the bundle at build time, so it describes the file it is in rather than whatever the
   // panel happens to be talking to. That is the distinction the whole thing exists to make.
-  define: { __BUILD__: JSON.stringify(buildStamp()) },
+  // Taken once, above, and shared with the worker and `build.json` — three files that disagreed
+  // about which build they belonged to would make the update check compare a build against itself.
+  define: { __BUILD__: JSON.stringify(BUILD) },
   server: {
     port: 5173,
     // Listen on every interface, not just loopback, so a tablet or phone on the same LAN can

@@ -9,6 +9,24 @@ using HomeHub.Api.Calendar.Capture;
 /// </summary>
 public class EventCaptureApiTests
 {
+    [Fact]
+    public void Production_refuses_to_start_without_the_isolated_image_extractor()
+    {
+        using var app = new HubAppFactory
+        {
+            EnvironmentName = "Production",
+            Settings = new()
+            {
+                ["ConnectionStrings:HomeHub"] =
+                    "Server=127.0.0.1,1;Database=unreachable;User Id=x;Password=x;Connect Timeout=1;TrustServerCertificate=true",
+            },
+        };
+
+        var error = Assert.ThrowsAny<Exception>(() => app.CreateAnonymousClient());
+
+        Assert.Contains("ImageExtractor", error.ToString(), StringComparison.Ordinal);
+    }
+
     /// <summary>A reading that never happened, so the suite cannot reach a provider.</summary>
     private sealed class StubExtractor(ExtractionResult result) : IEventExtractor
     {

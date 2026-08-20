@@ -119,13 +119,16 @@ public class CalendarController : ControllerBase
     public async Task<ActionResult<CalendarEventDto>> Get(int id, CancellationToken ct)
     {
         var e = await _calendar.GetAsync(id, ct);
-        return e is null ? NotFound() : CalendarEventDto.From(e);
+        if (e is null) return NotFound();
+        if (e.ProfileId is { } profileId && !this.MayActFor(profileId)) return Forbid();
+        return CalendarEventDto.From(e);
     }
 
     [HttpPost("events")]
     public async Task<ActionResult<CalendarEventDto>> Create(CalendarEventInput input, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(input);
+        if (input.ProfileId is { } profileId && !this.MayActFor(profileId)) return Forbid();
         if (string.IsNullOrWhiteSpace(input.Title)) return BadRequest("Title is required.");
         if (input.EndUtc <= input.StartUtc) return BadRequest("End must be after start.");
 
@@ -163,7 +166,9 @@ public class CalendarController : ControllerBase
     public async Task<IActionResult> Photo(int id, CancellationToken ct)
     {
         var e = await _calendar.GetAsync(id, ct);
-        if (e?.PhotoFile is not { } fileName) return NotFound();
+        if (e is null) return NotFound();
+        if (e.ProfileId is { } profileId && !this.MayActFor(profileId)) return Forbid();
+        if (e.PhotoFile is not { } fileName) return NotFound();
 
         var path = _photos.Resolve(fileName);
         var contentType = EventPhotoStore.ContentTypeFor(fileName);
@@ -177,6 +182,9 @@ public class CalendarController : ControllerBase
     [HttpPut("events/{id:int}")]
     public async Task<ActionResult<CalendarEventDto>> Update(int id, CalendarEventInput input, [FromQuery] int? baseVersion, CancellationToken ct)
     {
+        var existing = await _calendar.GetAsync(id, ct);
+        if (existing is null) return NotFound();
+        if (existing.ProfileId is { } profileId && !this.MayActFor(profileId)) return Forbid();
         if (string.IsNullOrWhiteSpace(input.Title)) return BadRequest("Title is required.");
         if (input.EndUtc <= input.StartUtc) return BadRequest("End must be after start.");
         try
@@ -263,9 +271,12 @@ public class CalendarController : ControllerBase
     {
         try
         {
-            // Read the filename before the row goes, so the sibling count below has something to
-            // count. One flyer can back four engagements and they share a file.
-            var photoFile = (await _calendar.GetAsync(id, ct))?.PhotoFile;
+            // Read before deletion both to authorize the owning profile and to retain the filename
+            // while the sibling count below still has something to count.
+            var existing = await _calendar.GetAsync(id, ct);
+            if (existing is null) return NotFound();
+            if (existing.ProfileId is { } profileId && !this.MayActFor(profileId)) return Forbid();
+            var photoFile = existing.PhotoFile;
 
             var ok = await _calendar.DeleteAsync(id, baseVersion, ct);
             if (ok && photoFile is not null) await ForgetPhotoIfUnusedAsync(photoFile, ct);

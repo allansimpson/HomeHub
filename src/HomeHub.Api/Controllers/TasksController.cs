@@ -41,6 +41,9 @@ public class TasksController : ControllerBase
     [HttpPatch("{id:int}/complete")]
     public async Task<ActionResult<TaskItemDto>> Complete(int id, TaskCompleteInput input, [FromQuery] int? baseVersion, CancellationToken ct)
     {
+        var existing = await _tasks.GetAsync(id, ct);
+        if (existing is null) return NotFound();
+        if (!this.MayActFor(existing.ProfileId)) return Forbid();
         try
         {
             var updated = await _tasks.SetCompletedAsync(id, input.Completed, baseVersion, ct);
@@ -55,6 +58,9 @@ public class TasksController : ControllerBase
     [HttpPatch("{id:int}/importance")]
     public async Task<ActionResult<TaskItemDto>> Importance(int id, TaskImportanceInput input, [FromQuery] int? baseVersion, CancellationToken ct)
     {
+        var existing = await _tasks.GetAsync(id, ct);
+        if (existing is null) return NotFound();
+        if (!this.MayActFor(existing.ProfileId)) return Forbid();
         try
         {
             var updated = await _tasks.SetImportantAsync(id, input.Important, baseVersion, ct);
@@ -70,6 +76,9 @@ public class TasksController : ControllerBase
     public async Task<ActionResult<TaskItemDto>> Title(int id, TaskTitleInput input, [FromQuery] int? baseVersion, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(input.Title)) return BadRequest("Title is required.");
+        var existing = await _tasks.GetAsync(id, ct);
+        if (existing is null) return NotFound();
+        if (!this.MayActFor(existing.ProfileId)) return Forbid();
         try
         {
             var updated = await _tasks.SetTitleAsync(id, input.Title, baseVersion, ct);
@@ -84,6 +93,9 @@ public class TasksController : ControllerBase
     [HttpDelete("{id:int}")]
     public async Task<IActionResult> Delete(int id, [FromQuery] int? baseVersion, CancellationToken ct)
     {
+        var existing = await _tasks.GetAsync(id, ct);
+        if (existing is null) return NotFound();
+        if (!this.MayActFor(existing.ProfileId)) return Forbid();
         try
         {
             var ok = await _tasks.DeleteAsync(id, baseVersion, ct);

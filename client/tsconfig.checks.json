@@ -1,0 +1,31 @@
+{
+  /*
+   * Source-reading tests.
+   *
+   * These check that the panels and the stylesheet still agree with each other — see
+   * `src/app/kitchenCut.test.ts` — so they need Node's file APIs *and* Vite's `import.meta.glob`.
+   * Their own project rather than the app's, because `tsconfig.app.json` deliberately types `src`
+   * for a browser: with Node's types in there, any component could import `node:fs` and typecheck.
+   */
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.checks.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["node", "vite/client"],
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/app/kitchenCut.test.ts"]
+}

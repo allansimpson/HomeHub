@@ -69,7 +69,11 @@ public sealed class ImageExtractorOptions
 
     /// <summary>True when a reading can be attempted at all.</summary>
     public bool Configured =>
-        Enabled && !string.IsNullOrWhiteSpace(BaseUrl) && !string.IsNullOrWhiteSpace(ApiKey);
+        Enabled
+        && !string.IsNullOrWhiteSpace(ApiKey)
+        && Uri.TryCreate(BaseUrl, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+        && uri.IsLoopback;
 }
 
 /// <summary>
@@ -78,13 +82,20 @@ public sealed class ImageExtractorOptions
 /// <remarks>
 /// <b>Chosen by trusted server-side code, never by anything in the image.</b> The mode fixes the
 /// prompt, the response shape and the validators, so letting a photograph influence it would let a
-/// photograph choose which rules it is judged by. Only <see cref="Event"/> exists today; the rest of
-/// the allowlist arrives one at a time, each with its own DTO and acceptance tests.
+/// photograph choose which rules it is judged by. The allowlist grows one entry at a time, each with
+/// its own closed DTO and its own acceptance tests — <see cref="Event"/> first, then the Kitchen's
+/// two, which read a stranger's printed words under exactly the same guarantees.
 /// </remarks>
 public enum ImageAnalysisMode
 {
     /// <summary>Engagements a household would want on a calendar.</summary>
     Event,
+
+    /// <summary>A recipe on a cookbook page, a handwritten card or a screenshot.</summary>
+    Recipe,
+
+    /// <summary>The items on a delivery order or a till receipt.</summary>
+    PurchasedItems,
 }
 
 /// <summary>

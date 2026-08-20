@@ -90,6 +90,45 @@ public class TasksApiTests
         Assert.Empty(list!);
     }
 
+    [Theory]
+    [InlineData("complete")]
+    [InlineData("importance")]
+    [InlineData("title")]
+    [InlineData("delete")]
+    public async Task Another_member_cannot_mutate_or_receive_a_conflict_for_a_profile_owned_task(string operation)
+    {
+        using var app = new HubAppFactory();
+        var owner = app.CreateSeededClient(profileId: 2);
+        var attacker = app.CreateSeededClient(profileId: 3);
+        var task = await CreateAsync(owner, 2, "Private task");
+
+        HttpResponseMessage response;
+        if (operation == "delete")
+        {
+            response = await attacker.DeleteAsync($"/api/tasks/{task.Id}?baseVersion=999");
+        }
+        else
+        {
+            object body = operation switch
+            {
+                "complete" => new TaskCompleteInput(true),
+                "importance" => new TaskImportanceInput(true),
+                "title" => new TaskTitleInput("Stolen"),
+                _ => throw new InvalidOperationException(operation),
+            };
+            response = await attacker.PatchAsJsonAsync(
+                $"/api/tasks/{task.Id}/{operation}?baseVersion=999", body);
+        }
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var stillOwned = await owner.GetFromJsonAsync<List<TaskItemDto>>("/api/tasks");
+        var unchanged = Assert.Single(stillOwned!);
+        Assert.Equal("Private task", unchanged.Title);
+        Assert.False(unchanged.Completed);
+        Assert.False(unchanged.Important);
+        Assert.Equal(1, unchanged.Version);
+    }
+
     [Fact]
     public async Task Rejects_task_without_title_or_profile()
     {

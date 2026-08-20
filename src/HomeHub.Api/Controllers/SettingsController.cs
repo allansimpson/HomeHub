@@ -1,8 +1,10 @@
 namespace HomeHub.Api.Controllers;
 
+using HomeHub.Api.Auth;
 using HomeHub.Api.Data;
 using HomeHub.Api.Settings;
 using HomeHub.Api.Weather;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -30,6 +32,7 @@ public class SettingsController : ControllerBase
     public async Task<SettingsDto> Get() => SettingsDto.From(await GetOrCreate());
 
     [HttpPut]
+    [Authorize(Policy = Household.AdminPolicy)]
     public async Task<SettingsDto> Update(UpdateSettingsRequest req)
     {
         var s = await GetOrCreate();
@@ -53,11 +56,32 @@ public class SettingsController : ControllerBase
     /// band (<c>MIKA'S BOX · LR4</c>), where an unbounded string would push the model off the screen.
     /// </remarks>
     [HttpPut("cat-name")]
+    [Authorize(Policy = Household.AdminPolicy)]
     public async Task<SettingsDto> SetCatName(SetCatNameRequest req)
     {
         var s = await GetOrCreate();
         var name = req.Name?.Trim();
         s.CatName = string.IsNullOrEmpty(name) ? null : name[..Math.Min(name.Length, 24)];
+        await _db.SaveChangesAsync();
+        return SettingsDto.From(s);
+    }
+
+    /// <summary>
+    /// The child's name — what the Baby tab leads with.
+    /// </summary>
+    /// <remarks>
+    /// Blank or whitespace clears it and the header falls back to the word "Baby", which is what the
+    /// nav cell says in every state. Capped for the same reason as the cat's: the name is set in
+    /// Marcellus at 31px on a fixed header beside the age, and an unbounded string pushes that off
+    /// the screen.
+    /// </remarks>
+    [HttpPut("baby-name")]
+    [Authorize(Policy = Household.AdminPolicy)]
+    public async Task<SettingsDto> SetBabyName(SetBabyNameRequest req)
+    {
+        var s = await GetOrCreate();
+        var name = req.Name?.Trim();
+        s.BabyName = string.IsNullOrEmpty(name) ? null : name[..Math.Min(name.Length, 24)];
         await _db.SaveChangesAsync();
         return SettingsDto.From(s);
     }
@@ -74,6 +98,7 @@ public class SettingsController : ControllerBase
     /// ten percent fires on a drawer that was just emptied, which trains people to ignore it.
     /// </remarks>
     [HttpPut("litter-full-percent")]
+    [Authorize(Policy = Household.AdminPolicy)]
     public async Task<SettingsDto> SetLitterFullPercent(SetLitterFullPercentRequest req)
     {
         var s = await GetOrCreate();
@@ -105,6 +130,7 @@ public class SettingsController : ControllerBase
     /// </para>
     /// </remarks>
     [HttpPut("conversation-policy")]
+    [Authorize(Policy = Household.AdminPolicy)]
     public async Task<SettingsDto> SetConversationPolicy(SetConversationPolicyRequest req)
     {
         var s = await GetOrCreate();
@@ -130,6 +156,7 @@ public class SettingsController : ControllerBase
     /// </para>
     /// </remarks>
     [HttpPut("event-photo-policy")]
+    [Authorize(Policy = Household.AdminPolicy)]
     public async Task<SettingsDto> SetEventPhotoPolicy(SetEventPhotoPolicyRequest req)
     {
         var s = await GetOrCreate();
@@ -182,6 +209,7 @@ public class SettingsController : ControllerBase
     /// </para>
     /// </remarks>
     [HttpPut("weather-location")]
+    [Authorize(Policy = Household.AdminPolicy)]
     public async Task<ActionResult<WeatherLocationDto>> SetWeatherLocation(SetWeatherLocationRequest req)
     {
         // Half a coordinate is not a location. Clearing means clearing both.

@@ -3,6 +3,8 @@ namespace HomeHub.Tests;
 using System.Net;
 using System.Net.Http.Json;
 using HomeHub.Api.Calendar;
+using HomeHub.Api.Data;
+using Microsoft.Extensions.DependencyInjection;
 
 /// <summary>
 /// Stage 4 calendar CRUD + range/upcoming queries over HTTP against the local SQL provider
@@ -12,6 +14,27 @@ public class CalendarApiTests
 {
     private static CalendarEventInput Sample(DateTime startUtc, string title = "Dinner", int hours = 2, int[]? owners = null) =>
         new(title, startUtc, startUtc.AddHours(hours), "Verdi's", "Bring wine", owners);
+
+    private static int AddProfileOwnedEvent(HubAppFactory app, int profileId = 1, string? photoFile = null)
+    {
+        _ = app.CreateSeededClient(); // Start the host and seed profiles before direct setup.
+        using var scope = app.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+        var owned = new CalendarEvent
+        {
+            Source = "google",
+            ProfileId = profileId,
+            Title = "Private appointment",
+            StartUtc = new DateTime(2026, 7, 22, 10, 0, 0, DateTimeKind.Utc),
+            EndUtc = new DateTime(2026, 7, 22, 11, 0, 0, DateTimeKind.Utc),
+            PhotoFile = photoFile,
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+        };
+        db.CalendarEvents.Add(owned);
+        db.SaveChanges();
+        return owned.Id;
+    }
 
     [Fact]
     public async Task Create_then_read_in_range()
@@ -95,6 +118,56 @@ public class CalendarApiTests
             Sample(start, "Theo — Swim Lesson") with { Mark = "  " }))
             .Content.ReadFromJsonAsync<CalendarEventDto>();
         Assert.Null(cleared!.Mark);
+    }
+
+    [Fact]
+    public async Task Another_member_cannot_create_for_a_profile_they_do_not_control()
+    {
+        using var app = new HubAppFactory();
+        var otherMember = app.CreateSeededClient(profileId: 2);
+        var start = new DateTime(2026, 7, 22, 10, 0, 0, DateTimeKind.Utc);
+
+        var response = await otherMember.PostAsJsonAsync(
+            "/api/calendar/events", Sample(start, "Private appointment") with { ProfileId = 1 });
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Another_member_cannot_read_a_profile_owned_event()
+    {
+        using var app = new HubAppFactory();
+        var eventId = AddProfileOwnedEvent(app);
+        var otherMember = app.CreateSeededClient(profileId: 2);
+
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await otherMember.GetAsync($"/api/calendar/events/{eventId}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Another_member_cannot_update_a_profile_owned_event()
+    {
+        using var app = new HubAppFactory();
+        var eventId = AddProfileOwnedEvent(app);
+        var otherMember = app.CreateSeededClient(profileId: 2);
+        var start = new DateTime(2026, 7, 23, 10, 0, 0, DateTimeKind.Utc);
+
+        var response = await otherMember.PutAsJsonAsync(
+            $"/api/calendar/events/{eventId}", Sample(start, "Changed by another member"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Another_member_cannot_delete_a_profile_owned_event()
+    {
+        using var app = new HubAppFactory();
+        var eventId = AddProfileOwnedEvent(app);
+        var otherMember = app.CreateSeededClient(profileId: 2);
+
+        var response = await otherMember.DeleteAsync($"/api/calendar/events/{eventId}");
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
     [Fact]

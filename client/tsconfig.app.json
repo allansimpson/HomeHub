@@ -22,5 +22,7 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  /* Read with Node's APIs, so it is compiled by tsconfig.node.json instead. */
+  "exclude": ["src/app/kitchenCut.test.ts"]
 }

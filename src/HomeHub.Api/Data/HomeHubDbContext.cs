@@ -147,6 +147,21 @@ public class HomeHubDbContext : DbContext
     /// <summary>Plan entries whose stock check was dismissed with "Leave it, I'll sort it".</summary>
     public DbSet<StockCheckDismissal> StockCheckDismissals => Set<StockCheckDismissal>();
 
+    /// <summary>What each planned night has spoken for. Derived — see <see cref="PlanClaim"/>.</summary>
+    public DbSet<PlanClaim> PlanClaims => Set<PlanClaim>();
+
+    /// <summary>The order the household walks each shop (SETTINGS_AND_IMPORT §2).</summary>
+    public DbSet<AisleOrderEntry> AisleOrder => Set<AisleOrderEntry>();
+
+    /// <summary>Pairings the household has said are wrong. Never suggested again.</summary>
+    public DbSet<AliasRejection> AliasRejections => Set<AliasRejection>();
+
+    /// <summary>Weeks the household saved to use again (KITCHEN_LOOP_ADDENDUM §6).</summary>
+    public DbSet<MealPlanTemplate> MealPlanTemplates => Set<MealPlanTemplate>();
+
+    /// <summary>How long the household reckons things last (SETTINGS_AND_IMPORT §1).</summary>
+    public DbSet<ShelfLifeAssumption> ShelfLife => Set<ShelfLifeAssumption>();
+
     /// <summary>The units the household measures in — seeded, and grown by whatever gets typed.</summary>
     public DbSet<MeasurementUnit> MeasurementUnits => Set<MeasurementUnit>();
 
@@ -167,6 +182,19 @@ public class HomeHubDbContext : DbContext
 
     /// <summary>Promises to remove Hermes transcripts, outliving the conversations they belonged to.</summary>
     public DbSet<HermesSessionDeletion> HermesSessionDeletions => Set<HermesSessionDeletion>();
+
+    /// <summary>
+    /// Care logging HomeHub owns outright — ten types, a real time, and rows that can be corrected.
+    /// </summary>
+    /// <remarks>
+    /// The Huckleberry integration exposes services for four of the ten things a household logs, and
+    /// none of them takes a timestamp or can be undone. This table is the answer to all three limits
+    /// at once; see <see cref="Care.CareEntry"/> for why it is one table rather than ten.
+    /// </remarks>
+    public DbSet<Care.CareEntry> CareEntries => Set<Care.CareEntry>();
+
+    /// <summary>A nursing, sleep or pump session that is running or paused — not yet a record.</summary>
+    public DbSet<Care.CareTimer> CareTimers => Set<Care.CareTimer>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -283,6 +311,28 @@ public class HomeHubDbContext : DbContext
         });
 
         // ---- Stage 4: Calendar events ----
+        modelBuilder.Entity<Care.CareEntry>(entity =>
+        {
+            entity.Property(e => e.ChildKey).HasMaxLength(64).IsRequired();
+            // Every screen this table feeds asks the same question — the newest of a kind for one
+            // child, or everything that child did today — so the index is the one both of those use.
+            entity.HasIndex(e => new { e.ChildKey, e.Type, e.AtUtc });
+            entity.HasIndex(e => new { e.ChildKey, e.AtUtc });
+            // Importing twice writes a row once, enforced rather than checked — a re-sync running
+            // concurrently with itself cannot slip a duplicate through the gap between a lookup and
+            // an insert. Filtered, because panel-typed rows have no upstream to collide with and
+            // SQL Server would otherwise allow only one null.
+            entity.HasIndex(e => e.ExternalKey).IsUnique().HasFilter("[ExternalKey] IS NOT NULL");
+        });
+
+        modelBuilder.Entity<Care.CareTimer>(entity =>
+        {
+            entity.Property(e => e.ChildKey).HasMaxLength(64).IsRequired();
+            // One running session per child per type. Two nursing timers is not a state the domain
+            // has an answer for, and the surest way to prevent it is to make it unrepresentable.
+            entity.HasIndex(e => new { e.ChildKey, e.Type }).IsUnique();
+        });
+
         modelBuilder.Entity<CalendarEvent>(entity =>
         {
             entity.Property(e => e.Title).HasMaxLength(200).IsRequired();
@@ -637,6 +687,8 @@ public class HomeHubDbContext : DbContext
 
         modelBuilder.Entity<GroceryLine>(entity =>
         {
+            entity.Property(l => l.Aisle).HasMaxLength(PantryFieldLimits.AisleName);
+            entity.Property(l => l.Store).HasMaxLength(PantryFieldLimits.StoreName);
             entity.Property(g => g.Text).HasMaxLength(PantryFieldLimits.GroceryText).IsRequired();
             entity.Property(g => g.Unit).HasMaxLength(PantryFieldLimits.Unit);
             entity.Property(g => g.Quantity).HasPrecision(9, 3);
@@ -700,6 +752,87 @@ public class HomeHubDbContext : DbContext
         {
             // One dismissal per plan entry: dismissing twice is dismissing once.
             entity.HasIndex(d => d.PlanEntryId).IsUnique();
+        });
+
+        // ---- What the plan has spoken for ----
+        //
+        // A projection of the plan, not a record of anything a person did (KITCHEN_LOOP_ADDENDUM §1).
+        // Both foreign keys cascade because a claim outlives neither the night that made it nor the
+        // item it points at: an orphaned claim would reserve stock for a night that no longer exists
+        // and quietly under-buy for the ones that do.
+        modelBuilder.Entity<PlanClaim>(entity =>
+        {
+            entity.Property(c => c.Quantity).HasPrecision(18, 3);
+            entity.Property(c => c.Unit).HasMaxLength(PantryFieldLimits.Unit);
+
+            entity.HasOne<MealPlanEntry>()
+                .WithMany()
+                .HasForeignKey(c => c.PlanEntryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<PantryItem>()
+                .WithMany()
+                .HasForeignKey(c => c.PantryItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // The settle reads these back by night and by item; both are hot on the week screen.
+            entity.HasIndex(c => c.PlanEntryId);
+            entity.HasIndex(c => c.PantryItemId);
+        });
+
+        // ---- The order a shop is walked ----
+        //
+        // One row per aisle per shop. The unique index is the mechanism: without it a drag that
+        // half-failed could leave "Produce" in the order twice, and the shop would list it twice.
+        modelBuilder.Entity<AisleOrderEntry>(entity =>
+        {
+            entity.Property(a => a.Store).HasMaxLength(PantryFieldLimits.StoreName).IsRequired();
+            entity.Property(a => a.Aisle).HasMaxLength(PantryFieldLimits.AisleName).IsRequired();
+            entity.HasIndex(a => new { a.Store, a.Aisle }).IsUnique();
+        });
+
+        // ---- Pairings the household has refused ----
+        //
+        // Unique on the pair: refusing the same suggestion twice is refusing it once. Cascading on
+        // the item is right because a rejection is about a specific thing on a specific shelf — once
+        // that item is gone, so is the reason not to offer it.
+        modelBuilder.Entity<AliasRejection>(entity =>
+        {
+            entity.Property(r => r.CanonicalName).HasMaxLength(PantryFieldLimits.Alias).IsRequired();
+            entity.HasOne(r => r.Item)
+                .WithMany()
+                .HasForeignKey(r => r.PantryItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(r => new { r.CanonicalName, r.PantryItemId }).IsUnique();
+        });
+
+        // ---- Saved weeks ----
+        //
+        // The recipe reference is deliberately *not* a foreign key with a cascade: a template
+        // outlives a recipe somebody later deleted, and applying it should skip that night rather
+        // than take the whole saved week down with it.
+        modelBuilder.Entity<MealPlanTemplate>(entity =>
+        {
+            entity.Property(t => t.Name).HasMaxLength(MealFieldLimits.FreeText).IsRequired();
+            entity.HasMany(t => t.Entries)
+                .WithOne(e => e.Template!)
+                .HasForeignKey(e => e.TemplateId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MealPlanTemplateEntry>(entity =>
+        {
+            entity.Property(e => e.FreeText).HasMaxLength(MealFieldLimits.FreeText);
+        });
+
+        // ---- Shelf-life assumptions ----
+        //
+        // One row per kind per state: the same food opened and unopened are two different questions,
+        // and collapsing them is precisely the confusion §1 groups by state to avoid.
+        modelBuilder.Entity<ShelfLifeAssumption>(entity =>
+        {
+            entity.Property(a => a.FoodKind).HasMaxLength(PantryFieldLimits.ItemName).IsRequired();
+            entity.HasIndex(a => new { a.FoodKind, a.State }).IsUnique();
         });
 
         // ---- Canonical measurement units ----

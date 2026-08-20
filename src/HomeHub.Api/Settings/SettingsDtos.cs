@@ -28,13 +28,15 @@ public record SettingsDto(
     /// <summary>
     /// Whether a photograph read into an engagement is kept with it. Governs new engagements only.
     /// </summary>
-    bool KeepEventPhotos = true)
+    bool KeepEventPhotos = true,
+    /// <summary>What the household calls the child; null falls back to the word "Baby".</summary>
+    string? BabyName = null)
 {
     public static SettingsDto From(HouseholdSettings s) => new(
         s.IdleTimeoutMinutes, s.IdleDimmingEnabled, s.DaylightBoost, s.ActiveProfileId, s.CatName,
         s.LitterFullPercent, Clock.Wire(s.NightDimStart), Clock.Wire(s.NightDimEnd),
         s.StoreConversations, s.ConversationRetentionDays, s.WeatherLatitude, s.WeatherLongitude,
-        s.KeepEventPhotos);
+        s.KeepEventPhotos, s.BabyName);
 }
 
 /// <summary>Update payload for the editable household settings (active profile has its own route).</summary>
@@ -90,6 +92,12 @@ public record SetActiveProfileRequest(int? ProfileId);
 /// make that screen capable of clobbering settings it never showed. Blank clears it.
 /// </remarks>
 public record SetCatNameRequest(string? Name);
+
+/// <summary>
+/// The child's name, on its own route for the same reason as <see cref="SetCatNameRequest"/>:
+/// it is edited from Baby Settings, which holds none of the whole-object PUT's other state.
+/// </summary>
+public record SetBabyNameRequest(string? Name);
 
 /// <summary>
 /// The drawer-full threshold, on its own route for the same reason as <see cref="SetCatNameRequest"/>:

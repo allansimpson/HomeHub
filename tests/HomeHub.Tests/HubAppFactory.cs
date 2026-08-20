@@ -95,6 +95,16 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
     public HomeHub.Api.Calendar.Capture.IEventExtractor? EventExtractor { get; init; }
 
     /// <summary>
+    /// A stand-in for the Kitchen's photograph reader, or null for the not-connected default.
+    /// </summary>
+    /// <remarks>
+    /// Same bargain as <see cref="EventExtractor"/>, and the same reason: the suite must never reach
+    /// a model, so the default answers "not switched on" and a test that cares about what happens
+    /// after a reading brings its own.
+    /// </remarks>
+    public HomeHub.Api.Kitchen.IKitchenPhotoReader? KitchenPhotoReader { get; init; }
+
+    /// <summary>
     /// Configuration keys to set before the host is built, for tests about *registration*.
     /// </summary>
     /// <remarks>
@@ -106,8 +116,16 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
     /// </remarks>
     public Dictionary<string, string> Settings { get; init; } = [];
 
+    /// <summary>The host environment used by registration tests. Ordinary tests stay Development.</summary>
+    public string EnvironmentName { get; init; } = Environments.Development;
+
+    /// <summary>Optional physical web root for static-file integration tests.</summary>
+    public string? WebRootPath { get; init; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        builder.UseEnvironment(EnvironmentName);
+        if (WebRootPath is not null) builder.UseWebRoot(WebRootPath);
         // Program.cs reads `Mcp:ApiKey` from raw configuration at build time to decide whether to
         // map the endpoint at all, so this cannot be a PostConfigure like the AI keys below — it
         // has to be the configuration value itself. Blank by default: a developer with a real key
@@ -151,10 +169,27 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
             services.AddScoped<MealNotifier>();
             services.AddScoped<PantryLedger>();
             services.AddScoped<StockCheckService>();
+            services.AddScoped<PlanClaimService>();
+            services.AddScoped<DueScoreService>();
+            services.AddScoped<MatchingService>();
+            services.AddScoped<CookabilityService>();
             services.AddScoped<DeductionService>();
             services.AddScoped<UnitRegistry>();
+            // Care logging is DB-gated in the app for the same reason as the calendar: the panel
+            // serves its shell without a database, and a store that demanded one would take the
+            // whole thing down rather than the one tab that needs it. The import takes a null Home
+            // Assistant client deliberately — these tests have none, and an import with nothing
+            // upstream to read reports zero rather than failing to construct.
+            services.AddScoped<HomeHub.Api.Care.CareLogService>();
+            services.AddScoped(sp => new HomeHub.Api.Care.CareImportService(
+                sp.GetRequiredService<HomeHubDbContext>(),
+                null,
+                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<HomeHub.Api.Baby.HuckleberryOptions>>(),
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HomeHub.Api.Care.CareImportService>>()));
             if (EventExtractor is { } extractor)
                 services.AddSingleton(extractor);
+            if (KitchenPhotoReader is { } kitchenReader)
+                services.AddSingleton(kitchenReader);
             services.AddScoped<HomeHub.Api.Assist.AgentAccess>();
             services.AddScoped<HomeHub.Api.Assist.LineageAudit>();
             // Same reasoning as the AI keys below: a developer with HomeAssistant configured in

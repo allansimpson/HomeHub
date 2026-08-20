@@ -1,6 +1,8 @@
 namespace HomeHub.Api.Controllers;
 
 using HomeHub.Api.Ai;
+using HomeHub.Api.Auth;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 /// <summary>
@@ -36,6 +38,7 @@ public class VoiceController : ControllerBase
     /// <c>X-Voice-Degraded</c> marks a fallback so the panel can show its degraded chip.
     /// </summary>
     [HttpPost("speak")]
+    [Authorize(Policy = Household.VoiceBridgePolicy)]
     public async Task<IActionResult> Speak([FromBody] SpeakInput input, CancellationToken ct)
     {
         if (!_tts.IsAvailable)
@@ -62,6 +65,7 @@ public class VoiceController : ControllerBase
 
     /// <summary>Transcribe uploaded audio to text (server STT). 501 when no engine is configured, 502 if all fail.</summary>
     [HttpPost("transcribe")]
+    [Authorize(Policy = Household.VoiceBridgePolicy)]
     [RequestSizeLimit(25_000_000)]
     public async Task<ActionResult<TranscriptionResult>> Transcribe(IFormFile audio, CancellationToken ct)
     {

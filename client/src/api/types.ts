@@ -29,6 +29,15 @@ export interface SettingsDto {
    */
   catName: string | null
   /**
+   * What the household calls the child — the name the Baby tab leads with.
+   *
+   * Kept by the panel rather than read from the integration it used to come from: the Care log is
+   * HomeHub's own now, and a header that says "Baby" until an upstream service answers is a panel
+   * naming a child after a system outage. Null falls back to the literal word, which is also what
+   * the nav cell says in every state.
+   */
+  babyName: string | null
+  /**
    * Waste-drawer fullness (%) at which the panel raises a change-the-litter alert and notification.
    *
    * Deliberately ahead of the robot's own drawer-full fault, which only fires once the box has
@@ -1313,7 +1322,6 @@ export interface ForkRecipeInput {
   servings?: number | null
   /** Record where it came from. Unchecking makes it a clean unlinked copy. */
   keepLink?: boolean
-  modifiedByProfileId?: number | null
 }
 
 /**
@@ -1365,11 +1373,7 @@ export interface RecipeInput {
   isArchived?: boolean
   leadMinutes?: number | null
   prepNote?: string | null
-  /**
-   * Who is making this edit. Omitting it leaves the existing attribution alone rather than
-   * clearing it, so an unattributed write doesn't erase who last actually changed the recipe.
-   */
-  modifiedByProfileId?: number | null
+
 }
 
 /** Only `rawText` is required; the parsed fields are the importer's job, not the panel's. */
@@ -1431,7 +1435,22 @@ export interface MealPlanEntryDto {
   /** The recipe's cook time, denormalised so the night's order can be derived without N fetches. */
   totalMinutes: number | null
   version: number
+  /**
+   * The single word a planned week row carries (PLAN_WEEK §1).
+   *
+   * On the week response rather than fetched per night: the alternative is a stock check per row,
+   * seven round trips to draw seven words, on the screen that opens most.
+   */
+  stockSummary: PlanStockSummaryName | null
 }
+
+/**
+ * How a planned night reads at a glance.
+ *
+ * `NoClaim` is a night that reserves nothing — free text, takeaway, or out. It is a plan, not a gap
+ * (PLAN_WEEK §1), which is why it has its own word rather than being left blank.
+ */
+export type PlanStockSummaryName = 'NoClaim' | 'Covered' | 'Short' | 'Unknown'
 
 /** What a recipe is to a night, or to a saved meal. Exactly three, deliberately (MEALS_GROUPS §1). */
 export type MealRoleName = 'Main' | 'Side' | 'Dessert'
@@ -1524,8 +1543,7 @@ export interface RecipeImportInput {
   url: string
   /** What to call it. Overrides the page's own title, which is a headline as often as a name. */
   title?: string | null
-  /** Sets attribution only — there is no auth on this endpoint to derive it from. */
-  profileId?: number | null
+
 }
 
 /**
@@ -1541,7 +1559,6 @@ export interface RecipePasteInput {
   title?: string | null
   /** The cuisine chip — the parser has no way to read that off a block of text. */
   tags?: string[] | null
-  profileId?: number | null
 }
 
 export interface RecipeImportResponse {
@@ -1557,6 +1574,14 @@ export interface MealEatenInput {
   date: string
   slot: MealSlotName
   wasEaten: boolean | null
+  /**
+   * How many actually sat down, when fewer did than were cooked for (COOKING_AND_AFTER §2's
+   * `OR SOME OF IT`).
+   *
+   * Omitted means everyone — a plain yes, and nothing spare. The difference between this and the
+   * night's servings is what the leftovers card offers to put in the fridge.
+   */
+  portionsEaten?: number | null
 }
 
 /** Assign a slot. At least one of `recipeId` / `freeText`; both together is linked leftovers. */
@@ -1653,6 +1678,20 @@ export interface PantryItemDto {
   catalogueRef: string | null
   isArchived: boolean
   version: number
+  /**
+   * When it was opened — the `OPEN 5 D` label (KITCHEN_LOOP_ADDENDUM §4).
+   *
+   * `null` means "not opened", not "unknown". Nothing infers it; it is the observable fact the
+   * section ranks freshness by, having refused to store expiry dates it would have to guess.
+   */
+  openedAtUtc: string | null
+  /**
+   * A date the packet stated, if one did — `YYYY-MM-DD` (ADD_TO_PANTRY §6).
+   *
+   * **Sorts; never warns.** The pantry stores a date somebody read off a packet and nothing else;
+   * it does not infer one, and it does not turn one into a notification.
+   */
+  goodUntil: string | null
 }
 
 export interface PendingImportDto {
@@ -1703,6 +1742,14 @@ export interface PantryItemInput {
   barcode?: string | null
   /** The symbology the browser's BarcodeDetector reported, for the ambiguous 8-digit case. */
   barcodeFormat?: string | null
+  /**
+   * A date the packet states — `2027-03-14` (ADD_TO_PANTRY §6).
+   *
+   * The one sanctioned exception to the section's ban on expiry dates, and narrow by design:
+   * optional, typed only from what is printed on the pack, never inferred from a shelf-life table,
+   * and **never the subject of a notification, badge or counter**. It sorts; it does not warn.
+   */
+  goodUntil?: string | null
 }
 
 export interface PantryEventDto {
@@ -1768,7 +1815,20 @@ export interface CatalogueInput {
  * Six values, because "we don't know" is the honest answer far more often than yes or no.
  * `Fine` and `NotCounted` never appear under `WORTH A LOOK`; the other four do.
  */
-export type StockStatusName = 'Fine' | 'Short' | 'Gone' | 'Unknown' | 'NotCounted' | 'NoMatch'
+export type StockStatusName =
+  | 'Fine'
+  | 'Short'
+  | 'Gone'
+  | 'Unknown'
+  | 'NotCounted'
+  | 'NoMatch'
+  /**
+   * Wanted, present, and already spoken for by an earlier night (KITCHEN_LOOP_ADDENDUM §1).
+   *
+   * Distinct from `Short` deliberately: "you have none" and "you have one and Saturday is having
+   * it" call for different answers — buy some, or move the night.
+   */
+  | 'ClaimedAway'
 
 export interface StockCheckLineDto {
   ingredientId: number
@@ -1780,6 +1840,10 @@ export interface StockCheckLineDto {
   lastSeenUnit: string | null
   lastSeenState: EstimateStateName | null
   lastSeenAtUtc: string | null
+  /** The earlier night that already spoke for this item, if one has. Names the first claimant. */
+  claimedByEntryId: number | null
+  /** How much those earlier nights hold, in the item's own measure unit. */
+  claimedQuantity: number | null
 }
 
 export interface StockCheckDto {
@@ -1820,6 +1884,21 @@ export interface DeductionReceiptDto {
   estimated: ReceiptLineDto[]
   leftAlone: string[]
   hitNone: number[]
+  /**
+   * What the night left over, or `null` when it left nothing (KITCHEN_LOOP_ADDENDUM §5).
+   *
+   * Null on a plain "yes, we ate it" — everyone sat down, so there is nothing spare and no card.
+   * Offering a card for zero portions after every meal is how a household learns to dismiss it.
+   */
+  produced: ProducedSuggestionDto | null
+  /**
+   * Who confirmed the night, and when — `Written by Aiden · just now`.
+   *
+   * From the deduction's own first event, not from whoever is at the panel when the receipt is
+   * re-opened. A wrong number is arguable when a name is on it and merely annoying when it is not.
+   */
+  writtenByName: string | null
+  writtenAtUtc: string | null
 }
 
 export type GroceryLineSourceName = 'Meal' | 'Hand' | 'LowStock'
@@ -1841,6 +1920,15 @@ export interface GroceryLineDto {
   /** "Put 1 lb in the fridge" — shown in place of provenance once ticked. */
   returnTrip: string | null
   version: number
+  /**
+   * Which aisle it falls in, for the shop's grouping (KITCHEN_LOOP_ADDENDUM §6).
+   *
+   * Null is ordinary and expected — an unfiled line sorts last under `ELSEWHERE` rather than being
+   * hidden or guessed at.
+   */
+  aisle: string | null
+  /** Which shop it is meant for. Null means "whoever is out", which is the common case. */
+  store: string | null
 }
 
 /** Four states, all supported — mirroring off is a normal way to run this (PANTRY_BEHAVIOURS §8). */
@@ -1923,6 +2011,55 @@ export interface OrderImportInput {
   deliveredAtUtc?: string | null
 }
 
+/**
+ * A photograph handed to the Kitchen to be read.
+ *
+ * The same request shape for a cookbook page and a delivery screenshot, because it is the same
+ * mechanism — only the endpoint differs, and the endpoint is what fixes the rules the reading is
+ * judged by.
+ */
+export interface ReadKitchenPhotoRequest {
+  imageBase64: string
+  mediaType: string | null
+}
+
+/**
+ * One line exactly as it was read.
+ *
+ * `unclear` renders `UNCLEAR` and blocks nothing. A line nobody could read is still a line that was
+ * on the page, and dropping it is how an import quietly comes up short.
+ */
+export interface ReadLineDto {
+  rawText: string
+  unclear: boolean
+}
+
+/** What a photograph of a recipe yielded. Nothing has been saved. */
+export interface RecipeReadingDto {
+  /**
+   * Whether a reading could be attempted at all.
+   *
+   * False is not a fact about the photograph, and the panel must not phrase it as one.
+   */
+  available: boolean
+  title: string | null
+  servings: number | null
+  ingredients: ReadLineDto[]
+  steps: ReadLineDto[]
+  /** Counted server-side, so `11 lines · 2 unclear` and the tags cannot disagree. */
+  unclearCount: number
+  reason: string | null
+}
+
+/** What a photograph of an order or a till receipt yielded. Nothing has been saved. */
+export interface PurchaseReadingDto {
+  available: boolean
+  vendorLabel: string | null
+  lines: ReadLineDto[]
+  unclearCount: number
+  reason: string | null
+}
+
 export interface ImportLineInput {
   proposedName?: string | null
   proposedQuantity?: number | null
@@ -1930,4 +2067,261 @@ export interface ImportLineInput {
   proposedLocation?: PantryLocationName | null
   proposedTracking?: TrackingClassName | null
   matchedPantryItemId?: number | null
+}
+
+// ---- Care logging HomeHub owns ----
+
+/**
+ * The ten things a household logs, plus growth.
+ *
+ * Six of these exist nowhere else: the Huckleberry integration has no service to write them and no
+ * sensor to read them, which is why HomeHub keeps its own log.
+ */
+export type CareEntryTypeName =
+  | 'Bottle' | 'Nursing' | 'Pump' | 'Diaper' | 'Solids'
+  | 'Sleep' | 'Medicine' | 'Bath' | 'TummyTime' | 'Temperature' | 'Growth'
+
+export interface CareEntryDto {
+  id: number
+  childKey: string
+  type: CareEntryTypeName
+  /** When it happened — not when it was written down. */
+  atUtc: string
+  /**
+   * The measured value, or null when nothing was measured.
+   *
+   * Null is not zero. A pump session with no amount is the ordinary case, and Huckleberry stores
+   * that as `0 oz` and reports it back as though somebody had weighed it. Here it renders as an
+   * em dash.
+   */
+  amount: number | null
+  unit: string | null
+  durationMinutes: number | null
+  kind: string | null
+  side: string | null
+  peeAmount: string | null
+  pooAmount: string | null
+  color: string | null
+  consistency: string | null
+  diaperRash: boolean | null
+  pounds: number | null
+  ounces: number | null
+  heightInches: number | null
+  headInches: number | null
+  notes: string | null
+  /** `Panel` or `HuckleberryImport` — the log says which, so an imported row is not passed off as typed. */
+  source: string
+  /** Corrected since it was written. The log marks it rather than quietly showing the new number. */
+  edited: boolean
+  /**
+   * What the panel called this entry when it wrote it, or null where it did not say.
+   *
+   * How an entry logged offline finds itself again. The panel shows a queued entry from its own
+   * store under an id the server has never issued; when the queue replays and the read comes back,
+   * this is what says *the row you are holding is that one*. Without it the entry appears twice —
+   * once as the local copy and once as the server's — and the household counts two feeds where
+   * there was one. See `mergeEntries` in `careOffline.ts`.
+   */
+  clientKey: string | null
+  /** Bumped on every correction. Sent back as `?baseVersion=` so a queued edit is conditional. */
+  version: number
+  /**
+   * Client-only: written on this device and not yet acknowledged by the server.
+   *
+   * Never sent by the API — it is set on the local rows `careOffline` mints and is what the log
+   * marks so a queued entry reads as *saved, not yet sent* rather than as an ordinary row.
+   */
+  pending?: boolean
+}
+
+/** A session running or paused. The server works out the elapsed minutes; a pause is not simple subtraction. */
+export interface CareTimerDto {
+  type: CareEntryTypeName
+  side: string | null
+  startedUtc: string
+  paused: boolean
+  elapsedMinutes: number
+  phaseOneMinutes: number | null
+  phaseTwoMinutes: number | null
+  phase: number | null
+  /**
+   * Elapsed minutes at the moment expression began, so it can be counted from there.
+   *
+   * Null before the switch, and on a session that was already running when the server learned to
+   * record it. Expression gets its whole length from the switch however long stimulation actually
+   * ran — see `CareTimer.PhaseTwoAtMinutes` on the server for why the phase that used to come up
+   * short was the wrong one to shorten.
+   */
+  phaseTwoAtMinutes: number | null
+  /**
+   * Finished and held for its amount — the session is measured, and nothing is written yet.
+   *
+   * Pump only. How much was expressed is knowable only once the session is over, so FINISH stops
+   * the clock and holds it here; the panel asks for the amount once and completes with it in hand.
+   * A held session survives the panel closing, the app restarting and a move to another device.
+   */
+  endedUtc: string | null
+}
+
+/** Everything the landing screen needs, in one read — ten tile captions and any running timer. */
+export interface CareSummaryDto {
+  lastByType: CareEntryDto[]
+  timers: CareTimerDto[]
+}
+
+/** What a sheet sends. One shape for all ten types; each fills the fields it has. */
+export interface CareEntryInput {
+  type: CareEntryTypeName
+  /** Omit for now, which is what every sheet defaults to. */
+  atUtc?: string | null
+  amount?: number | null
+  unit?: string | null
+  durationMinutes?: number | null
+  kind?: string | null
+  side?: string | null
+  peeAmount?: string | null
+  pooAmount?: string | null
+  color?: string | null
+  consistency?: string | null
+  diaperRash?: boolean | null
+  /**
+   * A bottle's two ends: what went in, and what came back.
+   *
+   * `amount` is what was *taken* — offered less left — because that is the figure that matters and
+   * the only one the upstream bottle service accepts. These two are the panel's own arithmetic.
+   *
+   * <b>The server does not store them yet.</b> `CareEntry` has no columns for either, so they are
+   * dropped on write and cannot be read back; the panel therefore opens `OFFERED` on the last
+   * entry's *taken* amount rather than on what was actually offered. Sent regardless, so the day
+   * they are added the client needs no change.
+   */
+  offered?: number | null
+  left?: number | null
+  pounds?: number | null
+  ounces?: number | null
+  heightInches?: number | null
+  headInches?: number | null
+  notes?: string | null
+  /**
+   * This panel's own name for the entry, so writing it twice records it once.
+   *
+   * <b>What makes a queued entry safe to replay.</b> A write that goes out on a returning
+   * connection can fail in the one way a retry cannot tell apart: the row landed and the response
+   * did not. Retrying logs the feed twice, not retrying loses it, and neither is a choice worth
+   * making on a child's record — so the server keys on this instead and a second write of the same
+   * key returns the first row.
+   */
+  clientKey?: string | null
+}
+
+/** What one pull out of Huckleberry found. Safe to run repeatedly — each event writes once. */
+export interface CareImportResult {
+  read: number
+  imported: number
+  alreadyHad: number
+  skipped: number
+}
+
+// ---- The Kitchen loop (KITCHEN_LOOP_ADDENDUM, MATCHING_AND_ALIASES) ----
+
+/** A recipe worth cooking soon, and what it would use up. */
+export interface DueRecipeDto {
+  recipeId: number
+  title: string
+  /** Days-open summed across matched ingredients. A sort, never a warning. */
+  score: number
+  /** Named, not counted — the lead card says *which* things are turning. */
+  uses: string[]
+}
+
+/** The walk order for one shop, first aisle to last. */
+export interface AisleOrderDto {
+  store: string
+  aisles: AisleOrderLineDto[]
+}
+
+export interface AisleOrderLineDto {
+  aisle: string
+  position: number
+  /** Open lines currently falling in this aisle — a reorder is judged against what is still to buy. */
+  lineCount: number
+}
+
+/** What a night left over, offered rather than assumed (COOKING_AND_AFTER §3). */
+export interface ProducedSuggestionDto {
+  suggestedName: string
+  /** Servings cooked minus portions eaten. A guess, and labelled one on the panel. */
+  suggestedPortions: number
+  location: PantryLocationName
+}
+
+/** Where matching stands overall — M3. */
+export interface MatchingCoverageDto {
+  percent: number
+  matchedLines: number
+  totalLines: number
+  /** `HOW IT GOT LEARNED` — counts by source, so the household sees it taught by shopping. */
+  bySource: Record<string, number>
+  /** `WORTH SORTING`, ordered by how many recipes each one unblocks. */
+  worthSorting: MatchingGapDto[]
+  /** `WHAT WE GET WRONG` — pairings undone, never suggested again. */
+  undone: number
+}
+
+export interface MatchingGapDto {
+  name: string
+  recipesBlocked: number
+}
+
+/** A week the household saved to use again (KITCHEN_LOOP_ADDENDUM §6). */
+export interface MealPlanTemplateDto {
+  id: number
+  name: string
+  nightCount: number
+  createdUtc: string
+}
+
+/** What applying a saved week did. `skipped` is not an error count — see the server's note. */
+export interface ApplyTemplateResultDto {
+  written: number
+  skipped: number
+}
+
+/**
+ * Where one recipe stands against the shelves — the folder's band (RECIPES §1).
+ *
+ * `CantSay` is the honest third state and is never folded into the other two. A recipe listed as
+ * ready that turns out to be missing two things at seven in the evening costs more than one that
+ * admitted it did not know.
+ */
+export interface CookabilityDto {
+  recipeId: number
+  band: 'Ready' | 'Short' | 'CantSay'
+  shortCount: number
+  unmatchedCount: number
+}
+
+/**
+ * A night that has spoken for this item (PANTRY_SHELVES §2).
+ *
+ * The row knowing it is claimed is what stops the household counting the same tin twice across two
+ * screens: the shelf says three, and the sheet says one of them is Saturday's.
+ */
+export interface ItemClaimDto {
+  planEntryId: number
+  date: string
+  slot: MealSlotName
+  dishName: string | null
+  quantity: number | null
+}
+
+/** How long the household reckons one kind of food lasts (SETTINGS_AND_IMPORT §1). */
+export interface ShelfLifeDto {
+  id: number
+  foodKind: string
+  /** Grouped by the state food is in — an opened jar and an unopened one are two questions. */
+  state: 'Fresh' | 'Chilled' | 'Opened'
+  days: number
+  /** False once somebody has moved it. What `PUT THEM BACK` restores. */
+  isSeeded: boolean
 }

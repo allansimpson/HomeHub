@@ -12,6 +12,7 @@ using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
 using HomeHub.Api.Data;
 using HomeHub.Api.HomeAssistant;
+using HomeHub.Api.Kitchen;
 using HomeHub.Api.Mcp;
 using HomeHub.Api.Meals;
 using HomeHub.Api.Notifications;
@@ -182,16 +183,26 @@ builder.Services
         options => builder.Configuration.GetSection(ServiceTokenOptions.Section).Bind(options));
 
 builder.Services.AddAuthorizationBuilder()
-    // Authenticated by default, by either scheme. The fallback applies to every endpoint that does
-    // not state a policy of its own, so the failure mode of adding a controller and forgetting to
-    // think about auth is "nobody can reach it" rather than "everybody can".
-    .SetFallbackPolicy(new AuthorizationPolicyBuilder(Household.CookieScheme, Household.ServiceScheme)
+    // A household session is the only default. Service credentials are capabilities, not alternate
+    // household identities: a route must name a service policy explicitly or bearer callers are
+    // rejected before the action runs.
+    .SetFallbackPolicy(new AuthorizationPolicyBuilder(Household.CookieScheme)
         .RequireAuthenticatedUser()
         .Build())
     .AddPolicy(Household.AdminPolicy, policy => policy
         .AddAuthenticationSchemes(Household.CookieScheme)
         .RequireAuthenticatedUser()
-        .AddRequirements(new HouseholdAdminRequirement()));
+        .AddRequirements(new HouseholdAdminRequirement()))
+    .AddPolicy(Household.VoiceBridgePolicy, policy => policy
+        .AddAuthenticationSchemes(Household.CookieScheme, Household.ServiceScheme)
+        .RequireAuthenticatedUser()
+        .RequireAssertion(context =>
+            context.User.Identities.Any(identity =>
+                identity.IsAuthenticated && identity.AuthenticationType == Household.CookieScheme)
+            || context.User.Identities.Any(identity =>
+                identity.IsAuthenticated
+                && identity.AuthenticationType == Household.ServiceScheme
+                && identity.HasClaim(Household.ServiceNameClaim, "voice-bridge"))));
 
 // --- AUDIT A6: rate limiting on the two endpoints where volume is the attack ---
 // Everything else is now behind A1's session boundary, which is the real protection. These two are
@@ -270,6 +281,21 @@ if (!string.IsNullOrWhiteSpace(keyRingPath))
 // systemd service in prod (ConnectionStrings__HomeHub). Stage 0 tolerates it being absent
 // so the design-system shell still boots for local UI work.
 var connectionString = builder.Configuration.GetConnectionString("HomeHub");
+var runMigrationsOnStartup = builder.Configuration.GetValue("RunMigrationsOnStartup", true);
+// Unsafe fallbacks are allowed only in the two explicitly non-deployment environments. Any custom
+// name (Staging, Live, TEST-like misspellings) gets production safeguards rather than bypassing them.
+var requiresDeploymentSafeguards =
+    !builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Test");
+if (requiresDeploymentSafeguards && string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "Production requires ConnectionStrings:HomeHub so schema readiness can be verified.");
+}
+if (requiresDeploymentSafeguards && !runMigrationsOnStartup)
+{
+    throw new InvalidOperationException(
+        "Production requires RunMigrationsOnStartup=true; serving an unverified schema is forbidden.");
+}
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Services.AddDbContext<HomeHubDbContext>(options =>
@@ -370,6 +396,10 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Services.AddScoped<PantryLedger>();
     builder.Services.AddScoped<StockCheckService>();
+    builder.Services.AddScoped<PlanClaimService>();
+    builder.Services.AddScoped<DueScoreService>();
+    builder.Services.AddScoped<MatchingService>();
+    builder.Services.AddScoped<CookabilityService>();
     builder.Services.AddScoped<DeductionService>();
     // Canonical units. Scoped because it caches the (tiny) unit table for the life of one request and
     // adds new ones through that request's DbContext — see UnitRegistry for why a per-value round trip
@@ -462,6 +492,14 @@ var eventCapture = builder.Configuration.GetSection(EventCaptureOptions.Section)
 builder.Services.Configure<ImageExtractorOptions>(builder.Configuration.GetSection(ImageExtractorOptions.Section));
 var imageExtractor = builder.Configuration.GetSection(ImageExtractorOptions.Section).Get<ImageExtractorOptions>();
 
+if (requiresDeploymentSafeguards && imageExtractor?.Configured != true)
+{
+    throw new InvalidOperationException(
+        "Production requires an isolated image extractor with ImageExtractor:Enabled=true, "
+        + "a loopback HTTP(S) BaseUrl, and a dedicated ApiKey; the privileged household-agent "
+        + "fallback is not permitted.");
+}
+
 if (imageExtractor?.Configured == true)
 {
     builder.Services.AddHttpClient<IImageExtractionClient, ImageExtractionClient>(http =>
@@ -474,6 +512,10 @@ if (imageExtractor?.Configured == true)
         http.Timeout = TimeSpan.FromSeconds(Math.Clamp(imageExtractor.TimeoutSeconds, 5, 180) + 30);
     });
     builder.Services.AddSingleton<IEventExtractor, ExtractorEventReader>();
+    // The Kitchen's two modes ride the same isolated listener. A recipe page and a delivery
+    // screenshot are a stranger's printed words exactly as a flyer is, so they get the same
+    // no-tools profile rather than a second, laxer route into the house.
+    builder.Services.AddSingleton<IKitchenPhotoReader, KitchenPhotoReader>();
 }
 else if (eventCapture?.UsesHouseAgent == false && eventCapture.Configured)
 {
@@ -496,6 +538,36 @@ else if (eventCapture?.UsesHouseAgent != false)
 else
 {
     builder.Services.AddSingleton<IEventExtractor, NotConfiguredEventExtractor>();
+}
+
+if (imageExtractor?.Configured != true)
+{
+    // No isolated listener, so no photograph reading in the Kitchen either. The legacy event
+    // fallbacks are not extended to it: they exist to keep an old path reachable, not to open a
+    // new one.
+    builder.Services.AddSingleton<IKitchenPhotoReader, NotConfiguredKitchenPhotoReader>();
+}
+
+// --- Care logging HomeHub owns ---
+//
+// Ten types against the Huckleberry integration's four, a real timestamp where its writes have none,
+// and entries that can be corrected — none of which that integration can offer, verified against the
+// live install rather than taken from a document. The import beside it is a bridge with an end date:
+// it reads the household's own history out of Huckleberry's calendar until they have switched over.
+//
+// DB-gated, like every other store here: this app is designed to serve its shell without a database
+// at all, and a service that demands one would take the whole panel down rather than the one tab
+// that needs it.
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    builder.Services.AddScoped<HomeHub.Api.Care.CareLogService>();
+    // The Home Assistant client is registered only when one is configured, so it is resolved rather
+    // than required — a panel with no Home Assistant starts fine and reports an import of nothing.
+    builder.Services.AddScoped(sp => new HomeHub.Api.Care.CareImportService(
+        sp.GetRequiredService<HomeHub.Api.Data.HomeHubDbContext>(),
+        sp.GetService<HomeHub.Api.HomeAssistant.HomeAssistantClient>(),
+        sp.GetRequiredService<IOptions<HomeHub.Api.Baby.HuckleberryOptions>>(),
+        sp.GetRequiredService<ILogger<HomeHub.Api.Care.CareImportService>>()));
 }
 
 // --- Stage 5: tasks ---
@@ -789,12 +861,11 @@ app.Use(async (context, next) =>
     }
 });
 
-// Apply migrations on startup so the app owns its schema. Controlled by
-// RunMigrationsOnStartup (default true). Failure is logged but non-fatal — the SPA shell
-// must still load and show a calm reconnecting state rather than a crash, per the
-// offline-first principle.
+// Apply schema and legacy-secret migrations before accepting traffic. Development may retain its
+// shell-only degraded mode; production fails closed because serving against an unknown or partially
+// converted database is not an offline-first state.
 if (!string.IsNullOrWhiteSpace(connectionString)
-    && app.Configuration.GetValue("RunMigrationsOnStartup", true))
+    && runMigrationsOnStartup)
 {
     using var scope = app.Services.CreateScope();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
@@ -812,7 +883,12 @@ if (!string.IsNullOrWhiteSpace(connectionString)
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Database migration failed at startup; serving app without a verified schema.");
+        logger.LogCritical(ex, "Database or legacy-secret migration failed at startup.");
+        if (requiresDeploymentSafeguards)
+        {
+            throw new InvalidOperationException(
+                "Production startup refused because database or legacy-secret migration failed.", ex);
+        }
     }
 }
 
@@ -944,6 +1020,22 @@ app.UseStaticFiles(new StaticFileOptions
                 ? "public, max-age=31536000, immutable"
                 : "no-cache";
     },
+});
+
+// Real public files have already short-circuited in UseStaticFiles. Missing public-file requests
+// must also remain anonymous, but mapping endpoint fallbacks for these paths makes endpoint routing
+// claim real files before StaticFileMiddleware can serve them.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path == "/favicon.ico"
+        || context.Request.Path.StartsWithSegments("/icons")
+        || context.Request.Path.StartsWithSegments("/assets"))
+    {
+        context.Response.StatusCode = StatusCodes.Status404NotFound;
+        return;
+    }
+
+    await next();
 });
 
 // Before MapControllers, and in this order: authentication decides who the caller is, authorisation

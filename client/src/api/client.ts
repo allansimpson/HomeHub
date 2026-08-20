@@ -13,6 +13,12 @@ import type {
   SyncCalendarDto,
   ReadPhotoRequest,
   ReadPhotoResponse,
+  CareEntryDto,
+  CareEntryInput,
+  CareEntryTypeName,
+  CareSummaryDto,
+  CareTimerDto,
+  CareImportResult,
   TaskItemDto,
   TaskCreateInput,
   SyncListDto,
@@ -91,6 +97,17 @@ import type {
   OrderImportDto,
   OrderImportInput,
   ImportLineInput,
+  ReadKitchenPhotoRequest,
+  RecipeReadingDto,
+  PurchaseReadingDto,
+  DueRecipeDto,
+  AisleOrderDto,
+  MatchingCoverageDto,
+  MealPlanTemplateDto,
+  ApplyTemplateResultDto,
+  CookabilityDto,
+  ItemClaimDto,
+  ShelfLifeDto,
 } from './types'
 
 /**
@@ -349,9 +366,24 @@ export const api = {
     patch: Omit<ProfileDto, 'id' | 'hasPin' | 'role'> & Partial<Pick<ProfileDto, 'role'>>,
   ) => request<ProfileDto>(`/profiles/${id}`, { method: 'PUT', ...json(patch) }),
   deleteProfile: (id: number) => request<void>(`/profiles/${id}`, { method: 'DELETE' }),
-  setPin: (id: number, pin: string) =>
-    request<void>(`/profiles/${id}/pin`, { method: 'PUT', ...json({ pin }) }),
-  clearPin: (id: number) => request<void>(`/profiles/${id}/pin`, { method: 'DELETE' }),
+  /**
+   * Set or change a PIN. `currentPin` is the one being replaced.
+   *
+   * Required whenever somebody is changing their *own* PIN, and refused with a 401 without it —
+   * being signed in is not proof, because the wall panel stays signed in. Omitted on the two
+   * occasions there is nothing to prove: a profile that has no PIN yet, and an administrator
+   * resetting another member's forgotten one.
+   */
+  setPin: (id: number, pin: string, currentPin?: string) =>
+    request<void>(`/profiles/${id}/pin`, { method: 'PUT', ...json({ pin, currentPin }) }),
+  /**
+   * Remove a PIN, on the same rule — a member removing their own is asked for it first, or clearing
+   * then re-setting would be a change of PIN with no PIN typed.
+   *
+   * The body on a DELETE is deliberate: a query string is the one place a PIN ends up in a log.
+   */
+  clearPin: (id: number, currentPin?: string) =>
+    request<void>(`/profiles/${id}/pin`, { method: 'DELETE', ...json({ currentPin }) }),
 
   // ---- Session (AUDIT A1) ----
   /**
@@ -387,6 +419,9 @@ export const api = {
   /** Its own route so Litter Settings can save the name without echoing back settings it never showed. */
   setCatName: (name: string | null) =>
     request<SettingsDto>('/settings/cat-name', { method: 'PUT', ...json({ name }) }),
+  /** Same reasoning as setCatName — edited from Baby Settings, which holds none of the rest. */
+  setBabyName: (name: string | null) =>
+    request<SettingsDto>('/settings/baby-name', { method: 'PUT', ...json({ name }) }),
   /** Same reasoning as setCatName — edited from Litter Settings, which holds none of the rest. */
   setLitterFullPercent: (percent: number) =>
     request<SettingsDto>('/settings/litter-full-percent', { method: 'PUT', ...json({ percent }) }),
@@ -475,6 +510,67 @@ export const api = {
     request<ReadPhotoResponse>('/calendar/read-photo', { method: 'POST', ...json(input) }),
   /** Where a kept photograph is served from. Not a data URL — the browser fetches it with the session. */
   eventPhotoUrl: (id: number) => `/api/calendar/events/${id}/photo`,
+
+  // ---- Care logging (HomeHub's own, not the Huckleberry integration) ----
+  //
+  // Ten types where that integration offers four, a real timestamp where its writes have none, and
+  // entries that can be corrected. `getBaby*` above still fronts Huckleberry for the live sensors
+  // and the timers its own app can see; these are HomeHub's log, and the only thing the panel writes.
+  getCareSummary: (childKey: string) =>
+    request<CareSummaryDto>(`/care/${childKey}/summary`),
+  getCareEntries: (childKey: string, fromIso?: string, toIso?: string) =>
+    request<CareEntryDto[]>(
+      `/care/${childKey}/entries`
+      + (fromIso && toIso ? `?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}` : ''),
+    ),
+  addCareEntry: (childKey: string, input: CareEntryInput) =>
+    request<CareEntryDto>(`/care/${childKey}/entries`, { method: 'POST', ...json(input) }),
+  updateCareEntry: (id: number, input: CareEntryInput) =>
+    request<CareEntryDto>(`/care/entries/${id}`, { method: 'PUT', ...json(input) }),
+  deleteCareEntry: (id: number) =>
+    request<void>(`/care/entries/${id}`, { method: 'DELETE' }),
+
+  /**
+   * Start, pause, resume, cancel — and complete, which is deliberately not the same act as cancel.
+   *
+   * `finish` is the pump's third stop and is none of the other two: it measures the session and
+   * holds it, so the panel can ask how much was expressed before anything is written.
+   */
+  careTimer: (
+    childKey: string,
+    type: CareEntryTypeName,
+    action: 'start' | 'pause' | 'resume' | 'cancel' | 'finish',
+    query = '',
+  ) => request<CareTimerDto | void>(`/care/${childKey}/timer/${type}/${action}${query}`, { method: 'POST' }),
+  careTimerSide: (childKey: string, type: CareEntryTypeName, side: string) =>
+    request<CareTimerDto>(`/care/${childKey}/timer/${type}/side/${side}`, { method: 'POST' }),
+  carePumpPhase: (childKey: string) =>
+    request<CareTimerDto>(`/care/${childKey}/timer/pump/phase`, { method: 'POST' }),
+  /**
+   * Ends the session and writes it, back-dated to when it started.
+   *
+   * `atUtc` overrides that reckoning, and only the pump's finish step sends one — a timer left
+   * running while the pump was packed away measures more than the session ran.
+   */
+  careTimerComplete: (
+    childKey: string, type: CareEntryTypeName, amount?: number | null, unit?: string, atUtc?: string,
+  ) => {
+    const params = new URLSearchParams()
+    if (amount != null) {
+      params.set('amount', String(amount))
+      params.set('unit', unit ?? 'oz')
+    }
+    if (atUtc) params.set('atUtc', atUtc)
+    const query = params.toString()
+    return request<CareEntryDto>(
+      `/care/${childKey}/timer/${type}/complete${query ? `?${query}` : ''}`,
+      { method: 'POST' },
+    )
+  },
+
+  /** Pull the household's own history out of Huckleberry. Safe to run as often as wanted. */
+  importCare: (childKey: string, days = 90) =>
+    request<CareImportResult>(`/care/${childKey}/import?days=${days}`, { method: 'POST' }),
 
   // ---- Tasks ----
   getTasks: () => request<TaskItemDto[]>('/tasks'),
@@ -700,6 +796,15 @@ export const api = {
   // to any client. Nothing is fetched here: the household read the page in their own browser, and
   // the server parses the text it was handed. Same response shape as the link importer, so the
   // screen renders one set of outcomes.
+  /**
+   * Read a recipe off a photograph. Returns what it says; saves nothing.
+   *
+   * The save is `importRecipeText` with whatever the household left in the fields — so a
+   * photographed recipe goes through the same ingredient parser as every other one and therefore
+   * scales the same way.
+   */
+  readRecipePhoto: (input: ReadKitchenPhotoRequest) =>
+    request<RecipeReadingDto>('/recipes/read-photo', { method: 'POST', ...json(input) }),
   importRecipeText: (input: RecipePasteInput) =>
     request<RecipeImportResponse>('/recipes/import/text', { method: 'POST', ...json(input) }),
   /** URL of a recipe's cached hero image. Served from disk, never from wwwroot. */
@@ -870,6 +975,15 @@ export const api = {
   // Nothing is written to the pantry until `applyImport`. A bad import is twenty-four wrong rows.
   getPendingImports: () => request<OrderImportDto[]>('/pantry/imports?status=Pending'),
   getImport: (id: number) => request<OrderImportDto>(`/pantry/imports/${id}`),
+  /**
+   * Read one screenshot of an order, or a photograph of a till receipt. Writes nothing.
+   *
+   * Separate from `createImport` on purpose: one shot rarely covers a big order, so the panel reads
+   * several and posts the collected lines once. That is also what lets somebody add another shot
+   * after seeing what the first one caught.
+   */
+  readPurchasePhoto: (input: ReadKitchenPhotoRequest) =>
+    request<PurchaseReadingDto>('/pantry/imports/read-photo', { method: 'POST', ...json(input) }),
   createImport: (input: OrderImportInput) =>
     request<OrderImportDto>('/pantry/imports', { method: 'POST', ...json(input) }),
   updateImportLine: (id: number, lineId: number, input: ImportLineInput) =>
@@ -890,4 +1004,115 @@ export const api = {
   // adding it. The server normalises and adopts on save; this list is what the field suggests
   // while somebody types. See app/units.ts, which fetches it once for the whole session.
   getUnits: () => request<MeasurementUnitDto[]>('/units'),
+
+  // ---- The Kitchen loop (KITCHEN_LOOP_ADDENDUM) ----
+
+  /**
+   * What to cook first, ranked by what is already open (§4).
+   *
+   * Feeds the home page's `USE IT OR LOSE IT` band. Empty is a perfectly good answer — a household
+   * with nothing open gets no band rather than a screen telling it off.
+   */
+  getDueRecipes: (take = 5) => request<DueRecipeDto[]>(`/pantry/due?take=${take}`),
+
+  /** `MARK OPENED` / `MARK FINISHED`. One tap, and it never changes a quantity (§4). */
+  setOpened: (itemId: number, finished = false) =>
+    request<PantryItemDto>(
+      `/pantry/${itemId}/opened${finished ? '?finished=true' : ''}`,
+      { method: 'POST' },
+    ),
+
+  /**
+   * Say how much is in one pack, and get back whatever that was blocking (§2).
+   *
+   * `recipeId` is optional and worth passing whenever the mapping was asked for from a check: the
+   * answer comes back re-run, so the panel does not have to ask again to find out if it helped.
+   */
+  setPackSize: (
+    itemId: number,
+    input: { packSize: number | null; packUnit: string | null; profileId?: number },
+    recipeId?: number,
+  ) =>
+    request<{ item: PantryItemDto; recheck: StockCheckDto | null }>(
+      `/pantry/${itemId}/pack-size${recipeId == null ? '' : `?recipeId=${recipeId}`}`,
+      { method: 'POST', ...json(input) },
+    ),
+
+  /** The leftovers card — `FRIDGE`, `FREEZER` or `NONE LEFT`. A 204 means nothing was created (§5). */
+  decideLeftovers: (
+    planEntryId: number,
+    decision: 'Fridge' | 'Freezer' | 'None',
+    portions?: number,
+  ) =>
+    request<PantryItemDto | undefined>(
+      `/pantry/deduct/${planEntryId}/produced`,
+      { method: 'POST', ...json({ decision, portions }) },
+    ),
+
+  // ---- The order a shop is walked (SETTINGS_AND_IMPORT §2) ----
+
+  getAisleOrder: (store: string) =>
+    request<AisleOrderDto>(`/pantry/aisles?store=${encodeURIComponent(store)}`),
+
+  /** Dragging always wins: this replaces the shop's order outright. */
+  setAisleOrder: (store: string, aisles: string[]) =>
+    request<AisleOrderDto>(
+      `/pantry/aisles?store=${encodeURIComponent(store)}`,
+      { method: 'PUT', ...json({ aisles }) },
+    ),
+
+  // ---- Knowing what matches what (MATCHING_AND_ALIASES) ----
+
+  /** Where every recipe stands against the shelves — one request for the whole folder. */
+  getCookable: () => request<CookabilityDto[]>('/pantry/cookable'),
+
+  /** Which nights have spoken for one item, soonest first. Past nights are excluded. */
+  getItemClaims: (itemId: number) => request<ItemClaimDto[]>(`/pantry/${itemId}/claims`),
+
+  // ---- How long things last (SETTINGS_AND_IMPORT §1) ----
+
+  getShelfLife: () => request<ShelfLifeDto[]>('/pantry/shelf-life'),
+
+  setShelfLife: (id: number, days: number) =>
+    request<ShelfLifeDto>(`/pantry/shelf-life/${id}`, { method: 'PATCH', ...json({ days }) }),
+
+  /** `PUT THEM BACK` — restores every assumption to the shipped default. */
+  resetShelfLife: () => request<ShelfLifeDto[]>('/pantry/shelf-life/reset', { method: 'POST' }),
+
+  getMatching: () => request<MatchingCoverageDto>('/pantry/matching'),
+
+  /** Ranked candidates for one unmatched line. No free-text field anywhere — M2 picks from these. */
+  getMatchCandidates: (ingredient: string, take = 3) =>
+    request<PantryItemDto[]>(
+      `/pantry/matching/candidates?ingredient=${encodeURIComponent(ingredient)}&take=${take}`,
+    ),
+
+  /** `YES · REMEMBER IT`. Household-wide, and it clears any earlier refusal of the same pair. */
+  teachMatch: (ingredient: string, pantryItemId: number) =>
+    request<MatchingCoverageDto>(
+      '/pantry/matching/teach',
+      { method: 'POST', ...json({ ingredient, pantryItemId }) },
+    ),
+
+  /** `NONE OF THESE`. Suppresses that pair for good; the ingredient stays matchable elsewhere. */
+  refuseMatch: (ingredient: string, pantryItemId: number) =>
+    request<MatchingCoverageDto>(
+      '/pantry/matching/refuse',
+      { method: 'POST', ...json({ ingredient, pantryItemId }) },
+    ),
+
+  // ---- Saved weeks (KITCHEN_LOOP_ADDENDUM §6) ----
+
+  getSavedWeeks: () => request<MealPlanTemplateDto[]>('/meals/templates'),
+
+  /** `SAVE THIS WEEK` — keeps the shape, never anything about stock. */
+  saveWeek: (name: string, start: string) =>
+    request<MealPlanTemplateDto>('/meals/templates', { method: 'POST', ...json({ name, start }) }),
+
+  /** Writes plan entries and re-settles claims. Touches no stock. */
+  applySavedWeek: (id: number, start: string) =>
+    request<ApplyTemplateResultDto>(
+      `/meals/templates/${id}/apply?start=${start}`,
+      { method: 'POST' },
+    ),
 }
