@@ -34,9 +34,10 @@ RestrictSUIDSGID=true
 
 # ProtectSystem=strict makes the whole filesystem read-only, including /opt/homehub — which is
 # correct: a release is an immutable artifact. Everything the app writes at runtime is state, and
-# state lives here (recipe image cache, pre-rendered TTS phrases, the Data Protection key ring),
-# pointed at by Meals__ImagePath, Voice__Tts__CacheDirectory and DataProtection__KeyPath in the env
-# file. ProtectHome=true above is why the key ring cannot use its default location — see AUDIT A2.
+# state lives here (recipe image cache, the photographs engagements were read off, pre-rendered TTS
+# phrases, the Data Protection key ring), pointed at by Meals__ImagePath, EventCapture__PhotoPath,
+# Voice__Tts__CacheDirectory and DataProtection__KeyPath in the env file. ProtectHome=true above is
+# why the key ring cannot use its default location — see AUDIT A2.
 ReadWritePaths=/var/lib/homehub
 
 [Install]

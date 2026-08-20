@@ -25,6 +25,16 @@
 #   bash scripts/deploy.sh --logs       # tail the service log
 #
 # Configure it once by copying deploy/deploy.env.example to deploy/deploy.env.
+#
+# ANOTHER INSTANCE (the TEST environment)
+#   DEPLOY_ENV=deploy/deploy-test.env bash scripts/deploy.sh
+#
+# Every sub-command above honours it, so `--releases`, `--rollback` and `--logs` all follow the same
+# file to the same instance. **Which instance a deploy hits is decided entirely by that file** —
+# `REMOTE_ROOT`, `SERVICE`, `SERVICE_GROUP` and the ports. Inline overrides are not a substitute:
+# the file is sourced with `set -a`, so anything it names wins over what was in the environment, and
+# `HTTP_PORT` in particular is named — a deploy carrying production's port would run its readiness
+# probe against production and report *that* healthy while the release it just flipped went unchecked.
 
 set -euo pipefail
 
@@ -33,7 +43,9 @@ cd "$ROOT"
 
 # --help before anything else: asking what the script does must not require having configured it.
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-  sed -n '3,27p' "$0" | sed 's/^#\{1,\} \{0,1\}//'
+  # Through the ANOTHER INSTANCE note, which is the one thing somebody deploying to test has to
+  # know and the one thing they cannot discover by trying it — a bare run goes to production.
+  sed -n '3,37p' "$0" | sed 's/^#\{1,\} \{0,1\}//'
   exit 0
 fi
 
@@ -57,10 +69,23 @@ for tool in npm dotnet tar scp ssh; do
 done
 
 # --- Configuration ----------------------------------------------------------
-ENV_FILE="$ROOT/deploy/deploy.env"
+#
+# One file per instance, chosen by `DEPLOY_ENV`. The default is production, so the bare command a
+# household types a hundred times keeps meaning exactly what it always meant; a second environment
+# is a file rather than a flag because *every* setting differs — root, service, group, both ports —
+# and a flag would inevitably carry some of production's.
+ENV_FILE="${DEPLOY_ENV:-$ROOT/deploy/deploy.env}"
+# Relative paths are resolved against the repo, so `DEPLOY_ENV=deploy/deploy-test.env` works from
+# wherever the command was typed.
+case "$ENV_FILE" in /*) ;; *) ENV_FILE="$ROOT/$ENV_FILE" ;; esac
 if [ ! -f "$ENV_FILE" ]; then
   echo "Missing $ENV_FILE" >&2
-  echo "Create it:  cp deploy/deploy.env.example deploy/deploy.env   (then fill in the host and user)" >&2
+  if [ -n "${DEPLOY_ENV:-}" ]; then
+    echo "DEPLOY_ENV names a file that is not there. For a second instance:" >&2
+    echo "  cp deploy/deploy-test.env.example deploy/deploy-test.env   (then fill in root, service and ports)" >&2
+  else
+    echo "Create it:  cp deploy/deploy.env.example deploy/deploy.env   (then fill in the host and user)" >&2
+  fi
   exit 1
 fi
 # shellcheck disable=SC1090
@@ -148,11 +173,9 @@ REMOTE
 # that answers — a bad connection string or a missing libicu produces a process that starts, throws,
 # and gets restarted forever, which `systemctl is-active` reports as running.
 #
-# The database is checked separately and deliberately does not fail the deploy: the app is built to
-# serve its shell without one, and a deploy that refused to finish because SQL Server was rebooting
-# would be worse than one that says so plainly. But it must *say so* — `status` is liveness only, so
-# a release with a broken connection string would otherwise report a clean success while every data
-# endpoint 500s.
+# Deep health is readiness, not liveness: it returns 503 unless the database connects and the exact
+# binary has zero pending migrations. A release that cannot prove that state must not be reported as
+# deployed, even if systemd keeps the process active.
 restart_and_verify() {
   say "Restarting $SERVICE — sudo will ask for your password on $PANEL_HOST"
   # -t allocates a terminal so sudo can prompt and read the password with echo off. Without it the
@@ -169,28 +192,12 @@ for i in $(seq 1 30); do
     echo "health: $body"
 
     case "$body" in
-      *'"database":"ok"'*)
-        # Migrations are applied at startup and a failure there is logged but non-fatal, so a
-        # non-zero pending count is the only visible trace of one that did not take.
-        case "$body" in
-          *'"pendingMigrations":0'*) ;;
-          *'"pendingMigrations":null'*) ;;
-          *)
-            echo "WARNING: migrations are pending — the schema is not up to date." >&2
-            echo "         Check the startup log: bash scripts/deploy.sh --logs" >&2
-            ;;
-        esac
-        ;;
-      *'"database":"not-configured"'*)
-        echo "WARNING: no ConnectionStrings__HomeHub set. The shell serves; data endpoints will 500." >&2
-        echo "         Add it to /etc/homehub/homehub.env and restart." >&2
-        ;;
+      *'"database":"ok"'*'"pendingMigrations":0'*) exit 0 ;;
       *)
-        echo "WARNING: the database is unreachable. The shell serves; data endpoints will 500." >&2
-        echo "         Check ConnectionStrings__HomeHub and that SQL Server accepts this host." >&2
+        echo "Readiness response did not prove database and migration state." >&2
+        exit 1
         ;;
     esac
-    exit 0
   fi
   if ! systemctl is-active --quiet "$SERVICE"; then
     echo "The service is not running. Last log lines:" >&2

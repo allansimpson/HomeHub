@@ -181,7 +181,7 @@ usermod -a -G systemd-journal allan
 
 ```bash
 mkdir -p /opt/homehub/releases
-mkdir -p /var/lib/homehub/recipe-images /var/lib/homehub/voice-cache /var/lib/homehub/keys
+mkdir -p /var/lib/homehub/recipe-images /var/lib/homehub/event-photos /var/lib/homehub/voice-cache /var/lib/homehub/keys
 mkdir -p /etc/homehub/certs
 ```
 
@@ -209,8 +209,25 @@ chmod g+s /opt/homehub /opt/homehub/releases /etc/homehub/certs
 >
 > `ls -ld /opt/homehub/releases` should show `drwxr-s---` — the `s` is the bit that matters.
 
-`/var/lib/homehub` holds recipe images, the voice cache, and the Data Protection key ring. It lives
-outside the release directory so it survives every deploy.
+`/var/lib/homehub` holds recipe images, the photographs engagements were read off, the voice cache,
+and the Data Protection key ring. It lives outside the release directory so it survives every deploy.
+
+> **Every one of these needs a path in the env file, and the app does not complain when one is
+> missing.** `ProtectSystem=strict` in the unit mounts the whole filesystem read-only apart from
+> `ReadWritePaths`, so a component left on its default — which is almost always somewhere under the
+> release directory — cannot write and degrades quietly instead. `EventCapture__PhotoPath` is the
+> one that has already been shipped without: kept flyer photographs went to
+> `/opt/homehub/current/event-photos`, every write was refused, and `EventPhotoStore` read that as
+> the ordinary "not kept" it also uses for a format the panel cannot draw. The setting said photos
+> were being kept, the readings were perfect, and every event detail said "read from a photo · not
+> kept". Check the whole list when you add an instance.
+
+> **This applies to *every* instance, not just production.** A second environment — the TEST
+> instance at `/opt/homehub-test` under `homehub-test.service` — is the same hardened unit with its
+> own service account and its own `ReadWritePaths=/var/lib/homehub-test`, so it needs its own state
+> directories and its own copy of each path setting in `/etc/homehub-test/homehub-test.env`.
+> Provisioning it is out-of-band rather than scripted here, which is exactly how it ends up one
+> setting behind production.
 
 > **`keys/` is not a cache — losing it costs the household something.** It holds the keys that
 > encrypt the stored Google and Microsoft refresh tokens (AUDIT A2). If the directory is deleted,
@@ -243,6 +260,14 @@ Server__KeyPath=/etc/homehub/certs/homehub-panel.key
 # Runtime state, kept outside the release directory so it survives every deploy.
 Meals__ImagePath=/var/lib/homehub/recipe-images
 Voice__Tts__CacheDirectory=/var/lib/homehub/voice-cache
+
+# The photographs engagements were read off. REQUIRED in production. Unset, EventPhotoStore falls
+# back to `event-photos/` under the release directory, which ProtectSystem=strict mounts read-only.
+# The failure is silent by design: a write that cannot land is treated as "not kept", which is the
+# same ordinary outcome as a format the panel cannot draw, and the engagement is still written. The
+# symptom is that "Keep photos read into events" is on, flyers read correctly, and every event
+# detail says "read from a photo · not kept".
+EventCapture__PhotoPath=/var/lib/homehub/event-photos
 
 # Where Data Protection keeps the keys that encrypt stored OAuth refresh tokens (AUDIT A2).
 # REQUIRED in production. Unset, ASP.NET Core falls back to $HOME/.aspnet/DataProtection-Keys —

@@ -96,7 +96,7 @@ usermod -a -G systemd-journal "$DEPLOY_USER"
 
 # --- Directories ------------------------------------------------------------
 echo "==> Creating $ROOT, $STATE, $CONF"
-mkdir -p "$ROOT/releases" "$STATE/recipe-images" "$STATE/voice-cache" "$STATE/keys" "$CONF/certs"
+mkdir -p "$ROOT/releases" "$STATE/recipe-images" "$STATE/event-photos" "$STATE/voice-cache" "$STATE/keys" "$CONF/certs"
 
 # Releases are written by the deploy user over ssh and read by the service — hence the shared group
 # and 750 (nothing here is world-readable; wwwroot is served by the app, not by the filesystem).
@@ -153,6 +153,15 @@ Server__KeyPath=/etc/homehub/certs/homehub-panel.key
 # replaced wholesale, and the unit mounts /opt read-only).
 Meals__ImagePath=/var/lib/homehub/recipe-images
 Voice__Tts__CacheDirectory=/var/lib/homehub/voice-cache
+
+# The photographs engagements were read off. REQUIRED in production, for the same reason as the
+# line above it and with a worse failure mode: unset, EventPhotoStore falls back to
+# `event-photos/` under the release directory, which ProtectSystem=strict mounts read-only. The
+# write fails, the store treats that as "not kept" — an ordinary outcome it shares with an
+# unrenderable format — and the engagement still lands. So nothing is broken on screen: the
+# household has "Keep photos read into events" switched on, every flyer is read correctly, and
+# every event detail says "read from a photo · not kept" for ever.
+EventCapture__PhotoPath=/var/lib/homehub/event-photos
 
 # Keys that encrypt stored OAuth refresh tokens (AUDIT A2). Must be here rather than the ASP.NET
 # default: the unit sets ProtectHome=true, so $HOME/.aspnet/DataProtection-Keys is unwritable and
