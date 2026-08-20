@@ -6,6 +6,14 @@ HomeHub_ClaudeDesign.zip
 HomeHub_Audit/
 # Extracted design-handoff bundles (the .zips are ignored below; keep their unpacked folders out too).
 HomeHub_*/
+# Bundles pulled straight out of the Claude Design project (`.design-sync/NOTES.md` — pulling).
+# They arrive under their own name now rather than as a HomeHub_* zip, so the pattern above never
+# matched them: `design_handoff_bottom_nav/` was the first one landed on disk and would have been
+# committed. They are inputs, re-pullable at any time, and the stale copy is the dangerous one.
+design_handoff_*/
+export_*/
+handoff_*/
+homehub-rework/
 *.zip
 # Extracted doc bundle — the authoritative copies of these live at the repo root.
 homehub-docs/
