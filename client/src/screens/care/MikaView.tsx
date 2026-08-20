@@ -6,6 +6,8 @@ import { useLitter } from '../../app/LitterProvider'
 import { useNow } from '../../app/useNow'
 import { useCatName, type CatNaming } from '../../app/catName'
 import { api, ApiError } from '../../api/client'
+import { clockLabel } from '../../app/dates'
+import { dayLabel, entriesLabel } from '../../app/care'
 import type {
   CatHealthDto, LitterEventDto, LitterFaultClassName, LitterRobotDto, RecoveryAttemptDto,
 } from '../../api/types'
@@ -48,9 +50,11 @@ function countdown(iso: string | null, now: number): string | null {
   return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
 }
 
+// The panel's own way of saying a time, not the device's: `toLocaleTimeString` follows the
+// browser locale, so the same reading rendered `18:32` on a phone set to en-GB and `6:32 PM`
+// on the wall panel beside it. Nothing here is 24-hour (`dates.clockLabel`).
 function clock(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return iso ? clockLabel(new Date(iso)) : '—'
 }
 
 /**
@@ -220,7 +224,7 @@ export function MikaView() {
         {/* The state's one sentence, where it has one. Stable — the common case — has none by
             design, and the footer is then just the history link. */}
         <span className="ml-care__footnote">{FOOTER_NOTES[robot.faultClass]}</span>
-        <button type="button" className="ml-care__footlink" onClick={() => navigate('/care/history')}>
+        <button type="button" className="ml-care__footlink" onClick={() => navigate('/devices/litter/history')}>
           History ▸
         </button>
       </div>
@@ -999,22 +1003,11 @@ function eventCopy(event: LitterEventDto, cat: CatNaming): EventCopy {
   }
 }
 
-const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
-
-function entriesLabel(count: number): string {
-  const word = COUNT_WORDS[count] ?? String(count)
-  return `${word} ${count === 1 ? 'entry' : 'entries'}`
-}
-
-/** `Today` / `Yesterday` / the date — whichever day the rows underneath are actually from. */
-function dayLabel(iso: string, now: number): string {
-  const day = new Date(iso)
-  const today = new Date(now)
-  const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
-  if (day.getTime() >= midnight) return 'Today'
-  if (day.getTime() >= midnight - 86_400_000) return 'Yesterday'
-  return day.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
-}
+/*
+ * `dayLabel` and `entriesLabel` were defined here. They are in `app/care.ts` now, unchanged — the
+ * baby's entries list blocks by day too, and two screens deciding separately what to call yesterday
+ * is how one of them ends up saying `Aug 18` about the rows the other calls `Yesterday`.
+ */
 
 /**
  * What the box has been doing, newest first.

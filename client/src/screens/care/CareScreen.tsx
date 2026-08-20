@@ -1,116 +1,84 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router'
-import { ScreenShell, ScrollArea } from '../../components'
-import { useCareSubjects, type CareSubject, type CareSubjectId } from '../../app/careSubjects'
+import { useLocation, useNavigate } from 'react-router'
+import { BackButton, ScreenShell, ScrollArea } from '../../components'
+import { useCareSubjects, type CareSubjectId } from '../../app/careSubjects'
+import { useClock } from '../../app/useClock'
 import { ConradView } from './ConradView'
 import { MikaView } from './MikaView'
 
 /**
- * Care — one tab, two subjects, two genuinely different views inside one frame.
+ * One subject, one frame — the baby under `/care`, the litter robot under `/devices/litter`.
  *
- * Baby and Litter shared a five-part structure — live status, today's log, quick actions, history,
- * settings — which is why they merged. What they do *not* share is a shape: **a baby is a log you
- * write to; a litter robot is a machine you read.** Conrad leads with hold-to-confirm entry tiles
- * because logging is why you walk over to the panel; Mika leads with the fault because reading the
- * state is why you walk over. A single merged template was considered and rejected — an interleaved
- * feed loses both (CARE.md).
+ * <b>The switcher is gone.</b> Baby and Litter were merged into one CARE tab on the reasoning that
+ * they share a five-part structure — live status, today's log, quick actions, history, settings —
+ * and they genuinely do. What they never shared is a shape, and the merge kept saying so: <b>a baby
+ * is a log you write to many times a day; a litter robot is a machine you read when it complains.</b>
+ * The two views inside this frame stayed completely different for exactly that reason.
  *
- * So this file owns only what genuinely is shared: the switcher, the double rule, the sync line and
- * the scroll body. Everything below that belongs to the subject.
+ * The August split (design_handoff_baby_devices) finishes the thought. The baby keeps the tab and is
+ * called BABY again; the robot moves in with the air conditioners under DEVICES, where it is one
+ * device among several rather than the other half of a child. So this file keeps only what is
+ * genuinely shared — the header line, the sync row, the scroll body — and the route decides which
+ * subject it is framing.
+ *
+ * The path stays `/care` for the baby deliberately: the household's bookmarks, the Attendant and
+ * every notification deep link emit it, and a tab rename is not a reason to break them.
  */
 export function CareScreen() {
-  const [params, setParams] = useSearchParams()
-  const { subjects, resolved, defaultSubject } = useCareSubjects()
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const { subjects } = useCareSubjects()
+  const { stamp } = useClock()
 
-  /**
-   * The subject, resolved from three sources in priority order.
-   *
-   * `?subject=` first, so the redirects from `/baby` and `/litter`, notification deep links and the
-   * Attendant can all land on a named subject. Then whatever was tapped. Then the opening default —
-   * a hard fault if there is one, otherwise Conrad. **Recency deliberately does not decide**: "most
-   * recently active" was considered and rejected, so a quiet day always opens on Conrad.
-   */
-  const [picked, setPicked] = useState<CareSubjectId | null>(null)
-  const latched = useRef(false)
-  useEffect(() => {
-    // Latched once, after the providers settle. The opening choice is a mount-time decision; a fault
-    // that arrives later badges the mark and raises a drawer row, but it does not steal the view
-    // from someone mid-way through a hold on a write that cannot be undone.
-    if (!resolved || latched.current) return
-    latched.current = true
-    setPicked((p) => p ?? defaultSubject)
-  }, [resolved, defaultSubject])
-
-  const requested = params.get('subject')
-  const subject: CareSubjectId = requested === 'conrad' || requested === 'mika'
-    ? requested
-    : picked ?? 'conrad'
-
-  const select = useCallback(
-    (id: CareSubjectId) => {
-      setPicked(id)
-      // Replace rather than push: the switcher is a view control, and stacking a history entry per
-      // tap would turn Back into "undo the last three glances".
-      setParams(id === 'conrad' ? {} : { subject: id }, { replace: true })
-    },
-    [setParams],
-  )
-
+  const isDevice = pathname.startsWith('/devices')
+  const subject: CareSubjectId = isDevice ? 'mika' : 'conrad'
   const active = subjects.find((s) => s.id === subject) ?? subjects[0]
 
   return (
-    <ScreenShell header={<CareSwitcher subjects={subjects} active={subject} onSelect={select} />}>
-      <div className={`ml-syncline ml-syncline--${active.sync.tone}`}>
-        <span className="ml-syncline__dot" aria-hidden="true" />
-        <span className="ml-syncline__text">{active.sync.text}</span>
-        {active.sync.meta && <span className="ml-syncline__meta">{active.sync.meta}</span>}
-      </div>
+    <ScreenShell
+      header={
+        <header className={'ml-header ml-care__switcher' + (isDevice ? ' ml-header--drillin' : '')}>
+          {/* A device is a drill-in from the array. The baby is a tab, and has nowhere to go back to. */}
+          {isDevice && <BackButton onClick={() => navigate('/devices')} />}
+          <span className="ml-care__name serif">{active.name}</span>
+          {active.meta && <span className="ml-care__namemeta">{active.meta}</span>}
+          {/* The tab dates its header, the same way Meals, Weather and Devices do. The litter
+              drill-in does not: it is reached from Devices, which said the day one tap ago. */}
+          {!isDevice && <span className="ml-drillin-header__status">{stamp}</span>}
+        </header>
+      }
+    >
+      {/*
+        The sync row belongs to the machine, not to the child.
+
+        <b>On the robot it is the headline.</b> A litter box is a thing you read when it complains,
+        and "when did we last hear from it" is the first question anybody has about one — a reading
+        with no freshness beside it is a reading you cannot act on.
+
+        <b>On the baby it was a claim about somebody else's service.</b> `UPDATED 7 S AGO` and the
+        clock beside it reported the Huckleberry integration's last poll — but everything below is
+        HomeHub's own log, which is written to this device first and works with no server at all.
+        So the line described a freshness the surface under it does not depend on, in a position
+        that reads as though it does: at 3am, "updated 7 seconds ago" over a list of feeds says the
+        feeds are 7 seconds fresh, and they are not, and on a bad night it would say the log was
+        stale when every entry in it had already been written down safely.
+
+        Nothing is lost by removing it. The integration's health is stated in Config → Baby
+        settings, where the pull that uses it lives; and a *hard* fault still badges the tab and
+        drops a NEEDS YOU row on the dashboard, which is the path that actually fetches somebody.
+      */}
+      {isDevice && (
+        <div className={`ml-syncline ml-syncline--${active.sync.tone}`}>
+          <span className="ml-syncline__dot" aria-hidden="true" />
+          <span className="ml-syncline__text">{active.sync.text}</span>
+          {active.sync.meta && <span className="ml-syncline__meta">{active.sync.meta}</span>}
+        </div>
+      )}
 
       <ScrollArea>
         <div className="ml-care__body">
-          {subject === 'conrad' ? <ConradView /> : <MikaView />}
+          {isDevice ? <MikaView /> : <ConradView />}
         </div>
       </ScrollArea>
     </ScreenShell>
-  )
-}
-
-/**
- * The header line *is* the switcher.
- *
- * One active name at 29px Marcellus with its metadata beside it; every other subject is a 10px
- * small-caps mark after a hairline divider. **Marks win**: a third subject is another mark, never a
- * second name — the line never holds two names, because two names is a list and a list needs a
- * heading, and then Care has a landing page nobody asked for.
- */
-function CareSwitcher({
-  subjects, active, onSelect,
-}: {
-  subjects: CareSubject[]
-  active: CareSubjectId
-  onSelect: (id: CareSubjectId) => void
-}) {
-  const current = subjects.find((s) => s.id === active) ?? subjects[0]
-  const others = subjects.filter((s) => s.id !== current.id)
-
-  return (
-    <header className="ml-header ml-care__switcher">
-      <span className="ml-care__name serif">{current.name}</span>
-      {current.meta && <span className="ml-care__namemeta">{current.meta}</span>}
-      {others.length > 0 && <span className="ml-care__divider" aria-hidden="true" />}
-      {others.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          className={'ml-care__mark' + (s.faulted ? ' ml-care__mark--fault' : '')}
-          onClick={() => onSelect(s.id)}
-        >
-          {s.name}
-          {/* The fault badges its own mark *and* drops a row in the notification drawer. Both,
-              always — and nothing is suppressed overnight (IA.md). */}
-          {s.faulted && <span className="ml-care__markdot" aria-hidden="true" />}
-        </button>
-      ))}
-    </header>
   )
 }

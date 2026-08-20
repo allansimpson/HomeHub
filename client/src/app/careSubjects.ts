@@ -1,6 +1,7 @@
 import { useBaby } from './BabyProvider'
 import { useLitter } from './LitterProvider'
 import { useCatName } from './catName'
+import { useBabyName } from './babyName'
 import { useNow } from './useNow'
 import type { BabyHealthDto, BabyStateDto, LitterRobotDto } from '../api/types'
 
@@ -98,18 +99,31 @@ export function conradSync(
   state: BabyStateDto | null,
   now: number,
 ): CareSyncLine {
-  const meta = state ? `${state.feedsToday} feeds · ${state.diapersToday} diapers` : ''
-  const line = (text: string, tone: CareTone): CareSyncLine => ({ text, tone, meta })
-  if (!health) return line('Reading Huckleberry…', 'muted')
+  /*
+   * No right-hand meta, because Conrad no longer draws a sync line at all.
+   *
+   * It was the clock — before that, `8 feeds · 23 diapers`. Both are gone with the row: the Baby
+   * tab dates its own header, and a freshness stamp for the Huckleberry integration sitting over a
+   * log that does not read from it was a claim about the wrong thing (see `CareScreen`).
+   *
+   * The text survives because `needsYou` still reads it: on a *hard* fault the dashboard says
+   * `Conrad — home assistant unreachable` in these words. That is the one place the household is
+   * told, so the wording is still the contract with whoever has to go and fix it.
+   */
+  const line = (text: string, tone: CareTone): CareSyncLine => ({ text, tone, meta: '' })
+  // No product name in this line. Care does not name the integration anywhere now — the pull that
+  // used to sit in the log's footer is in Config → Baby settings — and the wording here has to
+  // survive the day that integration is switched off regardless.
+  if (!health) return line('Reading…', 'muted')
   switch (health.status) {
     case 'NotConfigured':
       return line('Not connected', 'muted')
     case 'Ok':
-      return line(`Huckleberry · updated ${since(state?.fetchedUtc ?? null, now)}`, 'live')
+      return line(`Updated ${since(state?.fetchedUtc ?? null, now)}`, 'live')
     case 'HomeAssistantUnreachable':
       return line('Home Assistant unreachable', 'bad')
     case 'IntegrationMissing':
-      return line('Huckleberry integration not found', 'bad')
+      return line('Integration not found', 'bad')
     case 'Stale':
       return line(`Showing last known · ${since(state?.fetchedUtc ?? null, now)}`, 'warn')
   }
@@ -156,6 +170,7 @@ export function useCareSubjects(): CareSubjects {
   const { health: babyHealth, child, state, loading: babyLoading } = useBaby()
   const { health: catHealth, robots, loading: catLoading } = useLitter()
   const cat = useCatName()
+  const babyName = useBabyName()
   const now = useNow(30_000)
 
   const robot = robots[0] ?? null
@@ -168,7 +183,10 @@ export function useCareSubjects(): CareSubjects {
   const subjects: CareSubject[] = [
     {
       id: 'conrad',
-      name: child?.name ?? 'Baby',
+      // The household's name first. The integration's is a fallback, not the source — see
+      // `useBabyName` for why a name that disappears when a service is unreachable is worse than
+      // no name at all.
+      name: babyName ?? child?.name ?? 'Baby',
       meta: ageLabel(child?.birthday, now) ?? '',
       faulted: conradFaulted,
       configured: babyHealth?.configured !== false,
