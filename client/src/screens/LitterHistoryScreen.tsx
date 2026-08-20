@@ -4,6 +4,7 @@ import { DrillInHeader, EmptyState, ScreenShell, ScrollArea, SectionLabel } from
 import { useLitter } from '../app/LitterProvider'
 import { api, ApiError } from '../api/client'
 import type { LitterHistoryDto, RecoveryAttemptDto } from '../api/types'
+import { clockLabel } from '../app/dates'
 
 const RANGES = [7, 30, 90] as const
 
@@ -11,9 +12,10 @@ function dayLabel(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
+// The panel's own way of saying a time, not the device's: `toLocaleTimeString` follows the
+// browser locale, so the same reading rendered `18:32` on a phone set to en-GB and `6:32 PM`
+// on the wall panel beside it. Nothing here is 24-hour (`dates.clockLabel`).
+const clock = (iso: string): string => clockLabel(new Date(iso))
 
 /**
  * How long the held window actually is, in words. "About a day" lands harder than a date does when

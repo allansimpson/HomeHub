@@ -176,7 +176,19 @@ export function LitterSettingsScreen() {
   if (!robot) {
     return (
       <ScreenShell header={header}>
-        {loading ? <div /> : <EmptyState label="No litter box found" />}
+        <ScrollArea>
+          {/*
+            The name survives the robot's absence, because it was never the robot's.
+
+            This screen used to return the empty state and nothing else when no box was found, which
+            took the one control here that needs no hardware down with the ones that do — so a
+            household with the integration not yet connected, or simply offline, could not tell the
+            panel what their cat is called. It is panel-owned data on a page that happens to be
+            mostly Home Assistant.
+          */}
+          <CatSection />
+          {loading ? <div /> : <EmptyState label="No litter box found" hint="Its own settings appear here once it answers." />}
+        </ScrollArea>
       </ScreenShell>
     )
   }
