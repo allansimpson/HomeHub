@@ -1,0 +1,283 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Vibration check</title>
+
+<!--
+  A gate-by-gate check of the Vibration API, on the device that has to buzz.
+
+  This exists because "no vibration" has four possible causes and they are indistinguishable from
+  the panel: the API may be absent, the motor may be off at the OS level, the page may have no
+  sticky activation, or the page may be hidden. `navigator.vibrate` reports all four the same way —
+  it returns false, or it returns true and nothing happens — so guessing at them from source is how
+  an evening gets spent.
+
+  Test 3 is the one that matters. It fires from a `setInterval` with no tap at the moment of the
+  call, which is precisely what `usePumpAlert` does when stimulation runs out, and it is the only
+  test here that can fail while tests 1 and 2 pass.
+
+  Same origin, same protocol, same browser as the panel — a phone loading this over the LAN is in
+  the same context the app is in, which a page hosted anywhere else would not be. Plain HTTP is
+  fine: the Vibration API has no [SecureContext] in its IDL.
+
+  Delete this file once the buzz is trusted. It is a diagnostic, not a feature.
+-->
+
+<style>
+  :root { color-scheme: dark }
+  body {
+    margin: 0; padding: 1.25rem;
+    background: #141210; color: #e8e4de;
+    font: 1rem/1.5 system-ui, sans-serif;
+  }
+  h1 { font-size: 1.25rem; margin: 0 0 .25rem }
+  p.sub { margin: 0 0 1.25rem; color: #9a938a; font-size: .875rem }
+  section { border-top: 1px solid #2e2a26; padding: 1rem 0 }
+  h2 { font-size: .8125rem; margin: 0 0 .5rem; color: #9a938a; font-weight: 600; letter-spacing: .04em; text-transform: uppercase }
+  button {
+    display: block; width: 100%; margin: .5rem 0 0;
+    padding: 1rem; border: 1px solid #4a423a; border-radius: .5rem;
+    background: #211d1a; color: #e8e4de; font: inherit; font-weight: 600;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:active { background: #2e2a26 }
+  button:disabled { opacity: .5 }
+  .hint { font-size: .8125rem; color: #9a938a; margin: .5rem 0 0 }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .25rem .75rem; font-size: .875rem }
+  dt { color: #9a938a }
+  dd { margin: 0; font-variant-numeric: tabular-nums }
+  .yes { color: #7fbf7f } .no { color: #e08a7a }
+  #log { margin: 0; padding: 0; list-style: none; font: .8125rem/1.6 ui-monospace, monospace; word-break: break-word }
+  #log li { padding: .25rem 0; border-bottom: 1px solid #211d1a }
+</style>
+
+<h1>Vibration check</h1>
+<p class="sub">Open this on the phone that should buzz. Work down the tests in order.</p>
+
+<section>
+  <h2>Live state</h2>
+  <dl>
+    <dt>navigator.vibrate</dt><dd id="s-api">—</dd>
+    <dt>hasBeenActive</dt><dd id="s-sticky">—</dd>
+    <dt>isActive</dt><dd id="s-active">—</dd>
+    <dt>visibilityState</dt><dd id="s-vis">—</dd>
+  </dl>
+  <p class="hint">
+    <b>hasBeenActive</b> is the gate that silently swallows the pump buzz. It is false until you tap
+    this page, and the browser refuses to vibrate while it is false.
+  </p>
+</section>
+
+<section>
+  <h2>1 · Buzz on tap</h2>
+  <button id="t1">Buzz now — two pulses</button>
+  <p class="hint">Proves the motor works and is not disabled by Silent or Do&nbsp;Not&nbsp;Disturb. If this
+    does nothing, no web page on this phone can ever buzz and the problem is below the browser.</p>
+</section>
+
+<section>
+  <h2>2 · Buzz from a timer, after a tap</h2>
+  <button id="t2">Start 10s timer</button>
+  <p class="hint">Keep the screen on and watch. This is the pump's exact code path — a
+    <code>setInterval</code> firing the buzz — with activation already granted by the tap that
+    started it. This is what a working pump alert looks like.</p>
+</section>
+
+<section>
+  <h2>3 · Buzz from a timer, with no tap</h2>
+  <button id="t3">Arm, then reload without tapping</button>
+  <p class="hint">Tap once to arm, then <b>pull down to reload the page and do not touch the screen
+    again.</b> The timer restarts on load with no activation — which is the state the app is in when
+    Android relaunches it straight onto the Baby tab. If test 2 buzzes and this does not, sticky
+    activation is the whole answer.</p>
+</section>
+
+<section>
+  <h2>4 · Buzz with the screen off</h2>
+  <button id="t4">Start 10s timer, then lock the phone</button>
+  <p class="hint">Expected to fail, and recorded so it is not re-investigated. The spec requires the
+    page to be visible; a locked phone cannot be buzzed by a web page at all.</p>
+</section>
+
+<section>
+  <h2>5 · Buzz via a notification</h2>
+  <button id="t5">Show a notification that vibrates</button>
+  <p class="hint">The decisive one. This rides Android's <b>ring &amp; notification</b> vibration
+    channel instead of the touch-feedback channel <code>navigator.vibrate</code> uses. If test 1
+    stays dead and this buzzes, the Vibration API is simply not available to this phone and the pump
+    alert has to be a notification. Registers a worker of its own, so it does not need the app.</p>
+</section>
+
+<section>
+  <h2>Results</h2>
+  <ul id="log"><li>Nothing run yet.</li></ul>
+</section>
+
+<script>
+  /* The panel's own patterns, so what you feel here is what the pump would send. */
+  const SWITCH = [200, 100, 200]
+  const DONE = [400]
+
+  const log = document.getElementById('log')
+  let clean = false
+
+  function say(text, ok) {
+    if (!clean) { log.innerHTML = ''; clean = true }
+    const li = document.createElement('li')
+    const at = new Date().toTimeString().slice(0, 8)
+    li.innerHTML = `${at} · <span class="${ok === true ? 'yes' : ok === false ? 'no' : ''}">${text}</span>`
+    log.prepend(li)
+  }
+
+  /*
+   * Call it and report exactly what came back, which is the entire point of this page.
+   *
+   * `undefined` and `false` are different answers and get said differently: absent means the
+   * browser has no Vibration API, false means it has one and refused. Conflating them is how you
+   * end up chasing a permission problem on a device that never had the feature.
+   */
+  function buzz(pattern, label) {
+    const vis = document.visibilityState
+    const sticky = navigator.userActivation ? navigator.userActivation.hasBeenActive : 'unknown'
+    if (!('vibrate' in navigator)) {
+      say(`${label}: no Vibration API on this browser`, false)
+      return
+    }
+    const result = navigator.vibrate(pattern)
+    say(
+      `${label}: vibrate() returned <b>${result}</b> · hasBeenActive=${sticky} · ${vis}`,
+      result === true,
+    )
+    if (result === false && sticky === false) {
+      say('↳ refused for want of a tap. This is the pump bug.', false)
+    } else if (result === false && vis !== 'visible') {
+      say('↳ refused because the page is hidden. Nothing can fix this one.', false)
+    } else if (result === true) {
+      say('↳ accepted. If you felt nothing, check Silent / DND / haptics in Android settings.')
+    }
+  }
+
+  /** A visible countdown, then the buzz — deliberately from a timer, never from the tap itself. */
+  function countdown(seconds, label, pattern, button) {
+    const original = button.textContent
+    button.disabled = true
+    let left = seconds
+    button.textContent = `${label} in ${left}…`
+    const id = setInterval(() => {
+      left -= 1
+      if (left > 0) { button.textContent = `${label} in ${left}…`; return }
+      clearInterval(id)
+      button.disabled = false
+      button.textContent = original
+      buzz(pattern, label)
+    }, 1000)
+  }
+
+  function refresh() {
+    const api = 'vibrate' in navigator
+    const ua = navigator.userActivation
+    const set = (id, text, ok) => {
+      const el = document.getElementById(id)
+      el.textContent = text
+      el.className = ok === true ? 'yes' : ok === false ? 'no' : ''
+    }
+    set('s-api', api ? 'present' : 'ABSENT', api)
+    set('s-sticky', ua ? String(ua.hasBeenActive) : 'unsupported', ua ? ua.hasBeenActive : undefined)
+    set('s-active', ua ? String(ua.isActive) : 'unsupported')
+    set('s-vis', document.visibilityState, document.visibilityState === 'visible')
+  }
+  setInterval(refresh, 250)
+  refresh()
+
+  document.getElementById('t1').addEventListener('click', () => buzz(SWITCH, 'Test 1 tap'))
+  document.getElementById('t2').addEventListener('click', (e) =>
+    countdown(10, 'Test 2 timer', SWITCH, e.currentTarget))
+  document.getElementById('t4').addEventListener('click', (e) =>
+    countdown(10, 'Test 4 screen-off', DONE, e.currentTarget))
+
+  /*
+   * A notification, because it vibrates down a different pipe.
+   *
+   * `navigator.vibrate` and a notification's `vibrate` option are not the same mechanism. The first
+   * asks Android for a bare haptic, which the OS files under touch feedback and drops on the floor
+   * when that setting is off — silently, and after returning true, which is why test 1 can report
+   * success and do nothing. A notification instead goes out on the origin's notification channel,
+   * governed by ring & notification vibration. A phone with touch feedback off and notification
+   * vibration on will fail test 1 and pass this one, and that combination is an ordinary way to
+   * have a phone set up rather than a fault.
+   *
+   * Android Chrome has no `new Notification()` — it throws — so this goes through the service
+   * worker registration, which is why the app has to have been opened on this phone once. Under
+   * Android O and later the channel's own settings outrank the pattern passed here, so treat the
+   * pattern as a request and whether anything is felt at all as the actual result.
+   */
+  document.getElementById('t5').addEventListener('click', async () => {
+    if (!('Notification' in window)) { say('Test 5: no Notification API', false); return }
+    const permission = await Notification.requestPermission()
+    say(`Test 5: permission = ${permission}`, permission === 'granted')
+    if (permission !== 'granted') return
+    if (!('serviceWorker' in navigator)) {
+      say('Test 5: no serviceWorker — this origin is not a secure context', false)
+      return
+    }
+
+    let reg
+    try {
+      /* Its own worker, under a scope that controls nothing. See `vibecheck-sw.js`. */
+      reg = await navigator.serviceWorker.register('/vibecheck-sw.js', { scope: '/vibecheck-scope/' })
+      /* A registration cannot post a notification until its worker has actually activated. */
+      if (!reg.active) {
+        const pending = reg.installing || reg.waiting
+        await Promise.race([
+          new Promise((resolve) => {
+            if (!pending) return resolve()
+            pending.addEventListener('statechange', () => {
+              if (pending.state === 'activated') resolve()
+            })
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('activation timed out')), 5000)),
+        ])
+      }
+      say('Test 5: worker registered and active.')
+    } catch (err) {
+      say(`Test 5: could not register a worker — ${err.message}`, false)
+      return
+    }
+
+    try {
+      await reg.showNotification('Switch now', {
+        body: 'Stimulation has finished.',
+        vibrate: SWITCH,
+        tag: 'vibecheck',
+        requireInteraction: false,
+      })
+      say('Test 5: notification posted. Did the phone buzz?')
+    } catch (err) {
+      say(`Test 5: showNotification threw — ${err.message}`, false)
+    }
+  })
+
+  /*
+   * Test 3 survives the reload, because the reload is the test.
+   *
+   * A flag in sessionStorage is what carries it across, and the timer starts from `load` rather
+   * than from any tap — so at the moment `vibrate` is called this document has never been touched,
+   * which is exactly the condition `restoreLastTab` creates on the Baby tab.
+   */
+  const ARMED = 'vibecheck.armed'
+  document.getElementById('t3').addEventListener('click', () => {
+    sessionStorage.setItem(ARMED, '1')
+    say('Test 3 armed. Now reload without tapping the screen.')
+  })
+  if (sessionStorage.getItem(ARMED)) {
+    sessionStorage.removeItem(ARMED)
+    let left = 10
+    const id = setInterval(() => {
+      left -= 1
+      if (left > 0) return
+      clearInterval(id)
+      buzz(SWITCH, 'Test 3 no-tap')
+    }, 1000)
+    say('Test 3 running — do not touch the screen for 10s.')
+  }
+</script>

@@ -162,7 +162,8 @@ public class HealthController : ControllerBase
         // `status` stays pure liveness. The kiosk uses it to decide when to point Chromium at the
         // app, and the app is designed to serve its shell without a database at all — so a database
         // problem is reported *alongside* the status, never by failing the check.
-        return Ok(new
+        var readinessFailed = deep && (database != "ok" || pendingMigrations != 0);
+        var result = new
         {
             status = "ok",
             service = "HomeHub.Api",
@@ -197,6 +198,10 @@ public class HealthController : ControllerBase
              * the release was built from is the check that catches a half-applied deploy.
              */
             spaBundle = SpaBundle(),
-        });
+        };
+
+        return readinessFailed
+            ? StatusCode(StatusCodes.Status503ServiceUnavailable, result)
+            : Ok(result);
     }
 }

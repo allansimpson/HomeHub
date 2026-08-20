@@ -29,6 +29,16 @@ public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal("ok", body.GetProperty("status").GetString());
         Assert.Equal("HomeHub.Api", body.GetProperty("service").GetString());
     }
+
+    [Fact]
+    public async Task Deep_health_fails_readiness_without_a_verified_database()
+    {
+        var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/api/health?deep=true");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+    }
     /*
      * Which build is this?
      *

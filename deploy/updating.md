@@ -183,6 +183,38 @@ Then load the panel in a browser to be sure the UI came with it.
 
 ---
 
+## How an update reaches the panels
+
+Step 7 finishes the deploy on the *server*. Every device that has the panel open is still running the
+build it launched on, and getting it onto them used to mean clearing each browser's site data by
+hand. It no longer does.
+
+**Nothing to do, per device.** Each panel asks the server whether it is still current every half
+hour, and again whenever somebody wakes the screen after a couple of minutes away. When a newer
+build is found the Dashboard carries a brass plate at the top — `UPDATE READY · <commit>` — with one
+control, **APPLY NOW**. Pressing it reloads onto the new build in a few seconds and the plate turns
+verdigris to say what landed. The plate stands until it is pressed; it is not dismissible, so no
+device sits quietly out of date.
+
+The wall panel is the one to watch after a deploy: it is never closed and never navigates, so the
+half-hourly check is the only thing that will find the update. Walking past and pressing APPLY NOW
+is the fast path.
+
+**What makes it work**, if you are ever debugging it:
+
+- `client/public/sw.js` carries a `__BUILD_STAMP__` placeholder that `vite.config.ts` fills in at
+  build time. A browser re-installs a service worker only when the worker's bytes change, so this
+  constant is what makes every release a new worker — and installing is what fetches the new app.
+  The build fails loudly if that placeholder ever goes missing.
+- `build.json`, written beside it, carries the same stamp. Devices with no service worker — a phone
+  on plain `http://`, which is not a secure context — compare that against the build they are
+  running.
+- The stamp is `<commit><+ if dirty> · <UTC to the second>`, the same one Config → System shows. Two
+  panels showing different stamps are running different code.
+
+Rolling back is a deploy like any other from a device's point of view: the stamp changes, so panels
+offer the older build exactly as they would a newer one.
+
 ## Rolling back
 
 The previous release is still on disk, so this is the switch in reverse — no rebuild, no upload:
@@ -229,7 +261,7 @@ journalctl -u homehub -n 40 --no-pager
 | `Failed to bind to address … already in use` | Another service took the port | `sudo ss -lntp \| grep ':<port>'`, then change `Server__HttpPort` in `/etc/homehub/homehub.env` |
 | `"database":"unreachable"` | Connection string, or SQL Server not reachable from the server | Check `ConnectionStrings__HomeHub` in `/etc/homehub/homehub.env` |
 | `https` port gone after an update | Certificate unreadable — the app logs `HTTPS disabled: …` and serves HTTP | `ls -l /etc/homehub/certs/`; `chgrp homehub` the pair |
-| UI looks stale in the browser | Cached SPA | Hard-refresh; on an installed phone icon, clear that site's data |
+| UI looks stale in the browser | A device that has not checked yet | Nothing. See [How an update reaches the panels](#how-an-update-reaches-the-panels) — it offers itself within half an hour, or as soon as somebody wakes the screen |
 
 Nothing here touches `/etc/homehub/homehub.env`, `/var/lib/homehub` or `/etc/homehub/certs` — your
 settings, recipe images, voice cache and certificate all survive an update untouched.
