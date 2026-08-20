@@ -6,6 +6,7 @@ using HomeHub.Api.Data;
 using HomeHub.Api.Profiles;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
@@ -121,7 +122,7 @@ public class ProfilesController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Set a member's PIN. Their own, or an administrator setting anyone's.</summary>
+    /// <summary>Set or change a member's PIN. Their own, or an administrator setting anyone's.</summary>
     /// <remarks>
     /// <para>
     /// Self-or-admin rather than admin-only, because a household member choosing their own PIN
@@ -133,6 +134,12 @@ public class ProfilesController : ControllerBase
     /// The check is here rather than in a policy because it depends on the route value: it is a
     /// question about <i>this</i> profile, not about the caller in general.
     /// </para>
+    /// <para>
+    /// <b>Changing your own PIN means proving you still know it</b> — see
+    /// <see cref="RefuseWithoutCurrentPin"/>. A session is not that proof: the wall panel holds a
+    /// persistent one, so anybody standing at an unlocked kitchen screen could otherwise set the
+    /// PIN to something only they knew and lock the household out of a member's own profile.
+    /// </para>
     /// </remarks>
     [HttpPut("{id:int}/pin")]
     public async Task<IActionResult> SetPin(int id, SetPinRequest req)
@@ -143,10 +150,19 @@ public class ProfilesController : ControllerBase
         var profile = await _db.Profiles.FindAsync(id);
         if (profile is null) return NotFound();
 
+        if (RefuseWithoutCurrentPin(profile, req.CurrentPin) is { } refusal) return refusal;
+
+        // Creating a lock implies the profile wants to be lockable when idle — but *changing* the
+        // PIN says nothing about that, and asserting it here would quietly re-enable idle locking
+        // for somebody who deliberately turned it off and kept the PIN on sign-in. The two settings
+        // answer different questions (see `lockGating.rowAction`), and only the first is implied.
+        var creating = string.IsNullOrEmpty(profile.PinHash);
         profile.PinHash = PinHasher.Hash(req.Pin);
-        // Setting a PIN implies the profile wants to be lockable when idle.
-        profile.RequirePinWhenIdle = true;
-        profile.StayLoggedIn = false;
+        if (creating)
+        {
+            profile.RequirePinWhenIdle = true;
+            profile.StayLoggedIn = false;
+        }
         await _db.SaveChangesAsync();
         _lockout.Forget(id);
         return NoContent();
@@ -160,14 +176,26 @@ public class ProfilesController : ControllerBase
     /// was decorative: anything on the LAN could clear the PIN and then walk up to a panel that no
     /// longer asked for one. It is now the same self-or-admin rule as setting one, behind a session
     /// that the PIN itself is what mints — so clearing a PIN requires already having got past it.
+    /// <para>
+    /// <b>Removing your own PIN asks for it first, exactly as changing it does.</b> Without that the
+    /// re-entry <see cref="SetPin"/> demands would be theatre: clear, then set, is a change of PIN
+    /// with two taps and no PIN typed. The current one travels in the body — unusual on a
+    /// <c>DELETE</c>, and preferable to a query string, which is the one place a PIN would end up in
+    /// a log. An absent body is allowed and means "none offered", which is all an administrator
+    /// resetting somebody else's needs to send.
+    /// </para>
     /// </remarks>
     [HttpDelete("{id:int}/pin")]
-    public async Task<IActionResult> ClearPin(int id)
+    public async Task<IActionResult> ClearPin(
+        int id,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] ClearPinRequest? req)
     {
         if (!MaySetPinFor(id)) return Forbid();
 
         var profile = await _db.Profiles.FindAsync(id);
         if (profile is null) return NotFound();
+
+        if (RefuseWithoutCurrentPin(profile, req?.CurrentPin) is { } refusal) return refusal;
 
         profile.PinHash = null;
         profile.RequirePinWhenIdle = false;
@@ -179,6 +207,44 @@ public class ProfilesController : ControllerBase
 
     /// <summary>Whether the caller may change this profile's PIN: it is theirs, or they are admin.</summary>
     private bool MaySetPinFor(int id) => User.ProfileId() == id || User.IsHouseholdAdmin();
+
+    /// <summary>
+    /// The refusal to return when somebody is changing their own PIN and has not proved they know
+    /// the one they have — or null when there is nothing to prove.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two cases pass straight through, and both are deliberate. A profile with no PIN has nothing
+    /// to ask for; and an <i>administrator acting on somebody else</i> is the household's only
+    /// recovery path for a PIN that has been forgotten, which is a real event in a house with a
+    /// child's tablet in it. What is closed is the case that made the lock advisory in practice: the
+    /// wall panel holds a persistent session, so "already signed in" was enough to overwrite the PIN
+    /// of the profile that was signed in — the one thing the PIN exists to stop.
+    /// </para>
+    /// <para>
+    /// Wrong attempts go through the same <see cref="PinLockout"/> as sign-in, so this is not a
+    /// quieter place to guess four digits: five tries here and at the Lock screen are five tries in
+    /// total. The body is a <see cref="SignInFailure"/> because it is the same fact — a PIN was
+    /// refused, and possibly with a cooldown — and the client already reads that shape to draw the
+    /// wait.
+    /// </para>
+    /// </remarks>
+    private IActionResult? RefuseWithoutCurrentPin(Profile profile, string? currentPin)
+    {
+        if (string.IsNullOrEmpty(profile.PinHash)) return null;
+        if (User.ProfileId() != profile.Id) return null;
+
+        if (_lockout.RetryAfterSeconds(profile.Id) is { } cooldown)
+            return Unauthorized(new SignInFailure("Too many attempts. Wait a moment.", cooldown));
+
+        if (string.IsNullOrEmpty(currentPin) || !PinHasher.Verify(currentPin, profile.PinHash))
+        {
+            var started = _lockout.RecordFailure(profile.Id);
+            return Unauthorized(new SignInFailure("That PIN is not right.", started));
+        }
+
+        return null;
+    }
 
     private static bool IsValidPin(string? pin) =>
         pin is { Length: PinLength } && pin.All(char.IsDigit);

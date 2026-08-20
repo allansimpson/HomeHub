@@ -119,6 +119,27 @@ public class AuthBoundaryTests
         Assert.NotEqual(HttpStatusCode.Unauthorized, res.StatusCode);
     }
 
+    [Fact]
+    public async Task A_real_static_asset_is_served_before_the_anonymous_missing_asset_fallback()
+    {
+        var webRoot = Directory.CreateTempSubdirectory("homehub-static-");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(webRoot.FullName, "assets"));
+            await File.WriteAllTextAsync(Path.Combine(webRoot.FullName, "assets", "probe.js"), "window.probe = true;");
+            using var app = new HubAppFactory { WebRootPath = webRoot.FullName };
+
+            var res = await app.CreateAnonymousClient().GetAsync("/assets/probe.js");
+
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            Assert.Equal("window.probe = true;", await res.Content.ReadAsStringAsync());
+        }
+        finally
+        {
+            webRoot.Delete(recursive: true);
+        }
+    }
+
     /// <summary>
     /// An unknown path under /api is reported missing, never answered with the SPA shell.
     /// </summary>
@@ -201,9 +222,14 @@ public class AuthBoundaryTests
         var ragnar = app.CreateSeededClient(profileId: 2);
 
         Assert.Equal(HttpStatusCode.Forbidden, (await ragnar.DeleteAsync("/api/profiles/3/pin")).StatusCode);
-        // His own is his to clear.
+        // His own is his to clear — while he can still say what it is. Being signed in is not that:
+        // see `Removing_your_own_pin_asks_for_it_first`.
         await ragnar.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("2222"));
-        Assert.Equal(HttpStatusCode.NoContent, (await ragnar.DeleteAsync("/api/profiles/2/pin")).StatusCode);
+        var clear = new HttpRequestMessage(HttpMethod.Delete, "/api/profiles/2/pin")
+        {
+            Content = JsonContent.Create(new ClearPinRequest("2222")),
+        };
+        Assert.Equal(HttpStatusCode.NoContent, (await ragnar.SendAsync(clear)).StatusCode);
     }
 
     /// <summary>"Read any member's entire chat history with their agent."</summary>

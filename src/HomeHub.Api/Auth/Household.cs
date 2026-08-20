@@ -26,6 +26,9 @@ public static class Household
     /// <summary>Requires a household administrator. See <see cref="HouseholdAdminRequirement"/>.</summary>
     public const string AdminPolicy = "HouseholdAdmin";
 
+    /// <summary>Allows a household session or the specifically named Pi voice bridge.</summary>
+    public const string VoiceBridgePolicy = "VoiceBridge";
+
     /// <summary>Marks a caller as a service rather than a person.</summary>
     public const string ServiceRole = "Service";
 

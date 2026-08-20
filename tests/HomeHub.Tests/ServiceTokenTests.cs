@@ -27,13 +27,29 @@ public class ServiceTokenTests
     }
 
     [Fact]
-    public async Task A_configured_token_is_admitted()
+    public async Task Voice_bridge_token_is_admitted_only_to_its_voice_capability()
     {
         using var app = WithBridge();
 
-        var res = await Bearing(app, Token).GetAsync("/api/climate/zones");
+        var res = await Bearing(app, Token).PostAsJsonAsync(
+            "/api/voice/speak", new { text = "Hello", prosody = "warm", allowCache = true });
 
-        Assert.True(res.IsSuccessStatusCode, $"answered {res.StatusCode}");
+        Assert.Equal(HttpStatusCode.NotImplemented, res.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/api/climate/zones")]
+    [InlineData("/api/settings")]
+    [InlineData("/api/recipes")]
+    public async Task Voice_bridge_token_is_rejected_from_unapproved_endpoints(string path)
+    {
+        using var app = WithBridge();
+
+        var res = await Bearing(app, Token).GetAsync(path);
+
+        Assert.True(
+            res.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
+            $"{path} answered {res.StatusCode}");
     }
 
     [Fact]
@@ -41,7 +57,8 @@ public class ServiceTokenTests
     {
         using var app = WithBridge();
 
-        var res = await Bearing(app, "not-the-token").GetAsync("/api/climate/zones");
+        var res = await Bearing(app, "not-the-token").PostAsJsonAsync(
+            "/api/voice/speak", new { text = "Hello", prosody = "warm", allowCache = true });
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
@@ -58,33 +75,26 @@ public class ServiceTokenTests
     {
         using var app = new HubAppFactory();
 
-        var res = await Bearing(app, Token).GetAsync("/api/climate/zones");
+        var res = await Bearing(app, Token).PostAsJsonAsync(
+            "/api/voice/speak", new { text = "Hello", prosody = "warm", allowCache = true });
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
 
-    /// <summary>
-    /// A service has no <c>ProfileId</c>, so it cannot reach anything scoped to a member.
-    /// </summary>
-    /// <remarks>
-    /// This is the reason the bridge got its own scheme rather than being bound to a household
-    /// member's session: a headless daemon holding somebody's identity would file its actions into
-    /// their Assist history and their calendar. Here it reaches house state and stops there — and,
-    /// critically, the member-scoped endpoints do not fall back to "whichever profile is first".
-    /// </remarks>
+    /// <summary>A service cannot reach member-scoped data, even when it would return an empty list.</summary>
     [Fact]
-    public async Task A_service_gets_no_members_data()
+    public async Task A_service_is_rejected_from_members_data()
     {
         using var app = WithBridge();
-        // Give Astrid something to find, as her own signed-in session.
         var astrid = app.CreateSeededClient(profileId: 1);
         await astrid.PostAsJsonAsync("/api/assist/chat",
             new Api.Assist.AssistChatRequest(null, null, "Private", null, null, null));
 
-        var asService = await Bearing(app, Token)
-            .GetFromJsonAsync<Api.Assist.ConversationListDto>("/api/assist/conversations");
+        var response = await Bearing(app, Token).GetAsync("/api/assist/conversations");
 
-        Assert.Empty(asService!.Conversations);
+        Assert.True(
+            response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized,
+            $"answered {response.StatusCode}");
     }
 
     /// <summary>A service may not administer the household.</summary>

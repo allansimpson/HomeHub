@@ -1,53 +1,59 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { DashboardHeader, ScreenShell, PinPad } from '../components'
+import { DashboardHeader, ScreenShell } from '../components'
+import { Icon } from '../icons/Icon'
 import { useClock } from '../app/useClock'
 import { useSession } from '../app/SessionProvider'
 import { ApiError } from '../api/client'
-
-const PIN_LENGTH = 4
+import { LockPinSheet } from './LockPinSheet'
+import {
+  CLOSED, backspace, clearDigits, isComplete, openSheet, pinSubline, pressDigit,
+  profileCount, rowAction, rowMeta,
+} from './lockGating'
 
 /**
- * Conditional per-profile Lock / PIN screen (spec 06). Profile tiles + 4-digit deco keypad,
- * wrong-PIN shake + clear. No bottom nav. Tapping a profile that has a PIN opens the keypad;
- * tapping one without a PIN signs straight in.
+ * Conditional per-profile Lock / PIN screen (`design_handoff_lock_pin`, superseding spec 06).
+ *
+ * <b>Choose a person, then enter a key</b> — an ordering the previous screen did not enforce. It
+ * showed the profile tiles and a live keypad at once, so digits could be pressed with nobody
+ * selected and nothing happened at all: no feedback, no error, no state. Now the screen is only a
+ * chooser, and the keypad exists solely inside a sheet that cannot open without an owner.
+ *
+ * No bottom nav. Tapping a profile that has a PIN raises the sheet; tapping one without a PIN signs
+ * straight in and never sees it.
  */
 export function LockScreen() {
   const navigate = useNavigate()
   const { time, ampm, date } = useClock()
-  const { profiles, activeProfileId, completeUnlock } = useSession()
+  const { profiles, completeUnlock } = useSession()
 
-  // `hasPin` alone, not `requirePinWhenIdle && hasPin`. The server requires the PIN of any profile
-  // that has one (SessionController.SignIn), so the two settings answer different questions:
-  // `hasPin` decides whether signing in needs the keypad, `requirePinWhenIdle` decides whether the
-  // panel re-locks after idling. Conflating them is what made Allan's PIN "not work" — his profile
-  // had a PIN with requirePinWhenIdle off, so the tile signed in with no PIN at all and the server
-  // refused it, without the keypad ever appearing.
-  const lockable = profiles.filter((p) => p.hasPin)
-  const initialId = lockable.some((p) => p.id === activeProfileId)
-    ? activeProfileId
-    : (lockable[0]?.id ?? null)
-
-  const [selectedId, setSelectedId] = useState<number | null>(initialId)
-  const [digits, setDigits] = useState('')
+  const [sheet, setSheet] = useState(CLOSED)
   const [shake, setShake] = useState(false)
   const [lockedFor, setLockedFor] = useState<number | null>(null)
+  /** The PIN could not be checked at all — a different fact from its being wrong. */
+  const [unreachable, setUnreachable] = useState(false)
   const verifyingRef = useRef(false)
 
-  const selected = profiles.find((p) => p.id === selectedId) ?? null
+  const selected = profiles.find((p) => p.id === sheet.profileId) ?? null
 
-  const selectProfile = useCallback(
+  const close = useCallback(() => {
+    setSheet(CLOSED)
+    setLockedFor(null)
+    setUnreachable(false)
+  }, [])
+
+  const choose = useCallback(
     (id: number) => {
       const p = profiles.find((x) => x.id === id)
       if (!p) return
-      if (!p.hasPin) {
-        // No lock on this profile — sign straight in.
+      if (rowAction(p) === 'sign-in') {
+        // No lock on this profile — sign straight in, with no pass through the sheet.
         void completeUnlock(id).then(() => navigate('/'))
         return
       }
-      setSelectedId(id)
-      setDigits('')
+      setSheet(openSheet(id))
       setLockedFor(null)
+      setUnreachable(false)
     },
     [profiles, completeUnlock, navigate],
   )
@@ -55,17 +61,18 @@ export function LockScreen() {
   const press = useCallback(
     (d: string) => {
       if (verifyingRef.current || lockedFor) return
-      setDigits((cur) => (cur.length >= PIN_LENGTH ? cur : cur + d))
+      setSheet((s) => pressDigit(s, d))
     },
     [lockedFor],
   )
 
-  const backspace = useCallback(() => setDigits((cur) => cur.slice(0, -1)), [])
-  const clear = useCallback(() => setDigits(''), [])
+  const onBackspace = useCallback(() => setSheet(backspace), [])
+  const onClear = useCallback(() => setSheet(clearDigits), [])
 
-  // Verify once the 4th digit lands.
+  // Verify once the fourth digit lands. There is no confirm key: the fourth digit is the submission.
   useEffect(() => {
-    if (digits.length !== PIN_LENGTH || selectedId == null) return
+    const { profileId, digits } = sheet
+    if (profileId == null || !isComplete(sheet)) return
     verifyingRef.current = true
     ;(async () => {
       try {
@@ -73,11 +80,10 @@ export function LockScreen() {
         // returned a boolean this screen chose to honour — so the lock was only as real as the
         // client. Now the correct PIN is what mints the session cookie every other call needs, and
         // a client that skipped this screen would simply get 401s.
-        await completeUnlock(selectedId, digits)
+        await completeUnlock(profileId, digits)
         navigate('/')
         return
       } catch (err) {
-        // Offline / server error — clear and let the reconnecting state surface elsewhere.
         if (!(err instanceof ApiError)) throw err
         // 401 is a wrong PIN; the body carries the cooldown when the lockout has started.
         if (err.status === 401) {
@@ -85,13 +91,28 @@ export function LockScreen() {
           if (failure?.retryAfterSeconds) setLockedFor(failure.retryAfterSeconds)
           setShake(true)
           window.setTimeout(() => setShake(false), 400)
+          setUnreachable(false)
+        } else {
+          /*
+           * The PIN could not be checked, which is not the same as being wrong.
+           *
+           * This used to clear the digits and say nothing, on the reasoning that the reconnecting
+           * banner would explain it. It does not: the Lock screen has no banner above it, so a
+           * correct PIN simply vanished four digits at a time with no feedback at all — which reads
+           * exactly like being told you are wrong, repeatedly, by a panel that will not say so.
+           * The sheet's subline now says which of the two happened, and there is no shake, because
+           * nothing was rejected.
+           */
+          setUnreachable(true)
         }
       } finally {
-        setDigits('')
+        // Empty the squares and stay on this profile: a wrong PIN is a reason to try again, not a
+        // reason to make somebody choose their own name a second time.
+        setSheet(clearDigits)
         verifyingRef.current = false
       }
     })()
-  }, [digits, selectedId, completeUnlock, navigate])
+  }, [sheet, completeUnlock, navigate])
 
   // Count down a lockout so the keypad re-enables on its own.
   useEffect(() => {
@@ -102,50 +123,64 @@ export function LockScreen() {
     return () => window.clearInterval(id)
   }, [lockedFor])
 
-  const hint = lockedFor
-    ? `LOCKED · ${lockedFor}s`
-    : selected
-      ? `${selected.name.toUpperCase()}'S PIN REQUIRED`
-      : ''
-
   return (
     <ScreenShell header={<DashboardHeader clock={time} ampm={ampm} date={date} />} nav={false}>
       <div className={'ml-lock' + (shake ? ' ml-lock--shake' : '')}>
-        <div className="ml-lock__top">
-          <div className="ml-lock__labelrow">
-            <span className="label ml-lock__who">Who is this?</span>
-            {hint && <span className="ml-lock__hint">{hint}</span>}
-          </div>
+        <div className="ml-lock__labelrow">
+          <span className="label ml-lock__who">Who is this?</span>
+          <span className="ml-lock__count">{profileCount(profiles.length)}</span>
+        </div>
+        {/* Sentence case, not a label: this one is an instruction to a person, not a heading. */}
+        <p className="ml-lock__instruction">Tap a name to continue.</p>
 
-          <div className="ml-lock__tiles">
-            {profiles.map((p) => (
+        <div className="ml-lock__rows">
+          {profiles.map((p) => {
+            const meta = rowMeta(p, sheet.profileId)
+            const chosen = p.id === sheet.profileId
+            return (
               <button
                 key={p.id}
                 type="button"
-                className={'ml-lock__tile' + (p.id === selectedId ? ' ml-lock__tile--selected' : '')}
-                onClick={() => selectProfile(p.id)}
+                className={'ml-lockrow' + (chosen ? ' ml-lockrow--chosen' : '')}
+                onClick={() => choose(p.id)}
               >
-                <span className="ml-lock__tile-initial serif">{p.initial}</span>
-                <span className="ml-lock__tile-name">{p.name}</span>
+                <span
+                  className={'ml-lockrow__avatar serif' + (p.hasPin ? ' ml-lockrow__avatar--pin' : '')}
+                  aria-hidden="true"
+                >
+                  {p.initial}
+                </span>
+                <span className="ml-lockrow__text">
+                  <span className="ml-lockrow__name serif">{p.name}</span>
+                  <span className={`ml-lockrow__meta ml-lockrow__meta--${meta.tone}`}>
+                    {meta.lock && <Icon id="ico-lock" size="0.8125rem" />}
+                    {meta.text}
+                  </span>
+                </span>
+                {/* The chosen row loses its chevron — it has already been followed. */}
+                {!chosen && <span className="ml-lockrow__chevron" aria-hidden="true">▸</span>}
               </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="ml-lock__entry">
-          <PinPad
-            digits={digits}
-            length={PIN_LENGTH}
-            onPress={press}
-            onBackspace={backspace}
-            onClear={clear}
-          />
+            )
+          })}
         </div>
         {/* No footer. It carried a "… STAY SIGNED IN" note and a SETTINGS link, and neither
             survives contact with the screen being a lock: the link goes somewhere the lock exists
             to prevent reaching, and announcing who can get in without a PIN is a hint offered to
             whoever is standing in front of a panel they could not open. */}
       </div>
+
+      {selected && (
+        <LockPinSheet
+          name={selected.name}
+          initial={selected.initial}
+          digits={sheet.digits}
+          subline={pinSubline({ unreachable, lockedFor })}
+          onPress={press}
+          onBackspace={onBackspace}
+          onClear={onClear}
+          onCancel={close}
+        />
+      )}
     </ScreenShell>
   )
 }

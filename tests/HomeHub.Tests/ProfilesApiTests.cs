@@ -211,6 +211,124 @@ public class ProfilesApiTests
         Assert.Equal(HttpStatusCode.Unauthorized, withTheRealPin.StatusCode);
     }
 
+    /// <summary>
+    /// Changing your own PIN means proving you know the one you have — a session is not proof.
+    /// </summary>
+    /// <remarks>
+    /// The wall panel holds a persistent session all day, so before this anybody standing at an
+    /// unlocked kitchen screen could set a member's PIN to four digits only they knew. There was
+    /// also no way to *change* a PIN at all: the only route to different digits was clear-then-set,
+    /// which asked for nothing either.
+    /// </remarks>
+    [Fact]
+    public async Task Changing_your_own_pin_asks_for_the_current_one()
+    {
+        using var app = new HubAppFactory();
+        var astrid = app.CreateSeededClient(profileId: 1);
+        await astrid.PutAsJsonAsync("/api/profiles/1/pin", new SetPinRequest("1234"));
+
+        // Signed in as herself, and still refused without the PIN in force.
+        var silent = await astrid.PutAsJsonAsync("/api/profiles/1/pin", new SetPinRequest("5678"));
+        Assert.Equal(HttpStatusCode.Unauthorized, silent.StatusCode);
+
+        var wrong = await astrid.PutAsJsonAsync("/api/profiles/1/pin", new SetPinRequest("5678", "0000"));
+        Assert.Equal(HttpStatusCode.Unauthorized, wrong.StatusCode);
+
+        // The old PIN still opens the door — a refused change changes nothing.
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await app.CreateAnonymousClient().PostAsJsonAsync("/api/session", new { profileId = 1, pin = "1234" })).StatusCode);
+
+        var right = await astrid.PutAsJsonAsync("/api/profiles/1/pin", new SetPinRequest("5678", "1234"));
+        Assert.Equal(HttpStatusCode.NoContent, right.StatusCode);
+
+        // And now it is the new one, and only the new one.
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await app.CreateAnonymousClient().PostAsJsonAsync("/api/session", new { profileId = 1, pin = "5678" })).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await app.CreateAnonymousClient().PostAsJsonAsync("/api/session", new { profileId = 1, pin = "1234" })).StatusCode);
+    }
+
+    /// <summary>
+    /// Removing your own PIN asks for it too — or the re-entry above would be theatre.
+    /// </summary>
+    /// <remarks>
+    /// Clear-then-set is a change of PIN with two taps. If only one half of the pair asked, the
+    /// household would be protected by whichever half an attacker did not choose.
+    /// </remarks>
+    [Fact]
+    public async Task Removing_your_own_pin_asks_for_it_first()
+    {
+        using var app = new HubAppFactory();
+        var ragnar = app.CreateSeededClient(profileId: 2);
+        await ragnar.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("4321"));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await ragnar.DeleteAsync("/api/profiles/2/pin")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Clear(ragnar, 2, "0000")).StatusCode);
+
+        var profiles = await ragnar.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        Assert.True(profiles!.Single(p => p.Id == 2).HasPin);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Clear(ragnar, 2, "4321")).StatusCode);
+        var after = await ragnar.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        Assert.False(after!.Single(p => p.Id == 2).HasPin);
+    }
+
+    /// <summary>
+    /// An administrator resetting somebody else's PIN is not asked for it — that is the household's
+    /// recovery path for a PIN nobody can remember.
+    /// </summary>
+    [Fact]
+    public async Task An_admin_can_reset_another_members_forgotten_pin()
+    {
+        using var app = new HubAppFactory();
+        var ragnar = app.CreateSeededClient(profileId: 2);
+        await ragnar.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("4321"));
+
+        var admin = app.CreateSeededClient(profileId: 1);
+        var reset = await admin.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("1111"));
+        Assert.Equal(HttpStatusCode.NoContent, reset.StatusCode);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await app.CreateAnonymousClient().PostAsJsonAsync("/api/session", new { profileId = 2, pin = "1111" })).StatusCode);
+    }
+
+    /// <summary>
+    /// Guessing the current PIN here counts against the same lockout as guessing it at the Lock
+    /// screen — this is not a quieter door to knock on.
+    /// </summary>
+    [Fact]
+    public async Task Wrong_current_pins_share_the_sign_in_lockout()
+    {
+        using var app = new HubAppFactory();
+        var leif = app.CreateSeededClient(profileId: 3);
+        await leif.PutAsJsonAsync("/api/profiles/3/pin", new SetPinRequest("1111"));
+
+        for (var i = 0; i < 5; i++)
+            await leif.PutAsJsonAsync("/api/profiles/3/pin", new SetPinRequest("2222", "0000"));
+
+        // The lockout is now running, so even the right PIN is refused — at both endpoints, because
+        // there is one counter rather than one each.
+        var withTheRealPin = await leif.PutAsJsonAsync("/api/profiles/3/pin", new SetPinRequest("2222", "1111"));
+        Assert.Equal(HttpStatusCode.Unauthorized, withTheRealPin.StatusCode);
+        var failure = await withTheRealPin.Content.ReadFromJsonAsync<SignInFailure>();
+        Assert.True(failure!.RetryAfterSeconds > 0);
+
+        var atTheLockScreen = await app.CreateAnonymousClient()
+            .PostAsJsonAsync("/api/session", new { profileId = 3, pin = "1111" });
+        Assert.Equal(HttpStatusCode.Unauthorized, atTheLockScreen.StatusCode);
+    }
+
+    /// <summary>DELETE with a body — see <see cref="ClearPinRequest"/> for why the PIN travels there.</summary>
+    private static Task<HttpResponseMessage> Clear(HttpClient client, int profileId, string currentPin) =>
+        client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/api/profiles/{profileId}/pin")
+        {
+            Content = JsonContent.Create(new ClearPinRequest(currentPin)),
+        });
+
     [Fact]
     public async Task Create_rename_and_delete_profile()
     {

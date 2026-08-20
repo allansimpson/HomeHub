@@ -42,7 +42,26 @@ public record UpdateProfileRequest(
     ProfileRole? Role = null);
 
 /// <summary>Set-PIN payload.</summary>
-public record SetPinRequest(string Pin);
+/// <param name="CurrentPin">
+/// The PIN being replaced, required when a member is changing their <i>own</i> — see
+/// <c>ProfilesController.RefuseWithoutCurrentPin</c>. Null on the two occasions there is nothing to
+/// prove: a profile that has no PIN yet, and an administrator resetting somebody else's.
+/// <para>
+/// Optional and last so that every existing caller — and the tests that construct this positionally
+/// — still compiles and still means the same thing.
+/// </para>
+/// </param>
+public record SetPinRequest(string Pin, string? CurrentPin = null);
+
+/// <summary>
+/// Clear-PIN payload: the PIN being removed, on the same rule as changing one.
+/// </summary>
+/// <remarks>
+/// A body on a <c>DELETE</c>, which is unusual enough to say why: the alternative is a query string,
+/// and a query string is the one place a PIN reliably ends up written down — in an access log. The
+/// whole request is optional (see the endpoint), so a caller with nothing to prove sends nothing.
+/// </remarks>
+public record ClearPinRequest(string? CurrentPin = null);
 
 /// <summary>Verify-PIN payload.</summary>
 public record VerifyPinRequest(string Pin);
