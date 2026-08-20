@@ -204,9 +204,72 @@ Routing is four facts, none of them a guess about what the prompt *means*:
   the press-and-slide gesture, which is **disabled** after five minutes of failed polls: sliding
   against a target that may already have changed is worse than not sliding, and a gesture cannot
   meaningfully queue.
+- **9c — the Care log goes further, and is the only domain that does.** 9a/9b degrade gracefully;
+  Care is expected to *work*, because the moment somebody needs it most is 3am with the server down,
+  and "log it later" does not happen. Three additions, all Care-specific:
+  - **Entries are replay-safe by key, not by hope.** `CareEntryInput.ClientKey` is stored as
+    `CareEntry.ExternalKey` under a `panel:` prefix, reusing the unique filtered index the
+    Huckleberry import already had (`hb:`). A second write of the same key **returns the first row**
+    instead of creating a second, so the one failure a queue cannot diagnose — row landed, response
+    lost — cannot duplicate a feed. `clientKey` comes back on the DTO so the client can match its
+    own unsent rows against the server's; `mergeEntries` (`careOffline.ts`) is the only thing
+    allowed to decide two rows are one feed, and it matches on that key alone.
+  - **Reads are cached to localStorage** (`careOffline.ts`), so a cold open with no server shows the
+    log rather than a blank page — a blank page at 4am reads as "nothing was logged tonight".
+  - **Timers run on the device and never sync as timers.** A session started offline is a local
+    stopwatch; on COMPLETE it writes an ordinary keyed entry carrying its duration. There is no
+    half-finished session to reconcile on reconnect, and nothing that can be counted twice.
+  - Care `PUT`/`DELETE` accept `?baseVersion=` like the rest of 9b, so a correction queued for hours
+    cannot silently overwrite one made on the panel since.
+- **9d — the session, so offline is usable rather than merely possible.** Three findings, all from
+  actually running the app off the network:
+  - **The banner distinguishes the two states.** `ConnectionProvider.offline` turns true after
+    `OFFLINE_AFTER_MS` (20s), and the banner switches from *Reconnecting* (alert palette) to
+    *Offline — saved here, will sync when you're back* (brass). 20s so a deploy restart, which is
+    back in a few seconds, never flashes "offline" across every panel in the house. The dashboard's
+    `OfflineChip` reads the same flag — it is the one screen with no banner, so the two would
+    otherwise disagree.
+  - **The panel no longer idle-locks while the server is unreachable.** Locking is client-side and
+    instant; unlocking calls `signIn`, which is the server's to answer. Offline those disagreed, and
+    a phone would lock itself into a state with no exit — putting the care log behind a keypad that
+    rejects every correct PIN. `lockNow` is now a no-op while offline and resumes on the next good
+    probe. `LockScreen` also distinguishes *wrong PIN* from *could not check it*; it previously
+    cleared the digits and said nothing, which reads exactly like being told you are wrong.
+  - **A 12-hour trusted-unlock window** (`app/sessionTrust.ts`), keyed to the profile, cleared on
+    sign-out and profile switch. **It is not a credential** — no PIN and no hash of one is stored,
+    the HttpOnly cookie is still the only thing that authorises a request, and the server still
+    decides. It is a note about when somebody last proved themselves *on this device*, used to
+    decide whether to ask again. `shouldAskForPin` is the single rule; the boot path and the idle
+    timer both go through it so they cannot drift.
+  - The last confirmed identity and roster are cached so an offline launch comes up as that person
+    rather than anonymous and empty. **`isAdmin` is deliberately not cached** — that is an
+    authorisation answer and the server's alone to give.
+- **Service worker (`client/public/sw.js`)** — the app shell is cached so an installed panel or
+  phone can *launch* offline, which nothing in 9a/9b provided. Three rules: **`/api` is never
+  cached** (a cached `/api/health` would have `ConnectionProvider` report itself online while
+  nothing could leave the device, and stale care data is how a baby gets fed twice); navigations are
+  **network-first** so a reachable server always wins and no device is stranded on a stale build;
+  `/assets/*` is **cache-first** because its name is its hash. Registered in `main.tsx` and
+  **unregistered in dev** — a worker in front of Vite silently breaks HMR. A device that has never
+  reached this server still cannot open the app; no caching changes that.
 
 ## 8 · Key decisions, fixes & gotchas
 
+- **A PIN can be changed, and changing your own asks for the one in force — signed in or not.**
+  There used to be no change at all: the toggle in Privacy & Lock collected a PIN when there was
+  none, and after that the only route to different digits was Household → Clear PIN and back on
+  again. Neither half asked for the PIN being replaced, so anybody at the already-unlocked wall
+  panel — which holds a *persistent* session by design — could set a member's PIN to four digits
+  only they knew. `ProfilesController.RefuseWithoutCurrentPin` now gates both `PUT` and `DELETE`
+  on `{id}/pin`; removing your own asks too, or clear-then-set would be the same bypass with two
+  taps. Wrong attempts count against the **same `PinLockout` as sign-in**, so it is not a quieter
+  door to guess at. An **administrator resetting somebody else's** is deliberately exempt — that is
+  the household's only recovery path for a forgotten PIN. The client mirrors the rule in
+  `screens/pinChange.ts` (current → new → confirm) and reads "is this my own PIN" from the
+  *session's* profile id, never `settings.activeProfileId`, which is a shared display value anyone
+  can change. There is still **no verify-PIN endpoint** and there must not be (AUDIT A1): the
+  current PIN is proved by the write that uses it, which is why a mistyped one is only reported
+  after the confirm.
 - **`InvariantGlobalization` must stay `false`** — `Microsoft.Data.SqlClient` refuses to connect in
   invariant mode. Latent since Stage 0; first surfaced at Stage 2. On Linux/Pi this needs **`libicu`**
   installed.
@@ -218,6 +281,25 @@ Routing is four facts, none of them a guess about what the prompt *means*:
   both driven from `client/src/app/` hooks; the boost mode is a household setting (auto/on/off).
 - **`homehub:sync`** is a window event the write-queue fires after replay/resolve so the calendar/
   task/climate providers refetch.
+- **The app has no swipe-between-tabs gesture, and reports of one are the platform's back gesture.**
+  Found in user testing on the Care tab, **on Android Chrome as an installed PWA**: paging the
+  SINCE/TODAY/ENTRIES panels landed people on another tab. Android gesture navigation delivers an
+  edge swipe to Chrome as a *system back command* — it never reaches the page as a touch — so it
+  pops history and the entry underneath is whichever tab was open before.
+  **Do not try to block the gesture. Two attempts were shipped and neither could have worked.**
+  Nothing in the web platform intercepts a system back: not `preventDefault` on `touchmove` or
+  `touchstart`, not `touch-action`, not `overscroll-behavior` (which governs scroll chaining, and is
+  already `none` on `body`). The first attempt was also written against the wrong platform — iOS,
+  inferred from an earlier screenshot rather than asked about.
+  The fix is two things that act on what back *reaches*, not on the gesture:
+  1. `BottomNav` navigates with `{ replace: true }` — tab switches leave no entry to pop.
+  2. `app/backGuard.ts` refuses a `popstate` that would leave a tab root, restoring the URL *and*
+     React Router's own state object so its index cannot drift. It is installed in `main.tsx`
+     **before the router mounts**, so it runs ahead of the router's listener and corrects history
+     before anything renders — otherwise an absorbed swipe flashes the wrong tab for a frame.
+  It decides on the route (`guardsBackFrom`), not on a flag callers set, so the ~10 `navigate(-1)`
+  back buttons need no co-operation and cannot forget to give it. Drill-ins keep a working back, by
+  button and by swipe; only tab roots refuse.
 - **Enums serialize as strings** (global `JsonStringEnumConverter`); the client mirrors the unions.
 - **Owner tagging on calendar events is local-only** (not pushed to Google), per the Stage 4 decision.
 
