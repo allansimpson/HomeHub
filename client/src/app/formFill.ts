@@ -93,7 +93,7 @@ export function fillSummary(plan: FillPlan, photoKept: boolean): string {
 const WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
 
 /** Small counts as words — the strip is a sentence, not a readout. */
-function countWord(n: number): string {
+export function countWord(n: number): string {
   return WORDS[n] ?? String(n)
 }
 

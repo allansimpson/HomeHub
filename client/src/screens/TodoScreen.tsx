@@ -167,7 +167,7 @@ export function TodoScreen() {
   // sync state, with no duplicate name/avatar cluster.
   const header = (
     <header className="ml-header ml-todo__header">
-      <span className="ml-todo__title serif">TO DO</span>
+      <span className="ml-todo__title serif">LISTS</span>
       <span className={'ml-todo__sync' + (offline ? ' ml-todo__sync--off' : '')}>
         <span className="ml-todo__syncdot" aria-hidden="true" />
         {offline ? 'Offline' : 'Synced'}

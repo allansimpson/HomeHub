@@ -2,10 +2,12 @@ import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useNotifications } from '../app/NotificationsProvider'
 import type { AppNotification } from '../app/NotificationsProvider'
+import { clockLabel } from '../app/dates'
 
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
+// The panel's own way of saying a time, not the device's: `toLocaleTimeString` follows the
+// browser locale, so the same reading rendered `18:32` on a phone set to en-GB and `6:32 PM`
+// on the wall panel beside it. Nothing here is 24-hour (`dates.clockLabel`).
+const clock = (iso: string): string => clockLabel(new Date(iso))
 
 /**
  * The live-card stack — what happens when something fires while the panel is in use.

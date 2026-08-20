@@ -44,6 +44,15 @@
   --alert: #D08A2E;
   --alert-ink: #171207;
 
+  /* The update plate's inks and gauge track (design_handoff_update_notice).
+     One near-black per fill rather than one shared ink: each is chosen against the colour it sits
+     on, and the brass one is the amber banner's `--alert-ink`, which is the same value doing the
+     same job. The track is a darkened brass, because a brass gauge on a brass plate has no contrast
+     — the fill that runs along it is the ink. */
+  --plate-ink-live: #0F1613;
+  --plate-ink-danger: #17100C;
+  --plate-track: #8A6C3C;
+
   /* Terracotta — the destructive accent (sign out / delete only) */
   --danger: #C07A5A;
   --bg-danger-soft: #1C1512;     /* inline delete-confirm block fill */
@@ -74,6 +83,19 @@
   --text-fault-meta: #8F6A55;    /* meta text inside the fault banner */
   --bg-disabled: #191B1E;        /* blocked command fill */
   --text-faintest: #4A4740;      /* unchecked grocery box, blocked meta, strike-through rule */
+
+  /*
+   * Care logging panels (design_handoff_care_logging).
+   *
+   * `--bg-sheet` is deliberately its own value rather than `--bg-menu` (#191C20): the raised panel is
+   * "one step lighter than the screen so it reads as a layer", and it covers all but a 200px peek —
+   * a surface that large sitting a half-step off the menu shade reads as an inconsistency rather
+   * than as a plane. The handle and swatch borders have no relative anywhere else in the app.
+   */
+  --bg-sheet: #191B1F;           /* the raised logging panel */
+  --scrim-sheet: rgba(11, 12, 14, 0.68); /* over the peek of the day view behind it */
+  --handle-bar: #6B6250;         /* the 78 × 4 grab bar */
+  --border-swatch: #4A4438;      /* frame around a diaper colour block */
 
   /* The desk/scrim colour around the panel. Not a screen token — it appears only as the Attendant
      overlay's scrim (at 55%) and as the prototype canvas background. */
@@ -140,6 +162,11 @@
  * design-canvas units while quietly meaning something else. 540px is the canvas width — below it
  * the panel is narrower than the design was drawn for, which is exactly the condition this targets.
  *
+ * **`539.98px`, not `540px`, and the decimal is load-bearing.** `max-width` is inclusive, so
+ * `540px` caught the canvas width itself: a screen rendered at exactly the size the design was
+ * drawn at came out with the phone's 16px gutter instead of the drawn 34px. Every reference
+ * comparison is made at 540, which is precisely where the rule must not apply.
+ *
  * **The figures below were narrowed again after use on a phone.** 24/18 mock-px still spent about
  * 9% and 6.7% of the width on nothing per side, and the thing that suffers is the one screen where
  * width *is* the content: a chat row's preview, which ellipses a word or two earlier for every pixel
@@ -153,7 +180,7 @@
  * `.ml-nav` never referenced `--gutter` (its side padding is 0 by design, so the outer gaps match the
  * inner ones) and it must stay that way; see `ledger.css` for the floor that protects it instead.
  */
-@media (max-width: 540px) {
+@media (max-width: 539.98px) {
   :root {
     --gutter: 1rem; /* 16px */
   }
@@ -199,4 +226,10 @@
   --text-fault-meta: #B08770;
   --bg-disabled: #22252A;
   --text-faintest: #6C6860;
+  /* The panel rises with the screen it covers, or it stops reading as a layer above it. The scrim
+     lightens too: at 0.68 over a brightened peek it goes from "dimmed context" to "black band". */
+  --bg-sheet: #22252A;
+  --scrim-sheet: rgba(11, 12, 14, 0.58);
+  --handle-bar: #8A806A;
+  --border-swatch: #635B4A;
 }

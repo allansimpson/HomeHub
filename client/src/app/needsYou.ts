@@ -101,7 +101,7 @@ export function useNeedsYou(): NeedsRow[] {
       tone: 'bad',
       problem: t.title,
       right: `${-days} DAY${days === -1 ? '' : 'S'} LATE`,
-      target: '/todo',
+      target: '/lists',
       since: due.getTime(),
     })
   }
@@ -136,11 +136,11 @@ export function useNeedsYou(): NeedsRow[] {
     if (!forTonight) continue
     rows.push({
       key: `grocery:${line.id}`,
-      tag: 'MEALS',
+      tag: 'KITCHEN',
       tone: 'warn',
       problem: `Tonight needs ${line.text.toLowerCase()}`,
       right: 'NOT GOT',
-      target: '/meals/pantry/grocery',
+      target: '/kitchen/list',
       since: now,
     })
   }
@@ -151,11 +151,11 @@ export function useNeedsYou(): NeedsRow[] {
   if (out > 0) {
     rows.push({
       key: 'pantry:out',
-      tag: 'MEALS',
+      tag: 'KITCHEN',
       tone: 'warn',
       problem: `${out} thing${out === 1 ? '' : 's'} probably out of the pantry`,
       right: 'CHECK',
-      target: '/meals/pantry',
+      target: '/kitchen/pantry',
       since: now,
     })
   }

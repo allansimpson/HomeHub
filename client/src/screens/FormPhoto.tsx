@@ -1,21 +1,26 @@
 import { useRef } from 'react'
 import { Icon } from '../icons/Icon'
+import { countWord } from '../app/formFill'
 
 /**
- * The empty-state offer (screen 16).
+ * The empty-state offer, at the foot of the field list.
  *
- * Between the double rule and TITLE, and <b>only while the form is untouched</b> — it is an offer,
- * not permanent furniture, and a form somebody has started typing into has already answered it.
+ * <b>A line, not a banner.</b> The boxed block that used to sit between the double rule and TITLE was
+ * the only filled, four-side-bordered thing on a screen otherwise built from labelled hairline rows;
+ * it was louder than SAVE and it pushed the first field down. The offer now takes the space the form
+ * already carries below NOTE, so nothing above the fold moves at any point in the flow.
+ *
+ * The word "or" carries the relationship to the fields above it — no border, no fill, no chevron and
+ * no second line of copy. Centred rather than gutter-aligned: it is an action, not a field row.
+ *
+ * <b>Only while the form is empty.</b> It is an offer, not permanent furniture; a form somebody has
+ * started reaches a photo through REPLACE on the source strip instead.
  */
 export function ReadFromPhotoRow({ onOpen }: { onOpen: () => void }) {
   return (
     <button type="button" className="ml-readphoto" onClick={onOpen}>
-      <Icon id="ico-camera" size="1.5rem" />
-      <span className="ml-readphoto__body">
-        <span className="ml-readphoto__label">Read it from a photo</span>
-        <span className="ml-readphoto__sub">A flyer, an invitation, a card on the fridge</span>
-      </span>
-      <span className="ml-readphoto__chev" aria-hidden="true">▸</span>
+      <Icon id="ico-camera" size="1.3125rem" />
+      <span className="ml-readphoto__label">Or read it from a photo</span>
     </button>
   )
 }
@@ -71,13 +76,20 @@ export function ReadFromSheet({ onPick, onCancel }: {
   )
 }
 
-/** Reading in place (screen 18). The field rows behind it hold; they do not skeleton or shuffle. */
+/**
+ * Reading in place (screen 18).
+ *
+ * Takes the offer line's place at the foot, so the eye does not travel. The field rows above hold at
+ * a third opacity: they do not skeleton, do not shuffle and do not fill one at a time — the form
+ * fills in one step when reading ends. No cancel; reading is short, and CANCEL in the header already
+ * leaves.
+ */
 export function ReadingBlock({ preview }: { preview: string | null }) {
   return (
     <div className="ml-reading">
       {preview
         ? <img className="ml-reading__thumb" src={preview} alt="" />
-        : <span className="ml-reading__thumb" aria-hidden="true" />}
+        : <span className="ml-reading__thumb" aria-hidden="true"><Icon id="ico-image" size="1.25rem" /></span>}
       <span className="ml-reading__body">
         <span className="ml-reading__label">Reading the photo</span>
         <span className="ml-reading__track"><span className="ml-reading__fill" /></span>
@@ -87,7 +99,13 @@ export function ReadingBlock({ preview }: { preview: string | null }) {
   )
 }
 
-/** The source strip once a reading has landed (screen 19). */
+/**
+ * The source strip once a reading has landed (screen 19).
+ *
+ * The reading block stays where it was, at the foot above a hairline, and becomes the record of what
+ * was read. REPLACE reopens READ FROM — and is also how a form already in progress gets a photo,
+ * since the offer line above only ever shows on an untouched form.
+ */
 export function SourceStrip({ preview, summary, onReplace }: {
   preview: string | null
   summary: string
@@ -97,12 +115,32 @@ export function SourceStrip({ preview, summary, onReplace }: {
     <div className="ml-srcstrip">
       {preview
         ? <img className="ml-srcstrip__thumb" src={preview} alt="" />
-        : <span className="ml-srcstrip__thumb" aria-hidden="true" />}
+        : <span className="ml-srcstrip__thumb" aria-hidden="true"><Icon id="ico-image" size="1.125rem" /></span>}
       <span className="ml-srcstrip__body">
         <span className="ml-srcstrip__label">Filled from a photo</span>
         <span className="ml-srcstrip__sub">{summary}</span>
       </span>
       <button type="button" className="ml-srcstrip__replace" onClick={onReplace}>Replace</button>
+    </div>
+  )
+}
+
+/**
+ * What amber means, said once, above the source strip.
+ *
+ * The rows themselves carry the amber; this only explains it. Once, in one place, rather than a mark
+ * per row repeating the same sentence — the fields are already underlined in amber, and what somebody
+ * needs is the key, not a chorus. Absent entirely when the reading was sure of everything.
+ */
+export function AmberNotice({ count }: { count: number }) {
+  if (count < 1) return null
+  const lines = count === 1 ? 'One line was' : `${countWord(count)} lines were`
+  return (
+    <div className="ml-photoamber">
+      <span className="ml-photoamber__square" aria-hidden="true" />
+      <span className="ml-photoamber__text">
+        {lines.charAt(0).toUpperCase() + lines.slice(1)} hard to read. Amber means check it.
+      </span>
     </div>
   )
 }

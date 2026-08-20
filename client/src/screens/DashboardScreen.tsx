@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router'
-import { DashboardHeader, ScreenShell, SectionLabel, LedgerRow, AlertBanner, Stepper } from '../components'
+import { DashboardHeader, ScreenShell, SectionLabel, LedgerRow, AlertBanner, Stepper, UpdatePlate } from '../components'
+import { useUpdate } from '../app/UpdateProvider'
 import { useClock } from '../app/useClock'
 import { useSession } from '../app/SessionProvider'
 import { useSensors } from '../app/SensorsProvider'
@@ -12,6 +13,7 @@ import { usePantry } from '../app/PantryProvider'
 import { useBaby } from '../app/BabyProvider'
 import { useCareSubjects } from '../app/careSubjects'
 import { useNeedsYou, alertTarget, alertHeadline, type NeedsRow } from '../app/needsYou'
+import { useNotifications } from '../app/NotificationsProvider'
 import { useNow } from '../app/useNow'
 import { Icon } from '../icons/Icon'
 import { formatTime } from '../app/dates'
@@ -44,6 +46,9 @@ const HOUSE_ROLLUP = 2
 export function DashboardScreen() {
   const { time, ampm, date } = useClock()
   const navigate = useNavigate()
+  // NEEDS YOU overflows into the notification panel, which slides down over this screen — see the
+  // `+ n more` button below.
+  const { openDrawer: openNotifications } = useNotifications()
   const { activeProfile } = useSession()
   const { zones, alerts } = useSensors()
   const { weather, offline: weatherOffline } = useWeather()
@@ -51,7 +56,7 @@ export function DashboardScreen() {
   const { zones: climateZones, setTarget } = useClimate()
   // `reconnecting`, not `!online`: the chip is the dashboard's counterpart to the app-level banner
   // and follows the same rule — a blip that clears before anyone reads it is not worth drawing.
-  const { reconnecting, stale } = useConnection()
+  const { reconnecting, stale, offline: connectionOffline } = useConnection()
   const needs = useNeedsYou()
 
   /*
@@ -114,18 +119,41 @@ export function DashboardScreen() {
    */
   const place = weather?.place?.label
 
+  /* Standing while an update is waiting or has just landed — the states that draw a plate. The
+     Dashboard is the only screen that carries one (`design_handoff_update_notice` → Rules). */
+  const { status: updateStatus } = useUpdate()
+  const plateUp = updateStatus !== 'none' && updateStatus !== 'restarting'
+
   return (
     <ScreenShell
       banner={
-        bannerAlert && (
-          <AlertBanner
-            title={alertHeadline(bannerAlert)}
-            detail={bannerAlert.message}
-            severe={bannerAlert.severity === 'Severe'}
-            onClick={() => navigate(alertTarget(bannerAlert.source))}
-          />
-        )
+        /*
+         * The update plate, and above the weather banner when both are up.
+         *
+         * <b>Both, rather than one of them.</b> The composition rule is one fill per screen, and two
+         * plates is a breach of it — but the alternative breaches something worse. A weather alert
+         * can stand for three days, and the update plate's own rule is that there is no state in
+         * which the panel is out of date and silent about it; yielding would mean exactly that
+         * state, for days. The two are peers — the handoff describes this plate as the severe-alert
+         * banner pattern in brass — and both being up at once is rare.
+         *
+         * The plate goes first because it is the one with a control on it.
+         */
+        <>
+          <UpdatePlate />
+          {bannerAlert && (
+            <AlertBanner
+              title={alertHeadline(bannerAlert)}
+              detail={bannerAlert.message}
+              severe={bannerAlert.severity === 'Severe'}
+              onClick={() => navigate(alertTarget(bannerAlert.source))}
+            />
+          )}
+        </>
       }
+      /* The avatar yields to a plate: it would sit on top of one, and the plate is the more urgent
+         of the two things wanting that corner. The clock header takes the full gutter back with it. */
+      avatar={!plateUp}
       header={
         <DashboardHeader
           clock={time}
@@ -134,6 +162,9 @@ export function DashboardScreen() {
           conditions={conditions}
           place={place}
           offline={reconnecting || (weatherOffline && !current)}
+          /* Only the connection settles into `Offline`. A weather feed that is stale while the
+             server is perfectly reachable is still a thing that is reconnecting. */
+          settledOffline={connectionOffline}
           profileInitial={activeProfile?.initial ?? '?'}
           onSwitchProfile={() => navigate('/lock')}
         />
@@ -159,8 +190,10 @@ export function DashboardScreen() {
         ) : (
           needsPreview.map((row) => <NeedsRowLine key={row.key} row={row} onClick={() => navigate(row.target)} />)
         )}
+        {/* Straight to the panel rather than to an address: notifications slide down over whatever
+            you were reading, so the dashboard is not left behind to come back to. */}
         {needsHidden > 0 && (
-          <button type="button" className="ml-needs__more" onClick={() => navigate('/notifications')}>
+          <button type="button" className="ml-needs__more" onClick={openNotifications}>
             {`＋ ${needsHidden} more ▸`}
           </button>
         )}
@@ -202,7 +235,9 @@ export function DashboardScreen() {
             rooms={zones}
             stale={stale}
             well={alerts.every((a) => a.type !== 'sensor' && a.type !== 'climate')}
-            onOpen={() => navigate('/climate')}
+            // The house block opens the unit that owns the room it is showing, not a climate list —
+            // there isn't one any more. Falls back to the array when no zone is leading.
+            onOpen={() => navigate(climateZone ? `/devices/ac/${climateZone.id}` : '/devices')}
             onStep={(d) => {
               if (climateZone?.standingTargetF == null) return
               void setTarget(climateZone.id, Math.round(climateZone.standingTargetF) + d)
@@ -300,11 +335,11 @@ function TonightBlock() {
           {entry && meta && <span className="ml-tonightblock__meta">{meta}</span>}
         </span>
         {!entry ? (
-          <button type="button" className="ml-tonightblock__link" onClick={() => navigate(`/meals/assign/${today}/Dinner`)}>
+          <button type="button" className="ml-tonightblock__link" onClick={() => navigate(`/kitchen/plan/${today}/fill`)}>
             Plan it
           </button>
         ) : entry.recipeId != null ? (
-          <button type="button" className="ml-tonightblock__link" onClick={() => navigate(`/meals/recipes/${entry.recipeId}`)}>
+          <button type="button" className="ml-tonightblock__link" onClick={() => navigate(`/kitchen/recipes/${entry.recipeId}`)}>
             Recipe ▸
           </button>
         ) : null}

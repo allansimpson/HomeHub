@@ -69,11 +69,94 @@ export function IconSprite() {
         <path d="M3.6 6.4h16.8v3.2c0 5.6-3.6 10-8.4 10s-8.4-4.4-8.4-10z" />
         <path d="M8.6 9.6c1.2 1.6 5.6 1.6 6.8 0" />
       </symbol>
-      {/* NURSING — a session timer: dial plus the elapsed hand. The band it opens counts in MM:SS,
-          so the glyph is a clock rather than anything anatomical. */}
-      <symbol id="ico-nursing" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="13.2" r="7.6" />
-        <path d="M12 8.8v4.4l3 2M9.2 2.8h5.6" />
+      {/*
+        BREAST — the one icon in the Care package that is final artwork, not a placeholder.
+
+        Copied verbatim from `design_handoff_care_logging/assets/icon-breast.svg`: drawn from a
+        reference the household supplied and approved over five alternatives, with the handoff
+        saying in as many words to use that path rather than substitute from an icon set. It
+        replaced a clock dial, which was the honest stand-in while the tile had no artwork.
+
+        Three things the handoff asks be preserved, all of them load-bearing at 24px:
+        the crease is an **open** path and must not close into a circle; the areola and nipple are
+        concentric on 11.6 / 12.4 rather than centred in the viewBox; and their 0.95 stroke against
+        the crease's 1.4 is what keeps the centre from filling in. Hence the stroke widths here
+        differ from the 1.5 the drawn-to-match icons around it use — do not normalise them.
+      */}
+      <symbol id="ico-breast" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16.8 3.2c3.4 4 4.2 8.8 2.2 12.4-2.2 4-7 6-11.4 4.4-2.6-1-3.8-3.6-3.6-7" />
+        <circle strokeWidth="0.95" cx="11.6" cy="12.4" r="2.1" />
+        <circle strokeWidth="0.95" cx="11.6" cy="12.4" r="0.8" />
+      </symbol>
+
+      {/*
+        The other seven log tiles.
+
+        The handoff calls its own tile icons "placeholders drawn to the right weight, not final
+        artwork" and says to substitute the panel's set where it has the concept. It had three of
+        the ten, so these are drawn to the same geometry as the bottle and the nappy above — 24×24,
+        1.5 stroke, round caps — rather than lifted from the design file at a different weight.
+      */}
+      {/* PUMP — the flange, which is the part of a pump anybody would recognise in outline. */}
+      <symbol id="ico-pump" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6.5 4h11l-4.2 6.1v8.4a1.3 1.3 0 01-2.6 0v-8.4z" />
+        <path d="M9.8 21h4.4" />
+      </symbol>
+      {/* SOLIDS — a bowl with two wisps. Not a spoon: a spoon at 24px is a stick with a dot. */}
+      <symbol id="ico-solids" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4.5 12.6h15c0 4.1-3.4 7.4-7.5 7.4s-7.5-3.3-7.5-7.4z" />
+        <path d="M9.6 9.2c0-1.3 1.1-1.5 1.1-2.8M13.4 9.2c0-1.3 1.1-1.5 1.1-2.8" />
+      </symbol>
+      {/* SLEEP — the crescent. */}
+      <symbol id="ico-sleep" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 14.6A8.6 8.6 0 019.4 4 8.6 8.6 0 1020 14.6z" />
+      </symbol>
+      {/* MEDICINE — a dose, drawn as the drop it is measured in. */}
+      <symbol id="ico-medicine" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3.2c0 0 5.4 5.9 5.4 9.4a5.4 5.4 0 11-10.8 0C6.6 9.1 12 3.2 12 3.2z" />
+        <path d="M12 16.8a3.2 3.2 0 01-3.2-3.2" />
+      </symbol>
+      {/* BATH — the tub, tap and feet. */}
+      <symbol id="ico-bath" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3.5 12.6h17v2.2a5 5 0 01-5 5h-7a5 5 0 01-5-5z" />
+        <path d="M7.4 12.6V6.3a1.9 1.9 0 011.9-1.9h.7" />
+        <path d="M7.2 19.8l-1 1.7M16.8 19.8l1 1.7" />
+      </symbol>
+      {/* TUMMY TIME — prone, propped, on the floor. The ground line is what makes it read as
+          face-down rather than as a person standing beside a rule. */}
+      <symbol id="ico-tummytime" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="7.6" cy="10.6" r="2.4" />
+        <path d="M10.2 12.9c2.8 1.6 5.9 2.6 9.3 2.8" />
+        <path d="M9.2 13.8L7.4 18.6" />
+        <path d="M4.5 18.6h15" />
+      </symbol>
+      {/* TEMPERATURE — bulb thermometer with two graduations. */}
+      <symbol id="ico-temperature" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M13.9 14.2V5.4a1.9 1.9 0 10-3.8 0v8.8a3.7 3.7 0 103.8 0z" />
+        <path d="M15.8 7.6h-1.9M15.8 10.4h-1.9" />
+      </symbol>
+
+      {/*
+        The two bar glyphs from the CARE split (design_handoff_baby_devices/NAV.md).
+
+        Copied verbatim from the handoff — 24 × 24, 1.5 stroke, round caps, square corners so they
+        sit with the calendar and the cog rather than against them. The open hand that CARE used and
+        the three waves CLIMATE used are kept below as **reserved**: out of the bar, still in the
+        pack, because either may return.
+      */}
+      {/* BABY — upright bottle: domed teat, ringed collar, two measure ticks. */}
+      <symbol id="ico-baby" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M9.8 6.1V4.5a2.2 2.2 0 014.4 0v1.6" />
+        <rect x="8.3" y="6.1" width="7.4" height="2" />
+        <rect x="7.6" y="8.1" width="8.8" height="13.3" rx="1.6" />
+        <path d="M9.8 12.2h2.4M9.8 15.6h2.4" />
+      </symbol>
+      {/* DEVICES — two stacked units, each with a status lamp at its left edge. */}
+      <symbol id="ico-devices" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3.6" y="4.4" width="16.8" height="6.6" />
+        <rect x="3.6" y="13" width="16.8" height="6.6" />
+        <circle cx="7.1" cy="7.7" r="0.9" />
+        <circle cx="7.1" cy="16.3" r="0.9" />
       </symbol>
 
       {/* REFRESH — circular arrow; the clean-cycle control (LITTER_SECTION.md) */}
@@ -198,6 +281,19 @@ export function IconSprite() {
       </symbol>
       <symbol id="ico-check" viewBox="0 0 24 24">
         <path d="M5 12l4 4L19 7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      </symbol>
+      {/* DOWNLOAD — a mark falling onto a line. The update plate's glyph, and drawn to that
+          handoff's path: it is the one place in the app where something arrives from elsewhere and
+          waits to be let in. */}
+      <symbol id="ico-download" viewBox="0 0 24 24">
+        <path
+          d="M12 4v10M8 10.4l4 4 4-4M4.5 19.5h15"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </symbol>
       {/* COPY — one sheet laid over another, the back one showing at its top-left corner. Drawn as
           two open paths rather than two closed rectangles so the overlap reads as depth instead of

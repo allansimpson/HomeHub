@@ -40,7 +40,7 @@ describe('directionFor — the behaviour the fix must not break', () => {
 
   it('cross-fades between bottom-nav tabs', () => {
     expect(directionFor('/', '/calendar')).toBe('fade')
-    expect(directionFor('/weather', '/todo')).toBe('fade')
+    expect(directionFor('/weather', '/lists')).toBe('fade')
   })
 
   /**
@@ -71,5 +71,30 @@ describe('arePeers', () => {
     // Same path in and out is not a transition anyone sees, but it must not throw or report
     // a drill-in either.
     expect(directionFor('/meals', '/meals')).toBe('fade')
+  })
+})
+
+describe('directionFor — the Kitchen quick row', () => {
+  const QUICK = ['/kitchen', '/kitchen/plan', '/kitchen/pantry', '/kitchen/recipes', '/kitchen/list']
+
+  /**
+   * The quick row is docked above the nav and never scrolls, so it is the one element on these four
+   * screens that must not move. Reading a destination switch as a drill-in would drop it 1.25rem
+   * and bring it back on every tap — the same fault the MEALS segments had.
+   */
+  it.each(QUICK.flatMap((from) => QUICK.filter((to) => to !== from).map((to) => [from, to])))(
+    '%s -> %s cross-fades',
+    (from, to) => {
+      expect(directionFor(from, to)).toBe('fade')
+    },
+  )
+
+  it('still rises into a panel behind a destination', () => {
+    expect(directionFor('/kitchen/list', '/kitchen/list/review')).toBe('slideup')
+    expect(directionFor('/kitchen/pantry', '/kitchen/pantry/check')).toBe('slideup')
+  })
+
+  it('settles back down onto the section from a drill-in', () => {
+    expect(directionFor('/kitchen/cook/4', '/kitchen')).toBe('slidedown')
   })
 })

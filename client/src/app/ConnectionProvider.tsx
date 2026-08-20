@@ -43,6 +43,23 @@ const RETRY_MS = 1_500
 const ANNOUNCE_AFTER_MS = 3_000
 
 /**
+ * How long before the panel stops saying "reconnecting" and admits it is offline.
+ *
+ * <b>Two different sentences about two different situations, and the wrong one is worse than
+ * silence.</b> "Reconnecting" is a promise that something is in progress and about to resolve — true
+ * for the server restarting after a deploy, or a router that dropped a packet. Twenty seconds in it
+ * has stopped being true: nothing is reconnecting, the panel is simply somewhere the server is not,
+ * and a spinner-flavoured word implies a wait that has no end. That matters most on a phone that has
+ * left the house, where the honest state is not a fault at all — the app works, it is holding what
+ * was written, and it will sync later. It should say so.
+ *
+ * Twenty seconds because a service restart is the case worth waiting out: `deploy/updating.md`
+ * restarts Kestrel, which is back inside a few seconds, and calling that "offline" would flash the
+ * wrong word across every panel in the house on every deploy.
+ */
+const OFFLINE_AFTER_MS = 20_000
+
+/**
  * App-wide connection state (Stage 9a). A lightweight health probe decides whether the server is
  * reachable; every screen keeps showing its last-known cached data regardless, and prominent live
  * values grey out once {@link stale}. This is the single honest source for the reconnecting
@@ -68,6 +85,14 @@ interface ConnectionState {
    * on a phone fits inside.
    */
   reconnecting: boolean
+  /**
+   * Offline for long enough that "reconnecting" has stopped being a true description.
+   *
+   * What decides the *wording* of the banner, where {@link reconnecting} decides whether there is
+   * one at all. A phone out of the house sits here indefinitely and nothing is wrong with it — see
+   * {@link OFFLINE_AFTER_MS}. Anything making a decision should still read {@link online}.
+   */
+  offline: boolean
   lastOnlineAt: number
 }
 
@@ -174,32 +199,47 @@ export function ConnectionProvider({ children }: { children: ReactNode }) {
    * ten seconds while offline, so deriving this from `now` would round the delay up to the next
    * probe and the banner would appear late and at an unpredictable moment.
    */
-  const [announced, setAnnounced] = useState(false)
-  useEffect(() => {
-    if (offlineSince === null) {
-      setAnnounced(false)
-      return
-    }
-    const waited = Date.now() - offlineSince
-    if (waited >= ANNOUNCE_AFTER_MS) {
-      setAnnounced(true)
-      return
-    }
-    const id = window.setTimeout(() => setAnnounced(true), ANNOUNCE_AFTER_MS - waited)
-    return () => window.clearTimeout(id)
-  }, [offlineSince])
+  const announced = useElapsedSince(offlineSince, ANNOUNCE_AFTER_MS)
+  const admitted = useElapsedSince(offlineSince, OFFLINE_AFTER_MS)
 
   const value = useMemo<ConnectionState>(
     () => ({
       online,
       stale: !online && now - lastOnlineAt > STALE_MS,
       reconnecting: !online && announced,
+      offline: !online && admitted,
       lastOnlineAt,
     }),
-    [online, now, lastOnlineAt, announced],
+    [online, now, lastOnlineAt, announced, admitted],
   )
 
   return <ConnectionContext.Provider value={value}>{children}</ConnectionContext.Provider>
+}
+
+/**
+ * True once `since` is at least `delay` old, on its own timer.
+ *
+ * <b>A timer rather than a comparison against the probe clock.</b> The probe only ticks every ten
+ * seconds while offline, so deriving either threshold from it would round the delay up to the next
+ * probe — the banner would change its wording late, and at an unpredictable moment. Both thresholds
+ * want the same treatment, so they share it and cannot drift apart.
+ */
+function useElapsedSince(since: number | null, delay: number): boolean {
+  const [passed, setPassed] = useState(false)
+  useEffect(() => {
+    if (since === null) {
+      setPassed(false)
+      return
+    }
+    const waited = Date.now() - since
+    if (waited >= delay) {
+      setPassed(true)
+      return
+    }
+    const id = window.setTimeout(() => setPassed(true), delay - waited)
+    return () => window.clearTimeout(id)
+  }, [since, delay])
+  return passed
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

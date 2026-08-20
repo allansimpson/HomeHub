@@ -49,7 +49,23 @@ export function useNightMode(): NightMode {
   const { settings } = useSession()
   const [, bump] = useState(0)
 
-  const enabled = settings?.idleDimmingEnabled ?? true
+  /*
+   * No settings means no dimming — not the default window.
+   *
+   * <b>`settings` is null for the whole of boot and the entire Lock screen.</b> `/api/settings`
+   * needs a session, so it answers 401 until somebody has signed in; the panel runs with null until
+   * then by design. This used to fall back to `enabled: true` with a 22:00–06:00 window, so a panel
+   * started at one in the morning came up dark, stayed dark through the PIN pad, and only brightened
+   * once the real settings arrived and said the schedule was off. The household had set nothing of
+   * the sort — it was a default asserting itself while nobody could see the setting that would
+   * argue with it.
+   *
+   * The same reasoning `isWithinWindow` already applies to an unreadable window: normal brightness
+   * is the state that needs no explanation, and a dark screen nobody asked for is a fault report
+   * waiting to happen. So an unknown schedule dims nothing, and the window defaults only matter once
+   * settings exist and have said the schedule is on.
+   */
+  const enabled = settings ? settings.idleDimmingEnabled : false
   const start = settings?.nightDimStart ?? '22:00'
   const end = settings?.nightDimEnd ?? '06:00'
 

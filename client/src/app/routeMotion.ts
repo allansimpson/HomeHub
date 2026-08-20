@@ -8,14 +8,26 @@ import { NAV_SECTIONS } from './navConfig'
  */
 export type RouteMotion = 'fade' | 'slideup' | 'slidedown'
 
-const SECTION_PATHS = new Set(NAV_SECTIONS.map((s) => s.path))
+/**
+ * The roots a drill-in settles back down to.
+ *
+ * The tabs, plus `/meals` — which stopped being a tab when the slot became KITCHEN but did not stop
+ * being a screen. It is still routed and still reached from inside the Kitchen (the recipe editor
+ * lives there), so backing out of a recipe onto it must still settle rather than rise. Motion is
+ * about where a screen sits in the stack, and that is a separate question from which tab lights up
+ * for it.
+ */
+const SECTION_PATHS = new Set([...NAV_SECTIONS.map((s) => s.path), '/meals'])
 
 /**
  * Routes that are peers of one another rather than parent and child.
  *
  * Inferring depth from the path is right for drill-ins and wrong for a segmented control. MEALS
- * spreads `WEEK · RECIPES · PANTRY` across three routes, so `/meals/recipes` only *looks* deeper
+ * spread `WEEK · RECIPES · PANTRY` across three routes, so `/meals/recipes` only *looked* deeper
  * than `/meals` — tapping a segment is a lateral move, the same kind of move as tab ↔ tab.
+ *
+ * The Kitchen's quick row is the same shape and a stronger case: it is docked above the nav and
+ * never scrolls, so it is the one element on those four screens that must not move.
  *
  * Reading it as depth gave every segment switch the drill-in rise: the incoming screen started
  * 1.25rem low and settled upward, so the tab strip visibly dropped and came back on each tap. That
@@ -25,6 +37,8 @@ const SECTION_PATHS = new Set(NAV_SECTIONS.map((s) => s.path))
  */
 export const PEER_GROUPS: readonly (readonly string[])[] = [
   ['/meals', '/meals/recipes', '/meals/pantry'],
+  // The Kitchen's four quick-row destinations, plus the answering page they dock beneath.
+  ['/kitchen', '/kitchen/plan', '/kitchen/pantry', '/kitchen/recipes', '/kitchen/list'],
 ]
 
 /** True when both paths sit in the same peer group — a lateral move, not a drill-in. */

@@ -8,6 +8,12 @@ interface DrillInHeaderProps {
    * there is nothing to go "back" to; only drill-ins (Config sub-screens, Sensor History) carry it.
    */
   onBack?: () => void
+  /**
+   * Name the screen `onBack` returns to, beside the arrow — see {@link BackButton}. Only for screens
+   * reachable from somewhere other than their parent; a drill-in you can only have come from says
+   * nothing new by naming it.
+   */
+  backLabel?: string
   /** Right-aligned status text, e.g. "16 JULY · 19:42" or "3 OF 5 RUNNING". */
   status?: ReactNode
   /** Render the status in verdigris (live/OK). */
@@ -30,10 +36,12 @@ interface DrillInHeaderProps {
  *
  * @category Shell
  */
-export function DrillInHeader({ title, onBack, status, statusLive, onTitleClick, titleAction }: DrillInHeaderProps) {
+export function DrillInHeader({
+  title, onBack, backLabel, status, statusLive, onTitleClick, titleAction,
+}: DrillInHeaderProps) {
   return (
     <header className="ml-header ml-header--drillin">
-      {onBack && <BackButton onClick={onBack} />}
+      {onBack && <BackButton onClick={onBack} text={backLabel} />}
       {onTitleClick ? (
         <button
           type="button"

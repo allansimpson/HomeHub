@@ -7,6 +7,7 @@ import { useSensors } from '../app/SensorsProvider'
 import { useConnection } from '../app/ConnectionProvider'
 import { alertHeadline } from '../app/needsYou'
 import type { WeatherSnapshotDto, DailyDto } from '../api/types'
+import { clockLabel } from '../app/dates'
 
 type View = 'now' | 'hourly' | 'radar'
 const VIEWS: View[] = ['now', 'hourly', 'radar']
@@ -18,7 +19,7 @@ const VIEWS: View[] = ['now', 'hourly', 'radar']
  * tile). A severe NWS alert still renders the shared amber banner + hazard stripe at the very top.
  */
 export function WeatherScreen() {
-  const { time, ampm, dateMonthFirst } = useClock()
+  const { stamp } = useClock()
   const { weather, offline } = useWeather()
   const { alerts } = useSensors()
   const { stale } = useConnection()
@@ -62,17 +63,11 @@ export function WeatherScreen() {
       // rather than to the coordinates, which confirm nothing to anybody standing in the kitchen.
       <DrillInHeader
         title={weather?.place ? weather.place.label : 'Weather'}
-        // Two rows, always — the day over the time, both to the right edge. As one line it was
-        // `MONDAY 10 AUGUST · 5:02 PM`, which at this tracking is wider than the space left beside a
-        // place name and broke wherever it happened to run out: sometimes after the weekday,
-        // sometimes mid-clock. Stacking it puts the break where it belongs and holds the shape
-        // whatever the day is called and whatever the town is called.
-        status={
-          <span className="ml-weather__headerwhen">
-            <span>{dateMonthFirst}</span>
-            <span>{`${time} ${ampm}`}</span>
-          </span>
-        }
+        // Meals' stamp, one line: `SUN 17 AUG · 14:32`. The stack this replaces existed because the
+        // long form — `MONDAY 10 AUGUST · 5:02 PM` — is wider at this tracking than the space left
+        // beside a place name, and broke wherever it ran out. The abbreviated day and month fit, so
+        // the header goes back to the one-row shape every other screen has.
+        status={stamp}
       />
     )
 
@@ -353,7 +348,7 @@ function RadarView({ lat, lon }: { lat: number | null; lon: number | null }) {
     for (let dy = -RADAR_GRID; dy <= RADAR_GRID; dy++) tiles.push({ tx: cx + dx, ty: cy + dy })
 
   const frameLabel = active
-    ? new Date(active.time * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+    ? clockLabel(new Date(active.time * 1000))
     : ''
 
   return (

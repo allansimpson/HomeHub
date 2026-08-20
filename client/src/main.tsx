@@ -12,6 +12,7 @@ import './components/pantry.css'
 // And again for Care — one tab, two subjects, and a switcher/tile/fault vocabulary that belongs to
 // neither of the screens it merged.
 import './components/care.css'
+import './components/kitchen.css'
 // Assist — the chat system. The inbox rows, the transcript and the composer. Its own file because
 // Assist is a section now rather than an overlay, and because the row it draws is the ledger row
 // plus a preview line and a badge: close enough to want to sit next to ledger.css, different enough
@@ -24,7 +25,11 @@ import './components/dashboard.css'
 // on two different scales, and the rules that keep them apart want to be read together.
 import './components/climate.css'
 import { installRemScale } from './app/remScale'
+import { installBackGuard } from './app/backGuard'
+import { restoreLastTab } from './app/lastTab'
+import { registerServiceWorker } from './app/registerServiceWorker'
 import { App } from './app/App'
+import { UpdateProvider } from './app/UpdateProvider'
 import { ConnectionProvider } from './app/ConnectionProvider'
 import { SessionProvider } from './app/SessionProvider'
 import { SensorsProvider } from './app/SensorsProvider'
@@ -45,9 +50,29 @@ import { WriteQueueProvider } from './app/WriteQueueProvider'
 // down — the scale outlives the React tree, and the app is the page.
 installRemScale()
 
+// Before the router reads the address, so a phone relaunched by Android after being killed in the
+// background starts on the tab it was on rather than flashing the dashboard first. No-op on the
+// wall panel, and on any launch that was aimed somewhere specific. See `lastTab.ts`.
+restoreLastTab()
+
+// Before the router mounts, and that ordering is the whole point: this listener has to run ahead of
+// React Router's own so it can correct the history before anything reads it, or an absorbed swipe
+// paints the wrong tab for a frame on its way back. See `backGuard.ts`.
+// After `restoreLastTab`, so its first snapshot is the address the app actually starts on.
+installBackGuard()
+
+// The offline launch, for the next time rather than this one — it defers itself to `load`. The Care
+// tab's own store is what makes that launch worth anything: a shell with no log in it would open to
+// an empty night. See `careOffline.ts`.
+registerServiceWorker()
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
+      {/* Outermost of the data providers, and answerable to none of them: whether a newer panel is
+          being served is a fact about the server's files rather than about the household, and the
+          plate has to be able to appear on a panel where every other feed has failed. */}
+      <UpdateProvider>
       <ConnectionProvider>
       <SessionProvider>
         <SensorsProvider>
@@ -92,6 +117,7 @@ createRoot(document.getElementById('root')!).render(
         </SensorsProvider>
       </SessionProvider>
       </ConnectionProvider>
+      </UpdateProvider>
     </BrowserRouter>
   </StrictMode>,
 )

@@ -26,7 +26,14 @@ export function minutesOfDay(hhmm: string): number | null {
   return hours * 60 + minutes
 }
 
-/** `HH:mm` for a local time, the form the settings and an `<input type="time">` both use. */
+/**
+ * `HH:mm` for a local time, the form the settings and an `<input type="time">` both use.
+ *
+ * <b>The storage form, and no longer a display one.</b> Config used to print the override's expiry
+ * through this — "the schedule takes over at 22:00" — and now says it with `dates.clockLabel`, like
+ * every other time the panel says out loud. What is left here is the inverse of `minutesOfDay`,
+ * which is how the window tests state a boundary as a clock rather than as a `Date`.
+ */
 export function toClock(date: Date): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }

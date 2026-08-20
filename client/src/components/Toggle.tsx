@@ -4,7 +4,7 @@ interface ToggleProps {
   label?: string
   /**
    * ON styling. 'brass' (default) for real data; 'live' (verdigris) marks app-level "smart"
-   * switches — e.g. the Today/All views on the To-Do Lists screen.
+   * switches — e.g. the Today/All views on the Lists screen.
    */
   variant?: 'brass' | 'live'
 }

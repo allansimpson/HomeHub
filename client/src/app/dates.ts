@@ -74,6 +74,49 @@ export function formatTime(d: Date): { time: string; ampm: string } {
   return { time: `${h}:${String(m).padStart(2, '0')}`, ampm }
 }
 
+/**
+ * Minutes since local midnight as a spoken clock — `6:15 PM`.
+ *
+ * <b>Nothing the household reads is 24-hour.</b> The panel says `3:15 PM` in the Care log, the
+ * litter log, the calendar and the dashboard clock, and it used to say `15:15` in the header stamps,
+ * the meals start-and-serve times, the night-dim window and the update plate — all of them because
+ * the value came out of something whose *storage* form is `HH:mm`. Storage and speech are different
+ * jobs: `mealsDomain.formatClock` and `nightMode.toClock` still write the padded form, because it is
+ * parsed straight back and an `<input type="time">` requires it. This is the reading end, and every
+ * surface that shows a time to a person comes through here or its two wrappers below.
+ *
+ * Wraps across midnight, so a cook that starts before midnight for a meal after it still names a
+ * real time rather than a negative one.
+ */
+export function clockFromMinutes(minutes: number): string {
+  const wrapped = ((Math.round(minutes) % 1440) + 1440) % 1440
+  const h24 = Math.floor(wrapped / 60)
+  const ampm = h24 < 12 ? 'AM' : 'PM'
+  const hour = h24 % 12 === 0 ? 12 : h24 % 12
+  return `${hour}:${String(wrapped % 60).padStart(2, '0')} ${ampm}`
+}
+
+/** A wall-clock time as one string — `6:32 PM`. The header stamp's half of {@link formatTime}. */
+export function clockLabel(d: Date): string {
+  return clockFromMinutes(d.getHours() * 60 + d.getMinutes())
+}
+
+/**
+ * A stored `HH:mm` setting, said out loud — `18:30` → `6:30 PM`.
+ *
+ * An unreadable value is returned untouched rather than blanked or guessed at: it is the household's
+ * own setting, and a row that silently shows nothing where a time should be is harder to diagnose
+ * than one showing exactly what is stored.
+ */
+export function clockFromStored(hhmm: string): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim())
+  if (!match) return hhmm
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours > 23 || minutes > 59) return hhmm
+  return clockFromMinutes(hours * 60 + minutes)
+}
+
 /** Round a Date to the nearest N minutes (used to snap event steppers). */
 export function snapMinutes(d: Date, step: number): Date {
   const out = new Date(d)

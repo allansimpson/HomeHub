@@ -345,6 +345,9 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   /* The underline sits closer to the text than the 32px line box would put it. */
   line-height: 1.1;
 }
+/* The right-hand header line: the date-and-time stamp on Meals, Weather and Baby, "3 OF 5 RUNNING"
+   elsewhere. Baby and Devices build their own headers but wear this class, so the stamp is set the
+   same everywhere it appears rather than in four places that drift. */
 .ml-drillin-header__status {
   margin-left: auto;
   font-size: 0.75rem;
@@ -369,6 +372,20 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 }
 .ml-backbtn:active {
   background: var(--bg-active);
+}
+/* The back box, naming what is behind it — the Notifications inbox, which the account avatar now
+   opens directly, so the arrow is the route on to Config for somebody who arrived from the
+   dashboard. Height is unchanged, so a header with one never shifts against a header without. */
+.ml-backbtn--labelled {
+  width: auto;
+  gap: 0.5rem;
+  padding: 0 0.875rem;
+}
+.ml-backbtn__text {
+  font-size: 0.6875rem; /* 11px — chrome, not a second title */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
 }
 
 /* ---------- Ledger hairlines (inset) ----------
@@ -506,29 +523,36 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 }
 
 /* ---------- Bottom nav ---------- */
-/* Own plane (#101215) + 2px brass top rule, 8 items.
+/* Own plane (#101215) + brass top rule, 8 equal cells.
  *
- * **Spaced by content, not by equal cells** — a deliberate departure from BOTTOM_NAV.md, made by
- * the product owner. The original rule was `flex:1 1 0` on every item, which put the icons on a
- * perfectly regular pitch but left the *whitespace* uneven, because the labels range from CARE at
- * ~30 mock px to CALENDAR at ~60. Measured on the rendered bar, the gaps between labels varied
- * 31–78 device px — a 2.5× spread the eye reads as ragged even though every centre was on the grid.
+ * **Equal cells, not content-sized** — the spacing pass in `design_handoff_bottom_nav/BOTTOM_NAV.md`,
+ * and the second time this decision has been taken. It is worth recording both, because the two
+ * arrangements are exact mirrors of each other and the argument will otherwise be had a third time.
  *
- * `space-evenly` distributes the slack into identical gaps: one before the first item, one after
- * the last, and one between each pair. That is why the side padding is now 0 — leaving it in would
- * make the two outer gaps wider than the inner ones, which is the exact fault this is fixing. The
- * trade, accepted knowingly: icon centres no longer sit on a regular pitch.
+ * `space-evenly` on content-sized cells, which this replaces, distributes the slack into identical
+ * gaps between *words*. It reads well in a screenshot and puts the icons on an irregular pitch:
+ * measured on the phone and restated on the 540 canvas, icon centres sat 55, 61, 65, 70, 73, 76 mock
+ * px apart — a 1.4× spread. Equal cells invert it exactly: every icon lands on a 67.5 mock px pitch
+ * at any width, and the space between words now varies instead (12 to 38).
  *
- * **ASSIST's return spends most of the remaining slack.** Eight content-sized cells leave far less
- * to distribute than seven did, so the gaps are tighter — that is the cost of the eighth tab and it
- * was accepted. See `.ml-nav__item::after` for the one thing that had to change with it.
+ * What settles it is which row the eye reads as rhythm, and that is the icons — they are a row of
+ * eight marks at a constant size, and an irregular one among them is visible in a way an uneven word
+ * gap is not. The trade is accepted knowingly, in that direction.
+ *
+ * `CAL` is what makes it possible. `CALENDAR` measures 73 mock px against a 67.5 px share, so it is
+ * the single label an equal cell cannot hold; every other word fits with room. See `navConfig.ts`,
+ * where the shortening was previously forbidden for reasons that no longer apply.
  */
 .ml-nav {
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  /* `minmax(0, 1fr)` rather than a bare `1fr`: a bare `1fr` floors each column at its content, so
+     one long label would steal width from the other seven and the pitch would stop being regular.
+     This way the columns are always equal and a long label overflows its own cell instead — which,
+     with these eight words, never happens. */
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   align-items: stretch;
-  justify-content: space-evenly;
-  padding: 1rem 0 1.375rem; /* 16px 0 22px — see above for why the sides are 0 */
+  padding: 1rem 0 1.375rem; /* 16px 0 22px — equal cells put the outer icons where they belong */
   background: var(--bg-nav);
   border-top: var(--rule-brass-px) solid var(--brass);
   /*
@@ -547,32 +571,10 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   position: relative;
   z-index: 3;
 }
+/* A grid cell now, so it needs no width of its own: no `flex`, no padding to even the word gaps,
+   and no `max-width` cap. All three existed to manage content sizing, and the column does that job
+   instead. The cell is 67.5 mock px wide whatever its label reads. */
 .ml-nav__item {
-  /* Sized to its own content rather than to a share of the bar. */
-  flex: 0 0 auto;
-  /* Uniform padding is what makes the *label* gaps uniform, and it is the whole trick here. With
-     every item padded by the same P and `space-evenly` distributing an equal gap G between cells,
-     the whitespace between any two adjacent labels is P + G + P — constant, whatever the words are.
-     A `min-width` floor breaks exactly that: it widens the short cells past their content, so the
-     labels inside them drift apart again. That was the earlier attempt, and it is why the spread
-     only fell to 2.0× instead of 1.0×. */
-  padding: 0 0.625rem;
-  /* Ceiling on how much a long word may claim.
-     Content-sizing alone let CLIMATE and WEATHER — the two widest labels, and adjacent — inflate
-     their cells, which pushed their normal-width icons 114px apart against 78px elsewhere. Capping
-     the cell trades a little label-gap evenness for icon-pitch evenness and lands both within about
-     1.15×. The labels still fit inside the cap; only their padding is squeezed, so nothing
-     truncates.
-
-     77px (NAV.md), up from 52px at ten tabs: eight cells on the 32.75rem track have 4.09rem each
-     to spend, and the cap is a ceiling rather than a target — only CALENDAR reaches it. `WEATHER`
-     is the widest label that does not and the one to check on the panel.
-
-     Equal-width columns (`flex: 1 1 0`) were tried here and are worse on the real panel, not better:
-     the icon pitch does become exactly uniform, but every label has to be squeezed to fit the
-     narrowest share and the bar reads as cramped. Content-sizing plus this cap is the arrangement
-     that survives contact. */
-  max-width: 4.8125rem;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -581,38 +583,39 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   gap: 0.375rem; /* 6px */
   color: var(--text-disabled); /* #5F584B */
 }
-/* The 44px touch minimum, without letting it touch the layout.
-   A content-sized cell can be smaller than a fingertip, so rather than widen the cell — which would
-   put the gaps back — the hit area is grown past it with an overlay. Adjacent targets must meet
-   exactly and never overlap: an overlap hands a tap in the gap to whichever item painted last. */
+/* The 44px touch minimum, met vertically because the cell already meets it across.
+   Adjacent targets must meet exactly and never overlap: an overlap hands a tap on the boundary to
+   whichever item painted last, which is the one tap nobody can predict the result of. */
 .ml-nav__item::after {
   content: '';
   position: absolute;
-  /* **Horizontal growth is 0 as of the eighth tab, and that is deliberate.**
-     It was -0.34375rem (11 device px at the 1080 render width) — half the 23px `space-evenly` gap
-     measured at seven tabs. ASSIST consumes most of that slack, so the same 11px would now cross
-     into the neighbour on both sides: the exact fault the value was measured to avoid.
+  /* **Horizontal growth is 0, and with equal cells it must be.**
+     The cells now abut exactly — eight `minmax(0, 1fr)` columns summing to the whole track, with no
+     gap between them — so any horizontal growth at all would cross into a neighbour. There is also
+     nothing left to gain: a 67.5 mock px cell clears the 44px minimum half again over, whatever its
+     label reads, which is a floor content sizing could never guarantee.
 
-     Nothing is lost, because the cell no longer needs the help. Every item is a column around a
-     25px icon inside 0.625rem of padding either side, so *whatever* its label reads it is at least
-     45 mock px wide against the 44px minimum — a floor the old three-letter `CAT` label did not
-     have. Vertical growth stays: 25px icon + 6px gap + ~11px label is 42px, and −0.5rem takes it
-     to 58px.
-
-     If the real panel shows the cells feel tight, re-measure the gap there and grow this back to
-     half of it — do not guess it back. */
+     Vertical growth stays and is still doing work: 25px icon + 6px gap + ~11px label is 42px, and
+     −0.5rem takes it to 58px. */
   inset: -0.5rem 0;
 }
 /* Active tab = bright-brass icon + label only (no underline tick / diamond). */
 .ml-nav__item--active {
   color: var(--brass-bright); /* #C8A877 */
 }
-/* 9px at 0.28em (NAV.md). The 0.12em squeeze was a fallback spent to survive nine and ten tabs —
-   the consolidation to eight reverses it, along with the `CAL` shortening. If anything clips on the
-   real panel, drop to 0.24em first, then the icon to 24px; do not re-shorten CALENDAR. */
+/* 9px at 0.22em, down from 10px at 0.28em — the equal cell is 67.5 mock px and the type is set to
+   fit it with air to spare. Measured widths: HOME 36, CAL 24, MEALS 41, BABY 31, DEVICES 52,
+   WEATHER 58, LISTS 33, ASSIST 42. WEATHER is the widest and the one to check on the panel; it
+   leaves 9.5px. If anything ever clips on real hardware the order of fixes is tracking to 0.20em,
+   then the icon to 24px — never back to content-sized cells, which is the fault this removed. */
 .ml-nav__label {
-  font-size: 0.625rem; /* 10px */
-  letter-spacing: 0.28em;
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.22em;
+  /* Letter-spacing adds its space *after* the last glyph, so a tracked word sits visually left of
+     centre by half its tracking — which on an equal cell is finally visible, because there is no
+     content-sized padding absorbing it. Pulling the trailing space back re-centres the word under
+     its icon. The same trick is on `.ml-miclive__text`. */
+  margin-right: -0.22em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -641,44 +644,17 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 }
 
 /*
- * ---------- Bottom nav on a phone ----------
+ * The `@media (max-width: 540px)` bottom-nav block was deleted with the spacing pass, deliberately.
  *
- * The one place in the app that **gains** margin as the screen narrows, while `--gutter` gives it up
- * everywhere else (tokens.css). The reason is that the bar's contents are already at the edges: eight
- * content-sized cells across the full width, distributed by `space-evenly` with no side padding, so
- * whatever slack exists is spread into nine equal gaps. Narrow the screen far enough and the slack
- * goes negative — the cells no longer fit, `flex: 0 0 auto` refuses to shrink them, and the outer
- * icons run off both edges. That is the bleed, and it is a *content-width* problem, so the fix has to
- * be content width.
+ * It existed for one failure: content-sized cells that would not shrink, so on a narrow track the
+ * slack went negative and the outer icons ran off both edges. Everything in it — the 0.5rem side
+ * floor, the squeezed 0.3125rem cell padding, the 0.16em tracking, the `flex-shrink`/`min-width`/
+ * `overflow` containment — was a lever against that one problem.
  *
- * The levers are used in the order `navConfig.ts` sanctions — tracking first, then the cell padding.
- * `CALENDAR` and `WEATHER` are the two labels to check on a real device; neither is shortened, which
- * that file asks for explicitly.
- *
- * Eight labels at 0.16em and 0.3125rem of padding come to roughly 27rem of the 33.75rem the viewport
- * is worth, so `space-evenly` has real slack again and the gaps are gaps rather than an overflow.
+ * Equal columns cannot overflow. Eight `minmax(0, 1fr)` cells always sum to exactly the track, at
+ * any width, so there is no narrow case to correct and the whole block was correcting a fault that
+ * can no longer occur. Restoring any of it would only make the bar disagree with itself at 540px.
  */
-@media (max-width: 540px) {
-  .ml-nav {
-    /* A floor, not a gutter. It is the only margin in the app that does not narrow with the others,
-       because it is not spending width on nothing — it is what stops the first and last icons from
-       sitting against the glass, and on a rounded phone screen, under it. */
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-  }
-  .ml-nav__item {
-    padding: 0 0.3125rem;
-    /* Last-resort containment. With the figures above nothing shrinks, but a substituted font with
-       wider metrics would otherwise put us straight back to icons off the edge; this makes the cells
-       give way together instead, which is a bar that looks tight rather than a bar that is broken. */
-    flex-shrink: 1;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .ml-nav__label {
-    letter-spacing: 0.16em;
-  }
-}
 
 /* ---------- Stepper (− / +) ---------- */
 .ml-stepper {
@@ -788,6 +764,165 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   background: repeating-linear-gradient(-45deg, #d08a2e 0 10px, #171207 10px 20px);
 }
 
+/* The Dashboard's clock header takes its right gutter back when the avatar is not drawn — which on
+   that screen means a plate is up and has taken the corner. Nothing else to clear, so nothing else
+   to reserve 88px for. */
+.ml-shell__body--noavatar .ml-dash-header {
+  padding-right: var(--gutter);
+}
+
+/* ---------- The update plate (design_handoff_update_notice) ----------
+ *
+ * The alert banner's shape in brass: full-bleed at the top of the Dashboard, no gutter of its own,
+ * no border, no radius, no shadow. It holds this position through the whole sequence and changes
+ * only its fill and its contents, so nothing jumps between one state and the next.
+ *
+ * No hazard stripe. That belongs to weather, and an update is not a hazard.
+ */
+.ml-plate {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  /* 18px 34px 19px — the extra pixel at the foot is the handoff's, and it is what makes the two-line
+     block sit optically centred rather than measured centred. */
+  padding: 1.125rem var(--gutter) 1.1875rem;
+  background: var(--brass);
+  color: var(--alert-ink);
+}
+.ml-plate--applied {
+  background: var(--live-accent);
+  color: var(--plate-ink-live);
+}
+.ml-plate--failed {
+  background: var(--danger);
+  color: var(--plate-ink-danger);
+}
+.ml-plate__glyph {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+/* 9×9, in place of the glyph, for the one state no glyph in the house means.
+ *
+ * No inset of its own. It sits hard against the gutter and takes the row's ordinary gap, which
+ * leaves the label starting further left than in every other state — deliberate in the handoff, and
+ * the thing that makes a failed plate read differently at a glance before a word of it is read. */
+.ml-plate__square {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  background: currentColor;
+}
+.ml-plate__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+/* The one state with three rows in it opens the stack up a little to carry the gauge. */
+.ml-plate--applying .ml-plate__body {
+  gap: 0.4375rem; /* 7px */
+}
+.ml-plate__label {
+  font-size: 0.8125rem; /* 13px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.ml-plate__sub {
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  font-weight: var(--body-weight);
+}
+/*
+ * Outlined at 1.5px, not the hairline the rest of the app uses: a 1px rule disappears against a
+ * saturated fill, and this is the only control the plate has.
+ */
+.ml-plate__action {
+  flex: 0 0 auto;
+  padding: 0.8125rem 1.125rem;
+  border: 1.5px solid currentColor;
+  background: none;
+  color: inherit;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.ml-plate__action:active {
+  background: currentColor;
+  /* The ink and the fill trade places on press — the standard fill press, in the only two colours
+     a plate has. */
+  color: var(--brass);
+}
+.ml-plate--applied .ml-plate__action:active { color: var(--live-accent); }
+.ml-plate--failed .ml-plate__action:active { color: var(--danger); }
+
+/* The gauge, dark-on-brass. Indeterminate: see the note in `UpdatePlate` — nothing here can report
+   progress, so the fill sweeps rather than filling to a number nobody measured. */
+.ml-plate__track {
+  height: 3px;
+  background: var(--plate-track);
+  overflow: hidden;
+}
+.ml-plate__fill {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: currentColor;
+  animation: ml-capture-sweep 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-plate__fill { animation: none; width: 100%; opacity: 0.55; }
+}
+
+/* ---------- Reloading · the screen taken ----------
+ *
+ * The one moment the panel is not itself: no plate, no nav, no Dashboard. A centred column and four
+ * things in it, and no gauge — a panel cannot report on itself while it is going away.
+ */
+.ml-restarting {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-screen);
+}
+.ml-restarting__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.375rem; /* 22px */
+  width: 18.75rem; /* 300px */
+  text-align: center;
+}
+.ml-restarting__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-restarting__version {
+  font-size: 4.75rem; /* 76px */
+  color: var(--text-primary);
+  line-height: 1;
+}
+/* The motif is the shared one; only its header margin has to go, since here it is an item in a
+   centred column rather than a rule under a title. */
+.ml-doublerule--bare {
+  margin: 0;
+  width: 100%;
+}
+.ml-restarting__sub {
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
 /* ---------- Reconnecting bar (global; Stage 9a) ---------- */
 .ml-reconnect {
   display: flex;
@@ -810,6 +945,22 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   text-transform: uppercase;
   color: #a08a5c; /* muted brass */
 }
+/*
+ * Settled offline — the same strip, in brass rather than alert.
+ *
+ * <b>Being off the home network is not a fault, and the alert palette says it is.</b> Amber against
+ * a dark tint is the house's language for something wrong and worth acting on; a phone at a doctor's
+ * appointment is neither. It carries an ordinary hairline and brass ink instead, so it reads as a
+ * statement of where the panel is rather than a warning about it — while still being a band across
+ * the top that cannot be missed, because somebody looking at figures that are not live does need
+ * telling. The alert version is still right for the first twenty seconds: see `OFFLINE_AFTER_MS`.
+ */
+.ml-reconnect--offline {
+  background: var(--bg-active);
+  border-bottom-color: var(--brass-dim);
+}
+.ml-reconnect--offline .ml-reconnect__dot { background: var(--brass-meta); }
+.ml-reconnect--offline .ml-reconnect__text { color: var(--brass-meta); }
 
 /* Pending write-queue bar (Stage 9b). */
 .ml-queuebar {
@@ -869,6 +1020,54 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 }
 .ml-conflict__actions .ml-linkbtn {
   color: var(--alert-ink);
+}
+
+/*
+ * Set-aside strip: writes that did not go through and will not be retried.
+ *
+ * Deliberately quieter than the conflict strip above it. A conflict is a question waiting on an
+ * answer; this is a statement of fact about work already lost, and shouting it at somebody who
+ * cannot act on it any faster helps nobody. Same alert ink, dim ground, no urgency.
+ */
+.ml-dropped {
+  padding: 0.625rem var(--gutter) 0.75rem;
+  background: var(--bg-active);
+  border-bottom: var(--hairline-px) solid var(--alert);
+  flex: 0 0 auto;
+}
+.ml-dropped__title {
+  display: block;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--alert);
+  margin-bottom: 0.375rem;
+}
+.ml-dropped__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+.ml-dropped__label {
+  font-size: 0.875rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ml-dropped__reason {
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Stale live values grey to disabled once offline past the staleness threshold. */
@@ -932,6 +1131,9 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   text-transform: uppercase;
   color: #a08a5c; /* muted brass */
 }
+/* Settled offline drops the alert dot for brass, matching `.ml-reconnect--offline` — the chip and
+   the banner are the same statement on two different screens and must not disagree in colour. */
+.ml-offline--settled .ml-offline__dot { background: var(--brass-meta); }
 
 /* ---------- Scroll area (drill-in lists) ---------- */
 .ml-scroll {
@@ -1004,7 +1206,223 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 }
 
 /* ---------- Lock / PIN screen (spec 06) ---------- */
+/* The chooser is top-aligned: it ends with the last profile row, and the rest of the frame is
+   deliberately empty — no settings link, no note. Both were hints offered to whoever is standing in
+   front of a panel they could not open. */
 .ml-lock {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 1.625rem var(--gutter) 1.5rem;
+}
+.ml-lock__labelrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+.ml-lock__who {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.26em;
+  color: var(--brass);
+}
+/* Counts the profiles; never names one. See `lockGating.profileCount`. */
+.ml-lock__count {
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-lock__instruction {
+  font-size: 1.0625rem; /* 17px */
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--text-quiet);
+  margin: 0 0 1.375rem; /* 22px */
+}
+.ml-lock__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem; /* 14px */
+}
+
+/* ---------- Lock chooser row ---------- */
+.ml-lockrow {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem; /* 20px */
+  padding: 1.375rem; /* 22px */
+  border: var(--control-border) solid var(--rule-major);
+  text-align: left;
+}
+/*
+ * Press and chosen are the same treatment on purpose: the row somebody just pressed is the row the
+ * sheet is now headed by, so the state they saw under their finger is the state that stays.
+ * A pixel comes off the padding to absorb the thicker border — the row must not jump on tap.
+ */
+.ml-lockrow:active,
+.ml-lockrow--chosen {
+  border: 0.125rem solid var(--brass); /* 2px */
+  padding: 1.3125rem; /* 21px */
+  background: var(--bg-profile-selected);
+}
+.ml-lockrow:active .ml-lockrow__name,
+.ml-lockrow--chosen .ml-lockrow__name,
+.ml-lockrow:active .ml-lockrow__meta,
+.ml-lockrow--chosen .ml-lockrow__meta {
+  color: var(--brass-bright);
+}
+.ml-lockrow__avatar {
+  flex: 0 0 auto;
+  width: 4.125rem; /* 66px */
+  height: 4.125rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.875rem; /* 30px Marcellus */
+  line-height: 1;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-quiet);
+}
+/* The brass square is the only thing besides the meta line that says this one is locked. */
+.ml-lockrow__avatar--pin {
+  border: 0.125rem solid var(--brass);
+  background: var(--bg-profile-selected);
+  color: var(--brass-bright);
+}
+.ml-lockrow__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem; /* 7px */
+}
+.ml-lockrow__name {
+  font-size: 1.5625rem; /* 25px Marcellus */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-lockrow__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-lockrow__meta--locked,
+.ml-lockrow__meta--entering { color: var(--brass-bright); }
+.ml-lockrow__meta--open { color: var(--live-accent); }
+.ml-lockrow__chevron {
+  flex: 0 0 auto;
+  font-size: 1.1875rem; /* 19px */
+  color: var(--text-muted);
+}
+
+/* ---------- PIN sheet, raised over the chooser ---------- */
+.ml-pinsheet__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: var(--bg-screen);
+  /* 0.72, the alpha every other scrim in the app already uses. */
+  opacity: 0.72;
+  cursor: default;
+}
+.ml-pinsheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  height: 29.375rem; /* 470px — sized to its content; nothing empty below the last key row */
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1.5rem 1.625rem;
+  background: var(--bg-screen);
+  border-top: 0.125rem solid var(--brass); /* 2px */
+  animation: ml-pinsheet-rise 220ms ease-out;
+}
+@keyframes ml-pinsheet-rise {
+  from { transform: translateY(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-pinsheet { animation: none; }
+}
+.ml-pinsheet__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem; /* 14px */
+}
+.ml-pinsheet__avatar {
+  flex: 0 0 auto;
+  width: 2.75rem; /* 44px */
+  height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem; /* 20px Marcellus */
+  line-height: 1;
+  border: 0.125rem solid var(--brass);
+  background: var(--bg-profile-selected);
+  color: var(--brass-bright);
+}
+.ml-pinsheet__titles {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.ml-pinsheet__name {
+  font-size: 1.375rem; /* 22px Marcellus */
+  line-height: 1;
+  color: var(--text-primary);
+}
+.ml-pinsheet__sub {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  /* The connection message is the longest line this slot ever holds, and truncating the reason the
+     keys stopped answering would defeat the whole point of saying it. */
+  overflow-wrap: anywhere;
+}
+.ml-pinsheet__cancel {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-quiet);
+}
+/* The sheet's keypad is tighter than the standalone one in Settings — it shares a 470px frame with
+   a header and the progress squares. Same component, its own metrics. */
+.ml-pinsheet .ml-pinpad {
+  flex: 1 1 auto;
+  min-height: 0;
+  justify-content: center;
+  gap: 1.375rem; /* 22px */
+  margin-top: 1.625rem; /* 26px */
+}
+.ml-pinsheet .ml-pinpad__keys {
+  gap: 0.5rem; /* 8px */
+  max-width: none;
+}
+.ml-pinsheet .ml-pinpad__key {
+  min-height: 4.125rem; /* 66px */
+  font-size: 1.75rem; /* 28px */
+}
+.ml-pinsheet .ml-pinpad__key--fn {
+  font-size: 0.6875rem;
+}
+/* ---------- Settings: set-PIN ----------
+   A label row over a centred keypad, which is what the Lock screen also was until it became a
+   chooser. Kept here under its own name so the two can move independently. */
+.ml-setpin {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -1012,59 +1430,25 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   justify-content: space-between;
   padding: 1.25rem var(--gutter) 1.5rem;
 }
-.ml-lock__labelrow {
+.ml-setpin__labelrow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1.375rem;
 }
-.ml-lock__who {
+.ml-setpin__who {
   font-size: 0.75rem; /* 12px */
   letter-spacing: 0.26em;
   color: var(--brass);
 }
-.ml-lock__hint {
+.ml-setpin__hint {
   font-size: 0.75rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.ml-lock__tiles {
-  display: flex;
-  gap: 1.125rem; /* 18px */
-}
-.ml-lock__tile {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 1.25rem 0;
-  border: var(--control-border) solid var(--rule-major);
-  color: var(--text-disabled);
-}
-.ml-lock__tile--selected {
-  border: 0.125rem solid var(--brass); /* 2px */
-  background: var(--bg-profile-selected);
-  color: var(--brass-bright);
-}
-.ml-lock__tile:active {
-  background: var(--bg-active);
-}
-.ml-lock__tile-initial {
-  font-size: 2rem; /* 32px */
-  line-height: 1;
-  color: inherit;
-}
-.ml-lock__tile-name {
-  font-size: 0.6875rem; /* 11px */
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-  color: inherit;
-}
-
-/* Entry block (pins + keypad), centered in the space between tiles and footer. */
-.ml-lock__entry {
+/* Entry block (progress squares + keypad), centred in the space above the footer. */
+.ml-setpin__entry {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -1073,23 +1457,24 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   justify-content: center;
   gap: 2rem;
 }
-.ml-lock__footer {
+.ml-setpin__footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
-.ml-lock__footer-note {
+.ml-setpin__footer-note {
   font-size: 0.6875rem; /* 11px */
   letter-spacing: 0.28em;
   color: var(--text-disabled);
 }
-.ml-lock__settings {
+.ml-setpin__cancel {
   font-size: 0.6875rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
-/* ---------- PIN pad (shared: Lock screen + Settings set-PIN) ---------- */
+
+/* ---------- PIN pad (shared: Lock sheet + Settings set-PIN) ---------- */
 .ml-pinpad {
   display: flex;
   flex-direction: column;
@@ -1153,11 +1538,13 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   60% { transform: translateX(-0.375rem); }
   80% { transform: translateX(0.375rem); }
 }
-.ml-lock--shake {
+.ml-lock--shake,
+.ml-setpin--shake {
   animation: ml-shake 400ms ease;
 }
 @media (prefers-reduced-motion: reduce) {
-  .ml-lock--shake {
+  .ml-lock--shake,
+  .ml-setpin--shake {
     animation: none;
   }
 }
@@ -1223,43 +1610,160 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 }
 
 /* Temperature chart: 12 bars, brass vertical gradient, shared baseline. */
-.ml-tempchart {
-  display: flex;
-  align-items: flex-end;
-  gap: 0.5rem; /* 8px */
-  height: 13.75rem; /* 220px */
-  padding: 0.5rem var(--gutter) 0;
+/* ---------- 24-hour temperature trace ----------
+ *
+ * This was twelve bars (`ml-tempchart`, gone). Bars are read as magnitude from a baseline, and
+ * temperature on this screen has no meaningful zero: the garage freezer sits between −5° and −10°,
+ * so every bar grew from a floor the readings never approach and their heights compared nothing —
+ * a −5° column drew three times the height of a −7° one. A line is the form for change over time
+ * and may sit on a truncated range, which is why the two scale rules and the range beside the
+ * heading are part of it rather than decoration.
+ */
+.ml-templine {
+  padding: 0.5rem var(--gutter) 0.625rem;
   border-bottom: var(--hairline-px) solid var(--rule-major);
   margin: 0 0 0.25rem;
 }
-.ml-tempchart__col {
-  flex: 1 1 0;
-  min-width: 0;
+.ml-templine__plot {
+  position: relative;
+  height: 11.25rem; /* 180px — shorter than the bars needed; a trace reads at less height */
+  /* Dragging *across* the trace reads it; dragging up still scrolls the screen the chart sits on.
+     `none` here would have made the chart a 180px dead zone for scrolling, which on a phone is a
+     dead zone in the middle of the page. */
+  touch-action: pan-y;
+}
+.ml-templine__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
   height: 100%;
+  display: block;
+}
+/* The stroke keeps its 2px through the viewBox's non-uniform scaling — hence `non-scaling-stroke`
+   on the path and everything that must stay round (dots) or legible (labels) living in HTML above
+   the SVG rather than inside it. */
+.ml-templine__stroke {
+  fill: none;
+  stroke: var(--brass-bright);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ml-templine__area {
+  fill: url(#ml-templine-wash);
+  stroke: none;
+}
+.ml-templine__washtop {
+  stop-color: var(--brass-bright);
+  stop-opacity: 0.22;
+}
+.ml-templine__washfoot {
+  stop-color: var(--brass-bright);
+  stop-opacity: 0;
+}
+/* The window's own extremes, which is what a truncated scale has to state. Solid hairlines and one
+   step off the surface: they are there to be read against, not to be looked at. */
+.ml-templine__rule {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--hairline-px);
+  background: var(--rule-major);
+}
+.ml-templine__dot {
+  position: absolute;
+  width: 0.5rem; /* 8px */
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--brass-bright);
+  transform: translate(-50%, -50%);
+  /* A surface ring so a dot stays a dot where it sits on its own line. */
+  box-shadow: 0 0 0 2px var(--bg-screen);
+}
+/* The newest reading. The hero number above says what it is, so this only has to say which end of
+   the trace is now. */
+.ml-templine__dot--now {
+  width: 0.75rem;
+  height: 0.75rem;
+  background: var(--bg-screen);
+  border: 2px solid var(--brass-bright);
+}
+.ml-templine__dot--held {
+  width: 0.875rem;
+  height: 0.875rem;
+  background: var(--brass-bright);
+  border: none;
+}
+.ml-templine__hair {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--hairline-px);
+  background: var(--brass-dim);
+  transform: translateX(-50%);
+}
+/*
+ * A value against its point: the window's high and low, or whatever is being touched.
+ *
+ * `--shift-x` is set by the anchor class so the first and last readings' labels sit inside the plot
+ * instead of hanging off it — see `labelAnchor`. Text wears text tokens; the brass is on the mark.
+ */
+.ml-templine__label {
+  --shift-x: -50%;
+  --shift-y: 0;
+  position: absolute;
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 0.0625rem;
+  transform: translate(var(--shift-x), var(--shift-y));
+  white-space: nowrap;
+  pointer-events: none;
 }
-.ml-tempchart__value {
-  font-size: 0.6875rem; /* 11px */
-  color: var(--brass-bright);
-  line-height: 1.4;
+.ml-templine__label--above {
+  --shift-y: calc(-100% - 0.625rem);
 }
-.ml-tempchart__track {
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  display: flex;
+.ml-templine__label--below {
+  --shift-y: 0.625rem;
+}
+.ml-templine__label--start {
+  --shift-x: 0;
+  align-items: flex-start;
+}
+.ml-templine__label--end {
+  --shift-x: -100%;
   align-items: flex-end;
 }
-.ml-tempchart__bar {
-  width: 100%;
-  background: linear-gradient(to top, var(--brass-gradient-end), var(--brass-bright));
+.ml-templine__labelvalue {
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1;
+  color: var(--text-secondary);
 }
-.ml-tempchart__time {
+.ml-templine__label--held .ml-templine__labelvalue {
+  color: var(--text-primary);
+}
+.ml-templine__labeltime {
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+/* Equal columns on the same centres the points are plotted at, so a time sits under its reading. */
+.ml-templine__axis {
+  display: flex;
+  padding-top: 0.5rem;
+}
+.ml-templine__time {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
   font-size: 0.625rem; /* 10px */
   color: var(--text-disabled);
-  margin-top: 0.25rem;
+}
+.ml-templine__empty {
+  padding: 1.25rem var(--gutter) 1.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
 }
 
 /* Humidity meter rows. */
@@ -1599,9 +2103,30 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   overflow-y: auto;
   scrollbar-width: none;
   padding: 0.75rem var(--gutter); /* 12px 34px */
+  /* A column so the photo offer can be pushed to the foot of the list (`.ml-editor__foot`) rather
+     than trailing the last field. When the form outgrows the screen the auto margin collapses to
+     nothing and the block simply scrolls in below NOTE, which is the same order either way. */
+  display: flex;
+  flex-direction: column;
 }
 .ml-editor::-webkit-scrollbar {
   display: none;
+}
+/* Neither half gives up height: a form taller than the screen scrolls, it does not compress. */
+.ml-editor__fields {
+  flex: 0 0 auto;
+}
+.ml-editor__foot {
+  flex: 0 0 auto;
+  margin-top: auto;
+}
+/* While a photograph is being read the rows hold, dimmed, and take no input: the fill lands in one
+   step when the reading ends, and what it may write was decided from which rows were already
+   somebody's answer at the moment READ started (`app/formFill`). Typing into them mid-read would be
+   answering a question that has already been asked. */
+.ml-editor__fields--reading {
+  opacity: 0.3;
+  pointer-events: none;
 }
 
 /* ---------- Event editor field rows (CALENDAR_NEW_EVENT.md §3) ---------- */
@@ -3000,27 +3525,6 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 /* Day Detail header stepper */
 /* The standard header reserves 88px on the right for the account avatar; this header has no
    right-aligned content, so restore a symmetric gutter and the stepper centres on screen. */
-/*
- * The header's date and time, stacked (§ Weather header).
- *
- * A column inside the shared status slot rather than a change to the slot itself: every other screen
- * puts one short phrase there ("3 OF 5 RUNNING") and stacking them all would be a header-height
- * change across the app for the sake of one screen. `flex-end` rather than `text-align: right` so
- * each row is only as wide as its own words — the letterspacing leaves a trailing gap after the last
- * glyph, and against a shared right edge that gap is what makes two right-aligned lines look
- * fractionally misaligned.
- */
-.ml-weather__headerwhen {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.125rem;
-  line-height: 1.3;
-  /* Its own trailing letterspace pulled back, so the rows end on the gutter and not a fifth of an
-     em inside it — the same correction the mic banner makes for the same reason. */
-  margin-right: -0.22em;
-}
-
 .ml-weather__dayhead {
   padding-right: var(--gutter);
 }
@@ -3410,17 +3914,39 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   font-weight: var(--body-weight);
   color: var(--text-primary);
 }
-/* CONFIG index row right side: optional brass meta + dim drill chevron */
+/* CONFIG index row right side: optional brass meta + dim drill chevron.
+ *
+ * <b>A wrapped value stays flush right.</b> This span sits directly in the row's flex box and is
+ * allowed to shrink, so a long sub-line beside it pushes it narrow and UNDER PANTRY / 3 WAITING
+ * break across two lines — that part is fine, and on a phone it is better than starving the
+ * sub-line to keep every value on one line. What was wrong is that the lines were then laid out
+ * from the *start* of that narrowed box, so the value sat left of the column every other value on
+ * the screen reads down, looking pushed rather than aligned. `justify-content` places the pair
+ * against the right edge and `text-align` (inherited by the meta) does the same for the second line
+ * of a value that wrapped.
+ *
+ * The cap keeps a value nobody anticipated — a long place name, a status sentence — from taking
+ * half the row off the title beside it.
+ */
 .ml-configlink__right {
   display: inline-flex;
+  max-width: 45%;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.75rem;
+  text-align: right;
 }
 .ml-configlink__meta {
   font-size: 0.75rem; /* 12px */
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--brass-bright);
+}
+/* Breathing room between the row's own words and the value, so the sub-line wraps a little before
+   it arrives rather than stopping a hair short of it. On the main column only — putting it in the
+   row's `gap` would also push the leading icon off the left rhythm every other screen shares. */
+.ml-config-index .ml-row__main {
+  padding-right: 0.75rem; /* 12px, on top of the row's own 12px gap */
 }
 .ml-configlink__chevron {
   font-size: 1.0625rem; /* 17px */
@@ -3773,6 +4299,67 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+/* ---------- A member, held ----------
+ *
+ * Removing somebody used to be a `×` sitting on every row permanently — the smallest target in the
+ * row, beside a rename control, taking a person's PIN, their linked accounts and their history in
+ * one unguarded tap on a shared wall panel. It is behind a press and hold now.
+ */
+.ml-memberhold {
+  /* The press is the way in; the browser's own text selection would fight it. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.ml-memberhold--held .ml-row { background: var(--bg-active); }
+
+.ml-memberactions {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.6875rem var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  background: var(--bg-active);
+}
+/* Whose row is being acted on — the list is long enough that the highlight alone is not an answer. */
+.ml-memberactions__who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-memberactions__btn {
+  flex: none;
+  min-height: 2.5rem;
+  padding: 0 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+/* The one destructive accent, the same pair the care panels use for CANCEL. */
+.ml-memberactions__btn--danger {
+  border-color: var(--border-fault);
+  background: var(--bg-fault);
+  color: var(--danger);
+}
+.ml-memberactions__cancel {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
 }
 .ml-linkbtn {
   font-size: 0.6875rem;
@@ -4363,6 +4950,25 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   color: var(--text-primary);
   text-align: right;
 }
+
+/* The Huckleberry pull on Config → Baby settings. `.ml-carechip` supplies the chip treatment; this
+   only puts the refresh glyph on the same line as the word and keeps the chip out of the row's
+   flex give, so a long sub-caption beside it shortens rather than squeezing the control.
+
+   Disabled is stated in ink rather than in `opacity`, the same way the log's grid says it — offline
+   is a fact about the pull, not a rendering artefact, and the note below spells it out. */
+.ml-babypull {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.ml-babypull svg { color: var(--brass-bright); }
+.ml-babypull:disabled {
+  border-color: var(--rule-minor);
+  color: var(--text-disabled);
+}
+.ml-babypull:disabled svg { color: var(--text-disabled); }
 
 /* Drawer-full threshold stepper. Sits on the same row rhythm as the cat's name — both are panel-kept
    settings the robot has no say in — so it borrows the brass hairline frame rather than inventing a
@@ -5063,9 +5669,20 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   position: absolute;
   inset: 0;
   background: rgba(9, 10, 11, 0.74);
+  /* Fades with the sheet rather than appearing under it: a scrim that lands first reads as the app
+     going dark, which is what a fault looks like. */
+  opacity: 0;
+  transition: opacity 260ms ease-out;
+}
+.ml-drawer__scrim--shown {
+  opacity: 1;
 }
 /* A sheet, not a screen — and no fixed height. It wraps its content, because a tail of empty
-   graphite between the last row and the handle reads as a broken screen. */
+   graphite between the last row and the footer reads as a broken screen.
+ *
+ * It arrives by sliding out of the top edge it is attached to, and leaves the same way. The two
+ * states are a class apart so the drag can override the transform inline; `--dragging` drops the
+ * transition for the duration, or every frame of the drag would be chasing a 260ms ease. */
 .ml-drawer {
   position: relative;
   background: var(--bg-screen);
@@ -5074,6 +5691,25 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   max-height: 88vh;
   overflow-y: auto;
   touch-action: none;
+  transform: translateY(-100%);
+  transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.ml-drawer--shown {
+  transform: translateY(0);
+}
+.ml-drawer--dragging {
+  transition: none;
+}
+/* The slide is the whole of how this panel announces itself; where motion is unwelcome it simply
+   appears, and the scrim still says the app behind it is not the thing being read. */
+@media (prefers-reduced-motion: reduce) {
+  .ml-drawer,
+  .ml-drawer__scrim {
+    transition: none;
+  }
+  .ml-drawer {
+    transform: translateY(0);
+  }
 }
 .ml-drawer__head {
   display: flex;
@@ -5094,18 +5730,59 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   font-size: 0.875rem;
   color: var(--text-muted);
 }
-/* Grouped by severity, not by time: the question is "is anything waiting for me". */
-.ml-drawer__group {
+/*
+ * One list, newest first.
+ *
+ * The severity groups that lived here (WANTS YOU / WORTH KNOWING / EARLIER, with their spelled-out
+ * counts) are gone with the tabbed inbox screen. Severity is on every row already — the terracotta
+ * rail and its source label — so grouping by it said twice what the row says once, and it broke the
+ * one order a week of house notifications is actually read in.
+ */
+.ml-drawer__count {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-drawer__list {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 1rem var(--gutter) 0.5rem;
+  flex-direction: column;
+}
+/*
+ * The two acts at the foot, side by side and equal — neither is the "main" one.
+ *
+ * Outlined rather than filled: a filled button on a sheet that opens over the whole panel would be
+ * the loudest thing on screen, and neither of these is what the household came here to do. They are
+ * told apart by colour, which is the same vocabulary the rows above use — terracotta for the one
+ * that cannot be undone, brass for the one that is only a door.
+ */
+.ml-drawer__actions {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1.125rem var(--gutter) 0.25rem;
+}
+.ml-drawerbtn {
+  flex: 1 1 0;
+  min-height: 3.25rem; /* 52px — a wall-panel target */
+  background: none;
   font-size: 0.75rem;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
 }
-.ml-drawer__grouplabel { color: var(--brass); }
-.ml-drawer__groupcount { color: var(--text-muted); }
+.ml-drawerbtn--clear {
+  border: var(--control-border) solid var(--danger);
+  color: var(--danger);
+}
+.ml-drawerbtn--clear:active {
+  background: var(--bg-danger-soft);
+}
+.ml-drawerbtn--config {
+  border: var(--control-border) solid var(--brass);
+  color: var(--brass-bright);
+}
+.ml-drawerbtn--config:active {
+  background: var(--bg-active);
+}
 .ml-drawer__foot {
   display: flex;
   flex-direction: column;
@@ -5695,13 +6372,82 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   text-transform: uppercase;
   color: var(--text-muted);
 }
+/* The frame is a control — it opens the photograph whole. Stripped of the button chrome that would
+   otherwise draw a second border inside the one the picture already has. */
+.ml-evt__sourceopen {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
 .ml-evt__sourcephoto {
+  display: block;
   width: 100%;
   height: 14.375rem; /* 230px */
   margin-top: 0.5rem;
   object-fit: cover;
   border: var(--hairline-px) solid var(--rule-major);
   background: var(--bg-nav);
+}
+
+/* Along the bottom edge of the frame, over the picture. Its own scrim behind it, because the pixels
+   underneath belong to whatever somebody photographed and cannot be relied on for contrast — a pale
+   flyer would swallow this the moment it was needed. */
+.ml-evt__sourcehint {
+  position: absolute;
+  left: var(--hairline-px);
+  right: var(--hairline-px);
+  bottom: var(--hairline-px);
+  padding: 0.375rem 0.625rem;
+  background: rgba(10, 11, 13, 0.66);
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+/* ---------- A kept photograph, whole ----------
+ *
+ * Above everything, the drawer included: it is a full-screen takeover of a screen somebody is
+ * already standing in front of, and nothing on the panel outranks a picture they asked to see.
+ */
+.ml-photoview {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: var(--gutter);
+  background: rgba(10, 11, 13, 0.94);
+  cursor: pointer;
+}
+
+/* `contain` — the whole point. The flyer keeps its aspect and fits the screen it is on, so a portrait
+   page shows its head and its foot rather than the middle the block's `cover` left. */
+.ml-photoview__img {
+  max-width: 100%;
+  min-height: 0;
+  flex: 1;
+  object-fit: contain;
+}
+
+.ml-photoview__close {
+  flex: none;
+  min-height: 3rem; /* 48px — the touch floor the capture buttons hold to */
+  padding: 0 2.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
 }
 
 /* The flyer's own note, on the confirm sheet. Multi-line, because a note is where a flyer puts
@@ -5725,38 +6471,41 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
  * fills what is empty and never overwrites what was typed.
  */
 
-/* 16 · the empty-state offer. Unmounts the moment anything is typed — an offer, not furniture. */
+/* 16 · the empty-state offer, at the foot of the field list. Unmounts the moment anything is typed
+ * — an offer, not furniture.
+ *
+ * <b>A line, not a banner.</b> This was a filled, four-side-bordered block between the double rule
+ * and TITLE: the only one of its kind on a screen otherwise built from labelled hairline rows,
+ * louder than SAVE, and 64px of the first field's place. It now sits in room the form already
+ * carries below NOTE, with no border and no fill — "or" carries the relationship to the fields
+ * above it, and brass carries the fact that it is the system offering to do something.
+ *
+ * <b>No horizontal margin, and no width calculation.</b> `.ml-editor` is already padded by one
+ * gutter, which is why every field row in it sets `padding: 1rem 0` and lets the container do the
+ * insetting.
+ *
+ * The blocks that share this slot — the offer, the reading, the source strip and the nothing notice
+ * — all sit in the same place, so replacing one with another does not move anything above it. */
 .ml-readphoto {
   display: flex;
   align-items: center;
-  gap: 1.125rem;
-  width: calc(100% - var(--gutter) * 2);
-  margin: 1.125rem var(--gutter) 0;
-  padding: 1.0625rem 1.25rem;
-  border: var(--control-border) solid var(--brass);
-  background: var(--bg-active);
+  /* Centred, not gutter-aligned: this is an action, not a field row. */
+  justify-content: center;
+  gap: 0.875rem;
+  width: 100%;
+  margin: 0;
+  /* The whole band is the target, not the words in it — 70px tall across the full gutter width. */
+  min-height: 4.375rem;
+  padding: 1.625rem 0 1.5rem;
+  border: 0;
+  background: none;
   color: var(--brass-bright);
-  text-align: left;
-}
-.ml-readphoto__body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  flex: 1;
 }
 .ml-readphoto__label {
   font-size: 0.75rem;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.26em;
   text-transform: uppercase;
-  color: var(--brass-bright);
-}
-.ml-readphoto__sub {
-  font-size: 0.875rem;
-  font-weight: var(--body-weight);
-  color: var(--text-muted);
-}
-.ml-readphoto__chev {
-  font-size: 1rem;
+  white-space: nowrap;
   color: var(--brass-bright);
 }
 
@@ -5789,22 +6538,26 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   text-transform: uppercase;
 }
 
-/* 18 · reading in place. Same footprint as the row it replaces, so nothing below it moves. */
+/* 18 · reading in place. Takes the offer line's place at the foot, so the eye does not travel. */
 .ml-reading {
   display: flex;
   align-items: center;
   gap: 1.125rem;
-  margin: 1.125rem var(--gutter) 0;
-  padding: 1.0625rem 1.25rem;
+  margin: 0 0 1.375rem;
+  padding: 1rem 1.25rem;
   border: var(--control-border) solid var(--brass-dim);
 }
 .ml-reading__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
   width: 3.5rem;
   height: 4.375rem;
   object-fit: cover;
   border: var(--hairline-px) solid var(--rule-major);
   background: #1a1d20;
+  color: #43484e;
 }
 .ml-reading__body { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; }
 .ml-reading__label {
@@ -5824,24 +6577,29 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 @media (prefers-reduced-motion: reduce) {
   .ml-reading__fill { animation: none; width: 100%; opacity: 0.5; }
 }
-.ml-reading__sub { font-size: 0.8125rem; color: var(--text-muted); }
+.ml-reading__sub { font-size: 0.8125rem; font-weight: var(--body-weight); color: var(--text-muted); }
 
-/* 19 · the source strip — a plain row, no border box, once a reading has landed. */
+/* 19 · the source strip — a plain row, no border box, once a reading has landed. It stays where the
+ * reading was, at the foot, under a hairline that closes the field list above it. */
 .ml-srcstrip {
   display: flex;
   align-items: center;
-  gap: 1.125rem;
-  margin: 1.125rem var(--gutter) 0;
-  padding-bottom: 0.875rem;
-  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  gap: 1rem;
+  margin: 0 0 0.375rem;
+  padding: 1rem 0;
+  border-top: var(--hairline-px) solid var(--rule-minor);
 }
 .ml-srcstrip__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
   width: 3rem;
   height: 3.75rem;
   object-fit: cover;
   border: var(--hairline-px) solid var(--rule-major);
-  background: var(--bg-nav);
+  background: #1a1d20;
+  color: #43484e;
 }
 .ml-srcstrip__body { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
 .ml-srcstrip__label {
@@ -5864,7 +6622,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 0.625rem var(--gutter) 0;
+  margin: 0.625rem 0 0;
   font-size: 0.8125rem;
   font-weight: var(--body-weight);
   color: var(--text-muted);
@@ -5880,7 +6638,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 
 /* 20 · nothing on it. Takes the row's place; the form keeps its defaults and its focus. */
 .ml-nothing {
-  margin: 1.125rem var(--gutter) 0;
+  margin: 0;
   padding: 1.125rem 1.25rem;
   border: var(--control-border) solid var(--border-fault);
   background: var(--bg-fault);
@@ -5949,3 +6707,1427 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   color: #F5C978;
   border-bottom-color: #F5C978;
 }
+
+/* What amber means, once, under the last field — a 7px square rather than a word like WARNING, and
+   never a box: the rows already carry the colour, and this only says what it stands for. */
+.ml-photoamber {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.125rem 0 0;
+}
+.ml-photoamber__square {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--alert);
+}
+:root[data-nightdim='on'] .ml-photoamber__square { background: #F5C978; }
+.ml-photoamber__text {
+  font-size: 0.875rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+
+/* ---------- Care logging HomeHub owns (design_handoff_care_logging) ----------
+ *
+ * Ten types where the Huckleberry integration offers four, a real timestamp where its writes have
+ * none, and entries that can be corrected. Selection is expressed one way throughout: a brass-dim
+ * border on the brass fill, never a tick and never a colour wash.
+ */
+
+/*
+ * The gutter, on every block in this section.
+ *
+ * <b>It is a margin rather than padding on purpose.</b> The rows carry hairlines, and this panel
+ * insets its rules with its content — `.ml-row::before` sets `left`/`right` to the gutter for
+ * exactly the same reason. Side *padding* would leave each border running the full width of the
+ * glass under text that stops 34px short, which is the one arrangement that reads as a mistake.
+ *
+ * Everything here used to have no side inset at all, so the log ran edge to edge beneath section
+ * labels that are inset — `.ml-section` has always padded itself to the gutter, as has every other
+ * row in the app.
+ */
+.ml-carelog__empty,
+.ml-since,
+.ml-caregrid,
+.ml-carerun,
+.ml-care__error {
+  margin-left: var(--gutter);
+  margin-right: var(--gutter);
+}
+
+/* The care log is unreachable, or a write failed — said once, above everything. */
+.ml-care__error {
+  margin-top: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border: var(--control-border) solid var(--border-fault);
+  background: var(--bg-fault);
+  font-size: 0.8125rem;
+  font-weight: var(--body-weight);
+  color: var(--danger);
+}
+
+.ml-carelog__empty {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: var(--body-weight);
+  color: var(--text-muted);
+}
+
+/* ---- The SINCE / TODAY pager ----
+ *
+ * Two pages of one block: how long since each type, and how much in the 6 AM–6 AM window. Only this
+ * block moves — the header above and the LOG grid below are stationary, which is why both pages are
+ * built to the same height and why the frame clips rather than growing.
+ */
+.ml-sincepager {
+  position: relative;
+  overflow: hidden;
+  /*
+   * The rows the block shows, plus the label row — one figure, derived once.
+   *
+   * The block has to have a floor at all because the totals page always draws its full set of rows
+   * while SINCE draws only the types that have ever been logged; without one it would shrink on a
+   * fresh install and take the LOG grid up with it mid-swipe. It was a hand-measured guess, which
+   * is how ENTRIES ended up showing four rows to its neighbours' five: its scroll container was
+   * sized against a row height that had since changed. `--care-row` is the row, `--care-rows` is
+   * how many, and everything that needs that figure reads it from here rather than keeping a copy.
+   *
+   * <b>Six, not five.</b> SINCE reports exactly six things and the window fitted five, so the sixth
+   * — Pump, which sorts last on any day it has not been logged — sat below the fold on a block that
+   * gives no hint it scrolls. A "how long since" row that cannot be seen is not reporting anything.
+   * Six is the number SINCE is built from (`SINCE_ROWS`), so the page now ends exactly where its
+   * content does; TODAY reports six as well, and ENTRIES simply shows one more.
+   *
+   * The row it costs comes off the LOG tiles below — see `.ml-caretile`.
+   *
+   * <b>Plus one day heading.</b> ENTRIES puts a sticky `YESTERDAY · NINE ENTRIES` bar above each run
+   * of rows, and the first one is inside the scroller's own height — so six rows in a six-row box
+   * left the sixth cut in half, which reads as a rendering fault rather than as more to scroll. The
+   * heading's height is a token rather than a number repeated here, and `.ml-careday` is sized
+   * *from* it, so the two cannot drift apart.
+   *
+   * SINCE and TODAY have no heading and so end one heading short of the floor. That is the right
+   * trade: the block is one height on all three pages by design — a block that grew on the swipe to
+   * ENTRIES would take the LOG grid with it, which is the whole thing this floor exists to prevent.
+   */
+  --care-row: 3.3125rem;
+  --care-rows: 6;
+  --care-dayhead: 1.75rem;
+  min-height: calc(2.3125rem + var(--care-rows) * var(--care-row) + var(--care-dayhead));
+  touch-action: pan-y;
+}
+.ml-sincepager__track { will-change: transform; }
+/* The incoming page, drawn beside the outgoing one so the pair travels as a unit. */
+.ml-sincepager__peeking {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+/* Applied to both halves of the pair, and only once the finger is off: during the drag each tracks
+   the finger exactly, and easing there would lag the gesture. */
+.ml-sincepager__track--releasing { transition: transform 220ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .ml-sincepager__track--releasing { transition: none; }
+}
+
+/*
+ * The label row sits in the gutter, like every other section label on the screen.
+ *
+ * It had no side inset at all, so `SINCE` started at the glass while the rows under it began a
+ * gutter in — and the pager squares ended at the opposite edge rather than lining up with the right
+ * edge of the tile grid. The handoff's rule is the plain one: **section labels and chip grids stay
+ * flush at the 34px gutter; only rows are inset further** (by their own 12px, so a row can take a
+ * selection fill without shifting).
+ */
+.ml-sincepager__head {
+  display: flex;
+  align-items: center;
+  gap: 0.6875rem;
+  padding: 0.875rem var(--gutter) 0.375rem;
+}
+.ml-sincepager__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-sincepager__window {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-sincepager__label--on { color: var(--brass-bright); }
+/* Replaces the pips while a selection is being made — the pages cannot be swiped past a choice. */
+.ml-sincepager__cancel {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--brass-bright);
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ml-sincepager__pips { margin-left: auto; display: flex; align-items: center; gap: 0.375rem; }
+/* Squares, not dots — nothing in this design is round except the avatar and the status dots. */
+.ml-sincepager__pip {
+  width: 0.375rem;
+  height: 0.375rem;
+  padding: 0;
+  border: 0;
+  background: var(--border-inactive);
+}
+.ml-sincepager__pip--on { background: var(--brass-bright); }
+
+/* SINCE — how long ago, which is the question somebody walks over to ask. */
+/*
+ * One box for every row in the pager, whichever page it is on.
+ *
+ * All three pages render `.ml-since` now — ENTRIES included. It had a row of its own, with a fixed
+ * time column and a smaller figure, so a swipe moved the name and the value to different edges
+ * rather than only changing what they said. TODAY is the authority: name at the inset, the time in
+ * the detail line beneath it, the figure right in Marcellus with its unit set small.
+ *
+ * <b>SINCE, TODAY and ENTRIES are three pages of one block, and their rows have to be the same
+ * object.</b> They had drifted into three: 7px of vertical padding against 6px, a `--hairline-px`
+ * rule against a `--control-border` one, and a frame on the entries row that pushed its content a
+ * pixel further in than its neighbours'. Swiping between pages showed rules of two different
+ * weights and text on two different left edges — on a block whose whole conceit is that only the
+ * contents change.
+ *
+ * The transparent frame is on both: an entries row takes a border when selected, and carrying the
+ * same box on every page is what stops that changing a row's height or its neighbours' alignment.
+ * The 12px side inset is what lets a selected row take a fill without shifting; labels and the tile
+ * grid stay flush at the gutter, and only rows are inset further.
+ */
+.ml-since {
+  box-sizing: border-box;
+  display: flex;
+  /*
+   * Centred, not baseline-aligned.
+   *
+   * Baseline was right while the row was only as tall as its contents — it lined the name up with
+   * the figure beside it and there was no spare space for anything to sit wrong in. Giving the row
+   * a fixed height created that space, and baseline spends all of it below the text: every row
+   * rendered hard against its own top edge with a gap underneath. The two columns are different
+   * heights anyway (two stacked lines against one large numeral), so centring each within the row
+   * is what actually reads as aligned.
+   */
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  /*
+   * A definite height, so the block's row count is a figure it is built from rather than one
+   * measured after the fact. SINCE and TODAY let their rows flow and got five; ENTRIES scrolls
+   * inside a fixed container and got whatever that height divided into — four, once the row grew a
+   * glyph. Both come off `--care-row` × `--care-rows` now.
+   */
+  height: var(--care-row);
+  padding: 0.4375rem 0.75rem;
+  border: var(--hairline-px) solid transparent;
+  border-bottom-color: var(--rule-minor);
+}
+/* Entries rows are held rather than read. The press is the way into selection, and the browser's
+   own text selection would fight it. */
+.ml-since--tap {
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* The chip language on a full-width row. The frame is already there and transparent, so gaining it
+   changes no height and shifts no neighbour. */
+.ml-since--on {
+  border-color: var(--brass-dim);
+  background: var(--bg-active);
+}
+.ml-since--on .ml-since__name { color: var(--brass-bright); }
+/* The type's own mark, the same one its tile carries. Brass, and the same width on every row so the
+   names line up down the page whatever glyph precedes them. */
+.ml-since__glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.375rem;
+  margin-right: 0.625rem;
+  color: var(--brass-bright);
+}
+.ml-since--none .ml-since__glyph { color: var(--text-disabled); }
+.ml-since__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1875rem; }
+.ml-since__name {
+  font-size: 0.9375rem;
+  /* Explicit, because the row's height is computed from these two lines. */
+  line-height: 1.2;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+/*
+ * NOT SENT YET, beside the name on an entry this device is still holding.
+ *
+ * <b>Stated, in brass, rather than shown as a fault.</b> The entry is written down and safe — what
+ * is missing is the server's copy, which is a fact about the house's wiring and not about the feed.
+ * Red, or the word "failed", would have somebody at 3am log it a second time to be certain, and a
+ * duplicated feed is precisely what the client key upstream exists to prevent. Brass because it is
+ * a live state on its way to resolving, the same reading `.ml-turn__queued` gives a message waiting
+ * its turn. It clears itself when the queue drains.
+ */
+.ml-since__unsent {
+  margin-left: 0.5rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+  /* The row's height is computed from its two lines — this must not become a third. */
+  white-space: nowrap;
+}
+/* The glyph leads the row and is the first thing scanned down the page; dimming it while the entry
+   waits is what makes the state legible at a glance without the badge having to be read. */
+.ml-since--unsent .ml-since__glyph { color: var(--brass-meta); }
+.ml-since__detail {
+  font-size: 0.625rem;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-since__ago { display: flex; align-items: baseline; gap: 0.25rem; font-size: 1.5rem; color: var(--text-primary); }
+/* The unit letters are set small beside the numeral — the figure is what the eye is scanning for
+   down the right edge, and `34M` at one size makes the M part of the number. */
+.ml-since__unit {
+  margin-left: 0.0625rem;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+/* Days rather than hours: the row recedes rather than shouting a number nobody needs precisely. */
+.ml-since__ago--stale { color: var(--text-muted); }
+.ml-since__ago--stale .ml-since__unit { color: var(--text-disabled); }
+/* Nothing of this type in the window. The row recedes but stays — a `0` beside `NONE IN THIS
+   WINDOW` is the fact somebody is looking for at 4am, and a row that vanished would leave them
+   counting the others to work out which type was missing. */
+.ml-since--none .ml-since__name,
+.ml-since--none .ml-since__ago { color: var(--text-muted); }
+.ml-since--none .ml-since__detail { color: var(--text-disabled); }
+
+/* LOG — the 2 × 5 grid. The caption is the value the sheet will open on. */
+.ml-caregrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.625rem;
+  margin-top: 0.75rem;
+}
+/*
+ * Glyph, then the name over its caption — 12px between the two columns.
+ *
+ * <b>88px.</b> It was 98px, which was the size these had always actually been: three rounds of
+ * tightening them — 62 → 52 → 46px — had no effect on the panel, because a dead `.ml-caretile`
+ * block in `care.css` was overriding this rule from a later stylesheet the whole time. Removing
+ * that block finally applied the compaction, and the compact tile turned out to be the wrong trade
+ * — on a wall panel reached for in the dark, a big target is the point of the grid — so 98px was
+ * written here as the rule that governs.
+ *
+ * The 10px back off it buys the pager its sixth row. Five tile rows at 10px each is 50px, against
+ * the 53px the row costs, so the page ends where it did. This is the *small* end of that earlier
+ * argument and not a return to it: 88px is still nearly twice the 44px minimum, the glyph and both
+ * lines of type are unchanged, and the whole tile is still the target. Do not take it further to
+ * win space for something else — the next thing to give is elsewhere.
+ *
+ * The whole box is the button — glyph, text and the padding around both — so the target is the
+ * tile, not the words in it.
+ */
+.ml-caretile {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 5.5rem;
+  padding: 0.9375rem 0.9375rem 0.8125rem;
+  /* The whole tile is the target, and a tap on it is a tap rather than a candidate gesture — no
+     double-tap-zoom wait, and no click lost because a thumb moved two pixels on the way up. */
+  touch-action: manipulation;
+  border: var(--control-border) solid var(--border-inactive);
+  background: var(--bg-tile);
+  text-align: left;
+}
+.ml-caretile__glyph { flex: none; display: inline-flex; color: var(--brass-bright); }
+.ml-caretile__text { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.ml-caretile--running { border-color: var(--brass-dim); background: var(--bg-brass-soft); }
+.ml-caretile__name {
+  font-size: 0.875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.ml-caretile__caption {
+  font-size: 0.625rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-caretile:disabled { opacity: 1; color: inherit; }
+
+/* A running session — glanceable while the rest of the app is used, and the way back into it. */
+.ml-carerun {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.625rem;
+  padding: 0.75rem 1rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+  text-align: left;
+  /*
+   * No `width: 100%`.
+   *
+   * It had one, and it is the reason the strip hung off the right edge: `width: 100%` resolves
+   * against the *parent's* content box, and the gutter margins this row carries are then added
+   * outside that — so the element was a full width plus 68px. `box-sizing: border-box` does not
+   * save it, because that governs padding and border and never margin. A `display: flex` button is
+   * block-level and fills the space left to it on its own.
+   */
+}
+.ml-carerun__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.6875rem;
+  /* Uppercase at 0.18em tracking sits taller than its default line box, and `overflow: hidden` —
+     which is here for the ellipsis — shaves the tops off the letters. Give the box the room. */
+  line-height: 1.5;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+/* Verdigris is reserved for a live clock. */
+.ml-carerun__clock { flex: none; font-size: 1.5rem; color: var(--live-text); }
+.ml-carerun__chev { flex: none; font-size: 1.125rem; color: var(--brass-bright); }
+/*
+ * A finished pump session, waiting to be given an amount.
+ *
+ * <b>Live green never appears behind a session that has stopped</b> — the handoff says so in as
+ * many words, and it is the one thing on the day view that tells a running clock from a held
+ * measurement at a glance. The figure goes brass: it is a length that has been measured, not a
+ * count still going up.
+ */
+.ml-carerun--held .ml-carerun__clock { color: var(--brass-bright); }
+
+/*
+ * The ENTRIES page — the day as it was logged, and the only place a row can be corrected.
+ *
+ * Fixed height with the list scrolling inside: `--care-rows` of them, so the LOG grid does not move
+ * when the pages swap, and the row clipping at the bottom edge is the scroll affordance.
+ * `--selecting` gives up exactly the action row's height plus its gap, so the grid and footer stay
+ * where they sit on every other page — the list shows fewer rows instead.
+ */
+.ml-carelist {
+  height: calc(var(--care-rows) * var(--care-row) + var(--care-dayhead));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /*
+   * `touch-action` does not inherit, so this has to be said again here.
+   *
+   * The pager sets `pan-y` on itself to keep horizontal gestures for the page swipe, but this list
+   * is a separate element and defaulted to `auto` — which let the browser treat a sideways drag as
+   * a pan it might own and cancel the pointer before the swipe was claimed. That is why this was
+   * the one page you could not swipe off: the finger is on the list, not on the frame.
+   */
+  touch-action: pan-y;
+}
+/* Exactly the action row (44px) plus its gap (10px). Tied to `.ml-careactions__btn`'s min-height —
+   change one and this moves with it, or the grid below shifts when a row is held. */
+.ml-carelist--selecting {
+  height: calc(var(--care-rows) * var(--care-row) + var(--care-dayhead) - 3.375rem);
+}
+
+/*
+ * The day a run of entries belongs to — `YESTERDAY · NINE ENTRIES`.
+ *
+ * <b>Sticky, because the boundary has to be readable mid-scroll and not only at rest.</b> The list
+ * is a handful of rows tall and holds a week, so a day is very often taller than the window it is
+ * read through: a heading that scrolled away with its first row would leave the household looking
+ * at a screenful of undated rows, which is the state this block exists to end.
+ *
+ * The background is the screen's own and must stay opaque — the rows pass *under* this, and a
+ * transparent heading would have two lines of type occupying one line of space.
+ *
+ * Inset to the gutter and padded to 0.75rem so the heading's first letter sits directly above the
+ * left edge of the rows it heads, matching `.ml-since`'s own padding rather than its glyph.
+ */
+.ml-careday {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  /* Centred rather than baseline-aligned, for the reason `.ml-since` gives above: once a row has a
+     definite height, baseline spends all the spare space below the text and the row renders hard
+     against its own top edge. */
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  /* The height the pager's floor budgets for — one declaration, read by both, so a change to the
+     heading cannot quietly re-clip the last row. */
+  box-sizing: border-box;
+  height: var(--care-dayhead);
+  margin: 0 var(--gutter);
+  padding: 0 0.75rem;
+  background: var(--bg-screen);
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+  font-size: 0.625rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* The tally recedes: it is context for the heading, never a second heading. */
+.ml-careday__count { color: var(--text-disabled); }
+
+/*
+ * EDIT and DELETE, directly under the block.
+ *
+ * No modal in front of DELETE — the handoff is explicit. The entries are minutes old and the list
+ * is right there, so a dialogue asking "are you sure" about a row somebody just held for half a
+ * second is ceremony, not safety.
+ */
+.ml-careactions {
+  display: flex;
+  gap: 0.625rem;
+  margin: 0.625rem var(--gutter) 0;
+}
+.ml-careactions__btn {
+  flex: 1;
+  min-height: 2.75rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+}
+/* The same destructive pair as CANCEL on the timer panels. It appears nowhere else. */
+.ml-careactions__btn--danger {
+  border-color: var(--border-fault);
+  background: var(--bg-fault);
+  color: var(--danger);
+}
+/* There is no multi-entry edit. Disabled rather than hidden, so the row keeps its shape while the
+   selection grows and shrinks. */
+.ml-careactions__btn:disabled {
+  border-color: var(--rule-minor);
+  background: none;
+  color: var(--text-faintest);
+}
+
+/*
+ * Logging and pulling are both wrong mid-selection: dimmed together, and inert with it.
+ *
+ * Done with explicit inks rather than `opacity`, which is what the design draws. A blanket opacity
+ * fades the tile borders and the brass glyphs by the same fraction and leaves the whole block
+ * looking *faded* — the design instead drops each to a specific value, so the grid reads as
+ * switched off rather than as a rendering artefact.
+ */
+.ml-caregrid--inert .ml-caretile {
+  border-color: var(--rule-minor);
+  background: #141618;
+}
+.ml-caregrid--inert .ml-caretile__glyph,
+.ml-caregrid--inert .ml-caretile__name,
+.ml-caregrid--inert .ml-caretile__caption { color: #3F3A30; }
+
+/* The log's footer had a `.ml-careimport` row here — the pull out of Huckleberry and the figures
+   it reported. It is Config → Baby settings now (`.ml-babypull`), which is why this surface no
+   longer has a control that can fail for want of a connection. */
+
+/* Chips — one selection treatment throughout: brass-dim border on brass fill. Never a tick. */
+/* 40px, which is the figure the design itself uses for its kind chips and toggles — the 44px
+   minimum applies to the quick-value chips a thumb hunts for, not to every bordered word. */
+.ml-carechip {
+  min-height: 2.5rem;
+  padding: 0.5625rem 0.875rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.ml-carechip--on {
+  border-color: var(--brass-dim);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+/* The one destructive accent in this design. It appears nowhere else. */
+.ml-carechip--stop { border-color: var(--border-fault); color: var(--danger); }
+
+/* ---- The panel every logging view rises on ----
+ *
+ * One height for all ten, whatever they hold: the peek behind is a fixed 200px of the day view, and
+ * a panel that sizes to its contents makes that a number that moves. Diaper packs its rows tighter
+ * rather than standing taller — `.ml-carepanel__body--dense`.
+ */
+/* 45, the app's sheet layer — above the bottom nav (3), which the panels cover. */
+.ml-carepanelwrap { position: fixed; inset: 0; z-index: 45; }
+/* Sliding out: off-screen and faded, so it must stop taking taps a moment before it is removed. */
+.ml-carepanelwrap--closing { pointer-events: none; }
+.ml-carepanel__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim-sheet);
+}
+.ml-carepanel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 760 of the canvas's 960, leaving the 200px peek. */
+  height: 47.5rem;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* One step lighter than the screen, so it reads as a layer rather than as a new screen. */
+  background: var(--bg-sheet);
+  border-top: var(--hairline-px) solid var(--brass);
+  /* The one shadow in the design. */
+  box-shadow: 0 -1.25rem 2.875rem rgba(0, 0, 0, 0.62);
+  animation: ml-carepanel-rise 240ms ease-out;
+}
+/*
+ * `touch-action` is set per region rather than on the panel, and that distinction is the whole of
+ * whether the diaper panel works.
+ *
+ * `none` on the panel would hand every touch to the drag handler — including the ones meant to
+ * scroll a body that has overflowed, which would then be a panel that cannot reach its own last
+ * row. So: the chrome and the fixed bodies suppress panning entirely, and the dense body keeps
+ * `pan-y` and scrolls natively if it ever has to. The handler's own scrollTop check is what stops a
+ * scroll-up from turning into a close once the body is back at the top.
+ */
+.ml-carepanel__handle,
+.ml-carepanel__titles,
+.ml-carepanel__body,
+.ml-carepanel__foot { touch-action: none; }
+.ml-carepanel__body--dense {
+  touch-action: pan-y;
+  /* The day view behind must not scroll if the diaper body ever does. */
+  overscroll-behavior: contain;
+}
+@keyframes ml-carepanel-rise {
+  from { transform: translateY(100%); }
+}
+/* Handing over from one panel to the next: the panel is already up, so it must not climb again. */
+.ml-carepanel--norise { animation: none; }
+/* Only while the finger is off: during the drag the panel tracks it exactly, with no easing to lag
+   behind the gesture. */
+.ml-carepanel--releasing { transition: transform 220ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .ml-carepanel { animation: none; }
+  .ml-carepanel--releasing { transition: none; }
+}
+
+.ml-carepanel__handle {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4375rem;
+  padding-top: 0.75rem;
+}
+.ml-carepanel__grab {
+  width: 4.875rem;
+  height: 0.25rem;
+  background: var(--handle-bar);
+}
+.ml-carepanel__hint {
+  font-size: 0.5625rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+
+.ml-carepanel__titles { flex: none; padding: 0.375rem var(--gutter) 0; }
+.ml-carepanel__titlerow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.ml-carepanel__title { font-size: 1.8125rem; color: var(--text-primary); }
+.ml-carepanel__label {
+  flex: none;
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-carepanel__last {
+  margin-top: 0.625rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-carepanel__lastvalue { color: var(--brass-bright); }
+
+.ml-carepanel__body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 var(--gutter);
+}
+/*
+ * Diaper. The rules below pack its six fields into the same height the other panels use, so this
+ * body is not expected to overflow and in practice does not scroll.
+ *
+ * `auto` rather than `hidden` all the same. The panel is sized in rem against a 540 × 960 canvas
+ * and the row heights below are drawn from the same arithmetic, but font metrics are the browser's
+ * to decide — and the failure this guards against is the When row falling off the bottom with no
+ * way to reach it, which is precisely what must never happen here. A few pixels of travel on a
+ * device that renders a shade taller is the cheaper failure by far.
+ */
+.ml-carepanel__body--dense { overflow-y: auto; }
+
+/* A real block at the foot, not `margin-top:auto` on the last thing in the body: the review line
+   and SAVE land at the same height on all ten panels. */
+.ml-carepanel__foot {
+  flex: none;
+  padding: 0.875rem var(--gutter) 1.5rem;
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+/* The review line *is* the confirmation — there is no hold and no second dialogue, because this log
+   can be corrected and deleted. It states the write in full before anybody presses SAVE. */
+.ml-carepanel__review {
+  margin: 0 0 0.875rem;
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  color: var(--text-secondary);
+}
+.ml-carepanel__save {
+  width: 100%;
+  min-height: 4rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+.ml-carepanel__save:disabled { color: var(--text-disabled); border-color: var(--border-inactive); background: none; }
+
+/* ---- The shared time picker, which takes the panel over in place ---- */
+.ml-when { padding-top: 1.375rem; }
+.ml-when__display { display: flex; align-items: baseline; justify-content: center; gap: 0.5rem; }
+.ml-when__clock { font-size: 3.875rem; color: var(--text-primary); }
+.ml-when__meridiem {
+  font-size: 0.875rem;
+  letter-spacing: 0.22em;
+  color: var(--brass-bright);
+}
+/* The check on what was just typed — the one thing on this view that catches 9:09 entered as 9:90. */
+.ml-when__elapsed {
+  margin-top: 0.375rem;
+  text-align: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-when__elapsed--bad { color: var(--alert); }
+.ml-when__quals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-top: 1.125rem;
+}
+.ml-when__pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.625rem;
+  margin-top: 0.875rem;
+}
+.ml-when__key {
+  min-height: 4.625rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: var(--bg-tile);
+  color: var(--text-primary);
+  font-size: 1.75rem;
+}
+/* NOW and the backspace are not digits: no fill, and the brass says they act rather than enter. */
+.ml-when__key--word,
+.ml-when__key--glyph {
+  border: 0;
+  background: none;
+  color: var(--brass-bright);
+}
+.ml-when__key--word {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ml-when__key--glyph { font-size: 1.625rem; }
+.ml-when__actions { display: flex; gap: 0.625rem; }
+.ml-when__actions .ml-carepanel__save { flex: 2; }
+.ml-when__back {
+  flex: 1;
+  min-height: 4rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+}
+
+/* ---- The fields inside a panel ---- */
+.ml-caresheet__label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.125rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-caresheet__note {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  color: var(--brass-meta);
+}
+.ml-caresheet__stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.875rem;
+}
+.ml-caresheet__step {
+  width: 4.75rem;
+  height: 5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--brass-bright);
+  font-size: 1.875rem;
+}
+/*
+ * At the floor, and saying so.
+ *
+ * The minus has carried `disabled` since the stepper was built — `step()` stops at nothing, because
+ * a dose of less than none is not a thing — but nothing ever dimmed it, so it sat in bright brass
+ * inside a live frame and simply refused to move. That is the panel telling a small lie over and
+ * over: somebody dialling a dose down at 3am gets no movement and no reason, and reads it as the
+ * screen having stopped responding rather than as the figure having bottomed out.
+ *
+ * On the shared class deliberately. Every panel with a stepper has the same floor and the same
+ * `disabled`, so greying it on medicine alone would leave the identical control behaving one way
+ * under DOSE and another under MINUTES. Matches `.ml-bottle__step:disabled`, which is the same
+ * statement in the bottle's smaller pair.
+ */
+.ml-caresheet__step:disabled {
+  border-color: var(--rule-minor);
+  color: var(--text-disabled);
+}
+.ml-caresheet__value { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; }
+.ml-caresheet__value .serif { font-size: 3.625rem; color: var(--text-primary); }
+.ml-caresheet__unit {
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/*
+ * Every chip row is an equal-width grid with a stated column count.
+ *
+ * Five quick amounts, three contents, four kinds, six colours — the counts come from the design and
+ * they are what make the values line up in readable rows. These were wrapped flex chips sized to
+ * their own text, which gives a ragged right edge and moves `MUCOUSY` onto a different line
+ * depending on what precedes it. `--cols` is set per row by the sheet.
+ */
+.ml-caresheet__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), 1fr);
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+/* The nursing SIDE row sits at the right rather than spanning the panel — it is a qualifier on the
+   duration above it, not a question of its own. */
+.ml-caresheet__grid--right {
+  grid-template-columns: repeat(var(--cols, 3), minmax(0, 6.5rem));
+  justify-content: end;
+}
+.ml-caresheet__grid--swatches { gap: 0.4375rem; }
+
+/* ---- Diaper colour: painted blocks, not bordered words ---- */
+.ml-caresheet__swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.ml-caresheet__block {
+  display: block;
+  height: 1.875rem;
+  border: var(--control-border) solid var(--border-swatch);
+}
+/* The frame is the selection; the fill never changes, because the fill *is* the data. */
+.ml-caresheet__swatch--on .ml-caresheet__block {
+  border: 2px solid var(--brass-bright);
+}
+.ml-caresheet__swatchname {
+  font-size: 0.5625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* ---- Nursing: the two start-a-timer tiles ---- */
+.ml-caresheet__starts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.ml-caresheet__start {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 6.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: var(--bg-tile);
+}
+/* The next side is pre-selected rather than merely reported. */
+.ml-caresheet__start--primary { border-color: var(--brass-dim); background: var(--bg-brass-soft); }
+.ml-caresheet__play { font-size: 1.5rem; color: var(--text-muted); line-height: 1; }
+.ml-caresheet__start--primary .ml-caresheet__play { color: var(--brass-bright); }
+.ml-caresheet__startname {
+  font-size: 0.9375rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ml-caresheet__start--primary .ml-caresheet__startname { color: var(--text-primary); }
+.ml-caresheet__tag {
+  position: absolute;
+  top: 0.625rem;
+  right: 0.625rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+/* ---- A session in progress ---- */
+.ml-carerunning__live { display: inline-flex; align-items: center; gap: 0.4375rem; color: var(--live-text); }
+/* FINISHED, not RUNNING. The session has stopped, so the label and its dot leave the live colour
+   behind — see `.ml-carerun--held` for the same statement on the day view. */
+.ml-carerunning__live--held { color: var(--brass-bright); }
+.ml-carerunning__live--held .ml-carerunning__dot { background: var(--brass-bright); }
+.ml-carerunning__dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: var(--live-text);
+}
+.ml-carerunning__card {
+  margin-top: 0.875rem;
+  padding: 1.125rem 1.375rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+}
+.ml-carerunning__phases { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
+.ml-carerunning__col { display: flex; flex-direction: column; gap: 0.25rem; }
+.ml-carerunning__col--right { align-items: flex-end; }
+.ml-carerunning__caption {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+.ml-carerunning__caption--quiet { color: var(--text-disabled); }
+/* Verdigris is reserved for a live clock and appears nowhere else on the panel. */
+.ml-carerunning__clock { font-size: 3.5rem; color: var(--live-text); line-height: 1.05; }
+.ml-carerunning__clock--big { font-size: 4rem; text-align: center; }
+.ml-carerunning__total { font-size: 1.625rem; color: var(--text-secondary); }
+.ml-carerunning__bar { display: flex; height: 0.5625rem; margin-top: 0.75rem; gap: 0.1875rem; }
+.ml-carerunning__done { background: var(--live-text); }
+.ml-carerunning__rest { background: var(--border-holdtrack); }
+.ml-carerunning__legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.375rem;
+  font-size: 0.5625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-carerunning__label {
+  margin-top: 1.125rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-carerunning__acts { display: flex; gap: 0.625rem; margin-top: 0.75rem; }
+.ml-carerunning__act {
+  flex: 1;
+  min-height: 3.25rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.ml-carerunning__act:disabled { color: var(--text-faintest); border-color: var(--rule-minor); }
+.ml-carerunning__note {
+  margin: 1rem 0 0;
+  font-size: 0.6875rem;
+  font-weight: var(--body-weight);
+  color: var(--text-disabled);
+}
+
+/* The two exits, in the footer where SAVE sits everywhere else. */
+.ml-carestop__head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.ml-carestop__label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-carestop__warn {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--alert);
+}
+.ml-carestop__card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+  margin-top: 0.625rem;
+  padding: 0.875rem 1.125rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+  text-align: left;
+}
+.ml-carestop__name {
+  font-size: 0.875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.ml-carestop__what { font-size: 0.6875rem; font-weight: var(--body-weight); color: var(--text-muted); }
+/* The one destructive accent in this design. It appears nowhere else. */
+.ml-carestop__card--discard { border-color: var(--border-fault); background: var(--bg-fault); }
+.ml-carestop__card--discard .ml-carestop__name { color: var(--danger); }
+.ml-carestop__card--discard .ml-carestop__what { color: var(--text-fault-meta); }
+
+/* ---- Bottle: the bottle itself ----
+ *
+ * Option 1B of the amount exploration, the one it locked in. Consumed is read off a bar the length
+ * of what was offered rather than stated twice: the figure leads, the fill is what was taken, the
+ * remainder is what came back. It is the only verdigris on the panel because it is the only figure
+ * written to the log.
+ */
+.ml-bottle__hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0 0.625rem;
+}
+.ml-bottle__consumed { display: flex; align-items: baseline; gap: 0.5625rem; }
+.ml-bottle__consumed .serif { font-size: 2.875rem; line-height: 1; color: var(--live-text); }
+.ml-bottle__consumedlabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--live-text);
+}
+.ml-bottle__of {
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The bottle, drawn. Its total length is what was offered. */
+.ml-bottle__gauge {
+  display: flex;
+  height: 3.5rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: #15181A;
+}
+.ml-bottle__fill {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 0.875rem;
+  background: #25423A;
+  border-right: var(--control-border) solid var(--live-text);
+}
+/* Drained: the fill runs to the gauge's own edge. The level marker is dropped because at this point
+   it *is* the edge, and drawing it there put a bright rule alongside the frame's. */
+.ml-bottle__fill--full {
+  border-right: 0;
+}
+/* Untouched: nothing but the padding and the marker would be showing, which is a stub of verdigris
+   standing for an ounce nobody drank. */
+.ml-bottle__fill--none {
+  padding-left: 0;
+  border-right: 0;
+}
+.ml-bottle__rest {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow: hidden;
+  padding-right: 0.875rem;
+}
+/* A flex share of 0 is not a width of 0 — padding does not shrink — so the remainder held 14px open
+   at the right of a bottle that had been finished. Given back explicitly. */
+.ml-bottle__rest--none {
+  padding-right: 0;
+}
+/* Both words hide rather than wrap when their share of the bar gets thin — a clipped half-word is
+   worse than the bar speaking for itself. */
+.ml-bottle__fillword,
+.ml-bottle__restword {
+  white-space: nowrap;
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.ml-bottle__fillword { color: var(--live-text); }
+.ml-bottle__restword { color: var(--text-muted); }
+
+/* Adjustments to the reading above, so compact rows rather than the full-width stepper. */
+.ml-bottle__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.875rem;
+}
+.ml-bottle__row--ruled {
+  margin-top: 0.75rem;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-bottle__rowbody { display: flex; flex-direction: column; gap: 0.125rem; }
+.ml-bottle__rowlabel {
+  font-size: 0.6875rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.ml-bottle__rownote {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-bottle__set { display: flex; align-items: center; gap: 0.75rem; }
+.ml-bottle__step {
+  width: 3.625rem;
+  height: 3rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--brass-bright);
+  font-size: 1.4375rem;
+}
+/* At the floor — a bottle cannot hold less than none — so the button says so instead of staying
+   lit and doing nothing. The frame dims with the glyph rather than disappearing: the row keeps its
+   shape, so nothing shifts under a thumb at the moment the limit is reached. */
+.ml-bottle__step:disabled {
+  border-color: var(--rule-minor);
+  color: var(--text-disabled);
+}
+.ml-bottle__value {
+  width: 4.625rem;
+  text-align: center;
+  font-size: 1.9375rem;
+  line-height: 1;
+  color: var(--text-secondary);
+}
+
+/* ---- Pump · finish: the session as fact, and the one place an amount is asked for ----
+ *
+ * The plain frame rather than the brass one, deliberately: brass is the panel's primary action, and
+ * nothing in this card is an action. It is the measurement already taken, stated so the amount
+ * being typed above SAVE has something to be an amount *of*.
+ */
+.ml-carefinish__card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.875rem;
+  padding: 1rem 1.25rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: var(--bg-tile);
+}
+.ml-carefinish__length { display: flex; flex-direction: column; gap: 0.25rem; }
+.ml-carefinish__caption {
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* Not verdigris. The clock has stopped, and this is its length rather than a live reading. */
+.ml-carefinish__clock { font-size: 2.125rem; line-height: 1.05; color: var(--text-primary); }
+.ml-carefinish__facts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  text-align: right;
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+/*
+ * Reachable, and not a peer of SAVE.
+ *
+ * By this point the session really happened, so the way to drop it is a plain text row under SAVE —
+ * no border, no fill — rather than the bordered card CANCEL gets while a session is still running.
+ * The destructive accent is the same one used everywhere else in this design and nowhere else on
+ * this panel.
+ */
+.ml-carefinish__discard {
+  width: 100%;
+  min-height: 2.25rem;
+  margin-top: 0.625rem;
+  border: 0;
+  background: none;
+  color: var(--danger);
+  font-size: 0.6875rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.ml-carefinish__discard:disabled { color: var(--text-disabled); }
+
+/* ---- Pump: the two phases, and the button that begins them ---- */
+.ml-caresheet__phase {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-caresheet__phasebody { display: flex; flex-direction: column; gap: 0.125rem; }
+.ml-caresheet__phasename { font-size: 0.9375rem; font-weight: var(--body-weight); color: var(--text-secondary); }
+.ml-caresheet__phasewhich {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-disabled);
+}
+.ml-caresheet__phasestep { display: flex; align-items: center; gap: 0.5rem; }
+.ml-caresheet__phasebtn {
+  width: 3.125rem;
+  height: 2.75rem;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--brass-bright);
+  font-size: 1.25rem;
+}
+/* At one minute, where a phase stops being one. The third pair on this sheet to say so, and worded
+   the same as `.ml-caresheet__step:disabled` and `.ml-bottle__step:disabled` — three sizes of the
+   same control, and a limit should not look different depending on which of them you reached it in. */
+.ml-caresheet__phasebtn:disabled {
+  border-color: var(--rule-minor);
+  color: var(--text-disabled);
+}
+.ml-caresheet__phasevalue {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.25rem;
+  min-width: 4.625rem;
+}
+.ml-caresheet__phasevalue .serif { font-size: 1.625rem; color: var(--text-primary); }
+/* `—` on the typed route's amount row: not measured, which is a different fact from zero and reads
+   as an absence rather than a figure. */
+.ml-caresheet__phasenone { color: var(--text-disabled); }
+.ml-caresheet__phaseunit {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* The one primary action on an idle pump panel — SAVE below it writes a *finished* session. */
+.ml-caresheet__begin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  min-height: 3.625rem;
+  margin-top: 1rem;
+  padding: 0 1.125rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+}
+.ml-caresheet__beginlabel {
+  font-size: 0.875rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.ml-caresheet__beginnote {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+
+/* ---- Medicine: what has been given before, and anything else ----
+ *
+ * One row treatment for every option. The last one given used to be a bordered card while the rest
+ * were plain lines, which made it look like a different *kind* of thing rather than like the one
+ * currently chosen — and left the row somebody needs least looking the most important.
+ */
+/* The list carries the separation its WHAT heading used to provide. The heading was removed — the
+   rows are medicine names with doses beside them on the panel you reached by tapping MEDICINE, so
+   the question it asked had no audience — and without this the first row would butt against the
+   dose stepper above it. */
+.ml-caresheet__meds {
+  margin-top: 1.125rem;
+}
+.ml-caresheet__med {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  /* Side padding matches the fill it takes when selected, so nothing shifts on selection. */
+  box-sizing: border-box;
+  padding: 0.8125rem 0.75rem;
+  border: 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  background: none;
+  text-align: left;
+}
+/* Selection without a box: the fill and the brass carry it. */
+.ml-caresheet__med--on { background: var(--bg-active); }
+.ml-caresheet__med--on .ml-caresheet__medname { color: var(--brass-bright); }
+.ml-caresheet__medname { font-size: 1.0625rem; font-weight: var(--body-weight); color: var(--text-primary); }
+/* Nothing typed yet — the prompt, not a name. */
+.ml-caresheet__medname--none { color: var(--text-muted); }
+.ml-caresheet__meddose {
+  font-size: 0.625rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-meta);
+}
+.ml-caresheet__medinput {
+  width: 100%;
+  border: 0;
+  border-bottom: var(--control-border) solid var(--brass-dim);
+  background: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  font-weight: var(--body-weight);
+}
+.ml-caresheet__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 1.125rem;
+  padding: 0.875rem 0;
+  border: 0;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+}
+.ml-caresheet__track {
+  width: 3.5rem;
+  height: 1.875rem;
+  padding: 2px;
+  border: var(--control-border) solid var(--border-holdtrack);
+  background: var(--bg-holdtrack);
+  display: flex;
+}
+.ml-caresheet__knob { width: 1.5rem; height: 100%; background: var(--text-disabled); }
+.ml-caresheet__toggle--on .ml-caresheet__track { border-color: var(--brass-dim); background: var(--bg-active); }
+.ml-caresheet__toggle--on .ml-caresheet__knob { margin-left: auto; background: var(--brass-bright); }
+.ml-caresheet__when {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 1.125rem;
+  padding: 0.875rem 0;
+  border: 0;
+  border-top: var(--hairline-px) solid var(--rule-minor);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  font-weight: var(--body-weight);
+  text-align: left;
+}
+/*
+ * No rule between the rash toggle and the time.
+ *
+ * Every other panel's When row opens a section, and its top rule is what says so. On Diaper it
+ * followed the one toggle in the design and drew a line between two single-line rows of the same
+ * height and the same weight — a divider between a pair that reads as a pair. The toggle keeps its
+ * own rule, so the two still sit apart from the consistency grid above them; they simply stop being
+ * separated from each other. The margin goes with it: the toggle's own bottom padding already
+ * spaces them.
+ */
+.ml-caresheet__toggle + .ml-caresheet__when { margin-top: 0; border-top: 0; }
+.ml-caresheet__when > span:first-child { display: flex; flex-direction: column; gap: 0.125rem; }
+.ml-caresheet__whenright { display: flex; align-items: center; gap: 0.625rem; }
+.ml-caresheet__whenvalue { font-size: 1.5rem; color: var(--brass-bright); }
+/* The chevron is the only one on a panel, and it points *into* the picker rather than back out of
+   anything — there is no back chevron in this design. */
+.ml-caresheet__chev { font-size: 1.25rem; color: var(--brass-bright); }
+
+/* ---- Diaper's tighter rhythm ----
+ *
+ * <b>Six fields in the height the others use for three.</b> Diaper asks kind, amount, colour,
+ * consistency, rash and when; Bottle asks two. At the shared rhythm that is roughly 37rem of rows
+ * inside a body worth about 33, which is why this panel scrolled — and scrolling put the When row
+ * below the fold on the one panel where back-dating matters most, since a 3am change is very often
+ * written up later.
+ *
+ * <b>What gives, and what does not.</b> Only the space between things: label margins, grid gaps,
+ * the standing height of a chip, the swatch block, and the padding on the two full-width rows.
+ * Type sizes, letterspacing, colours and the grids' column counts are untouched, so the panel reads
+ * as the same panel set a little closer rather than as a different design. Roughly 7.5rem comes
+ * back, which clears the body with room for a review line that wraps to two.
+ *
+ * Scoped to this body rather than applied to `.ml-caresheet__*` outright: the other nine panels
+ * have the height to spare, and there is no reason to crowd them for a problem they do not have.
+ */
+.ml-carepanel__body--dense .ml-caresheet__label { margin-top: 0.6875rem; }
+.ml-carepanel__body--dense .ml-caresheet__grid { margin-top: 0.5rem; gap: 0.4375rem; }
+.ml-carepanel__body--dense .ml-carechip { min-height: 2.25rem; }
+.ml-carepanel__body--dense .ml-caresheet__swatch { gap: 0.25rem; }
+.ml-carepanel__body--dense .ml-caresheet__block { height: 1.5rem; }
+.ml-carepanel__body--dense .ml-caresheet__toggle,
+.ml-carepanel__body--dense .ml-caresheet__when {
+  margin-top: 0.6875rem;
+  padding: 0.625rem 0;
+}
+/* Restated at this weight because the pair rule above carries the same specificity as the line
+   before it and would lose on order alone. Rash and time are one block; see there. */
+.ml-carepanel__body--dense .ml-caresheet__toggle + .ml-caresheet__when { margin-top: 0; }
+/* The toggle is the tallest thing in its row, so its own height is the row's. */
+.ml-carepanel__body--dense .ml-caresheet__track { height: 1.625rem; }
+.ml-carepanel__body--dense .ml-caresheet__knob { width: 1.375rem; }

@@ -5,7 +5,7 @@ import { useCareSubjects } from '../app/careSubjects'
 import { useAssist } from '../app/AssistProvider'
 
 /**
- * Persistent bottom navigation — 8 deco tabs (Home · Calendar · Meals · Care · Climate · Weather ·
+ * Persistent bottom navigation — 8 deco tabs (Home · Calendar · Kitchen · Care · Climate · Weather ·
  * Todo · Assist). Active = bright-brass icon + label (colour only, no underline/diamond).
  *
  * **All eight navigate now.** Assist used to be the exception — a `button` that raised an overlay
@@ -24,9 +24,16 @@ export function BottomNav() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const activePath = activeSectionPath(pathname)
-  // A hard fault on either Care subject badges the tab. This is *in addition to* the notification
-  // drawer row the fault also raises, never instead of it (NAV.md).
-  const { anyFault } = useCareSubjects()
+  /*
+   * A hard fault badges DEVICES, not BABY.
+   *
+   * It used to badge the merged CARE tab, where a robot that needed emptying and an unreachable
+   * baby integration lit the same dot. Since the split the dot belongs to the machines: it is the
+   * litter robot (and, when they arrive, the air conditioners) that can need a human. This is *in
+   * addition to* the notification drawer row the fault also raises, never instead of it (NAV.md).
+   */
+  const { subjects } = useCareSubjects()
+  const deviceFault = subjects.some((s) => s.id !== 'conrad' && s.faulted)
   // Unread chats badge Assist the same way — including chats with an agent that is not the one
   // currently on screen, since those are the ones nobody would otherwise go looking for.
   const { agents } = useAssist()
@@ -36,13 +43,32 @@ export function BottomNav() {
     <nav className="ml-nav">
       {NAV_SECTIONS.map((section) => {
         const isActive = section.path === activePath
-        const faulted = section.path === '/care' && anyFault
+        const faulted = section.path === '/devices' && deviceFault
         const badged = section.path === '/assist' && unread > 0
         return (
           <button
             key={section.path}
             className={'ml-nav__item' + (isActive ? ' ml-nav__item--active' : '')}
-            onClick={() => navigate(section.path)}
+            /*
+             * Replace, not push — a tab is a place you go, not a step you took.
+             *
+             * <b>This is what actually stops an edge swipe changing tabs.</b> Pushing left one
+             * history entry per tab switch, and iOS treats a horizontal drag from the screen edge
+             * as a back gesture: it pops that entry and the household lands on whatever tab they
+             * were on before, having meant to swipe the panel in front of them. Reported twice from
+             * the Care tab, whose pager is a full-width horizontal swipe surface and so invites the
+             * gesture the platform is watching for.
+             *
+             * Blocking the gesture was tried first and does not work — iOS engages its edge-pan
+             * recogniser at touch-down, so a `touchmove` `preventDefault` arrives too late, and
+             * cancelling at touch-down instead would leave a dead strip down both edges of a touch
+             * appliance. Removing the thing it navigates *to* costs nothing and cannot be raced.
+             *
+             * Nothing is lost. There is no back affordance for tabs — the bar is how you change
+             * them — so no journey is being thrown away. Drill-ins still push, so their own back
+             * buttons and `navigate(-1)` are unaffected.
+             */
+            onClick={() => navigate(section.path, { replace: true })}
             type="button"
             aria-current={isActive ? 'page' : undefined}
           >

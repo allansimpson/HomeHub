@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router'
 import {
   DrillInHeader,
@@ -18,19 +18,27 @@ import { useSession } from '../app/SessionProvider'
 import { useSensors } from '../app/SensorsProvider'
 import { useTasks } from '../app/TasksProvider'
 import { useCalendar } from '../app/CalendarProvider'
-import { useNotifications } from '../app/NotificationsProvider'
+import { useNotifications, ALL_SOURCES, SOURCE_LABELS } from '../app/NotificationsProvider'
 import { getShowToday, getShowAll, setShowToday, setShowAll } from '../app/todoPrefs'
 import { RETENTION_OPTIONS, DEFAULT_RETENTION_DAYS, NEVER, retentionLabel } from '../app/assistPrefs'
 import { useAssist } from '../app/AssistProvider'
 import { useShowThinking } from '../app/useShowThinking'
 import { useBaby } from '../app/BabyProvider'
 import { useCatName } from '../app/catName'
+import { useLongPress } from '../app/useLongPress'
+import { useBabyName } from '../app/babyName'
 import { useNightMode } from '../app/useNightMode'
-import { minutesOfDay, toClock } from '../app/nightMode'
+import { minutesOfDay } from '../app/nightMode'
+import { clockFromStored, clockLabel } from '../app/dates'
 import { api, ApiError } from '../api/client'
 import type { ProfileDto, ProfileRole, ThresholdDto, DaylightBoostMode, SyncListDto, SyncCalendarDto, LinkStatusDto, AssignableAgent, WeatherLocationDto } from '../api/types'
 import { markDefinition } from '../app/calendarMarks'
 import type { MarkKey } from '../app/calendarMarks'
+import {
+  PIN_LENGTH, advance, backspace as pinBackspace, clearDigits as pinClearDigits,
+  isComplete as pinComplete, pressDigit as pinPress, startPinChange, stepPrompt,
+} from './pinChange'
+import type { PinTask } from './pinChange'
 
 
 /** What the callback's `result` means, in the household's terms rather than OAuth's. */
@@ -65,8 +73,6 @@ const DAYLIGHT_MODES: DaylightBoostMode[] = ['auto', 'on', 'off']
 /** Household-role and age-band choices offered per member (A1). Order matches the C# enums. */
 const PROFILE_ROLES: ProfileRole[] = ['Member', 'Admin']
 
-const PIN_LENGTH = 4
-
 /**
  * CONFIG is an index of category rows that drill into detail views (spec 07).
  *
@@ -77,10 +83,10 @@ const PIN_LENGTH = 4
  */
 type ConfigView =
   | 'index' | 'lists' | 'calendars' | 'privacy' | 'thresholds' | 'display' | 'household' | 'member'
-  | 'assist' | 'weather'
+  | 'assist' | 'weather' | 'notifications'
 const CONFIG_TITLES: Record<ConfigView, string> = {
   index: 'Config',
-  lists: 'To-Do Lists',
+  lists: 'Lists',
   calendars: 'Calendars',
   privacy: 'Privacy & Lock',
   thresholds: 'Alert Thresholds',
@@ -89,6 +95,7 @@ const CONFIG_TITLES: Record<ConfigView, string> = {
   member: 'Member',
   assist: 'Assist',
   weather: 'Weather',
+  notifications: 'Notifications',
 }
 function asConfigView(section: string | undefined): ConfigView {
   return section && section in CONFIG_TITLES && section !== 'index' ? (section as ConfigView) : 'index'
@@ -110,18 +117,39 @@ export function SettingsScreen() {
   const { section } = useParams()
   const { search } = useLocation()
   const view = asConfigView(section)
-  const { profiles, settings, refresh, offline, signOut } = useSession()
+  /*
+   * `activeProfileId` here is the *session's* — who this device is signed in as — and is deliberately
+   * not the `settings.activeProfileId` read below. That one is the household's shared display value
+   * ("whose avatar is in the corner of the wall panel"), which every device shares and anyone may
+   * change; it is the wrong thing to decide "is this my own PIN" with, and the server would refuse
+   * the request anyway (AUDIT A1).
+   */
+  const { profiles, settings, refresh, offline, signOut, activeProfileId: sessionProfileId, isAdmin } = useSession()
 
   const { refresh: refreshSensors } = useSensors()
   const { refresh: refreshTasks } = useTasks()
   const { refresh: refreshCalendar } = useCalendar()
-  const { unreadCount: unreadNotifications } = useNotifications()
+  /*
+   * The inbox's count for the index row, and the source switches for the view below it.
+   *
+   * <b>What is allowed to notify is a setting, and settings live here.</b> It sat at the foot of the
+   * inbox on the reasoning that the inbox *was* its settings surface — but the inbox is a record of
+   * what happened, read and cleared, and the account badge now opens it directly. A switch that
+   * governs the next seven days does not belong under a list of the last seven.
+   */
+  const {
+    unreadCount: unreadNotifications,
+    sources: notificationSources,
+    setSource: setNotificationSource,
+    openDrawer: openNotifications,
+  } = useNotifications()
   // Only for the Devices group's Huckleberry row — Config states what is connected, it does not
   // configure it. The connection itself is made in Home Assistant.
   const { health: babyHealth } = useBaby()
   // For the Devices group's Litter row — Config says what the cat is called without making anyone
   // drill in to find out. Straight from the setting; nothing infers it.
   const cat = useCatName()
+  const babyName = useBabyName()
   // The signed-in member's own agents, for the Assist view. Straight from the provider that already
   // polls them for the Assist tab, so this page cannot disagree with the switcher about what somebody
   // has.
@@ -397,7 +425,7 @@ export function SettingsScreen() {
     [activeId, taskLists, refreshTasks],
   )
 
-  // ---- Google calendars: which of the active profile's calendars display (mirrors To-Do lists) ----
+  // ---- Google calendars: which of the active profile's calendars display (mirrors Lists) ----
   const [calendars, setCalendars] = useState<SyncCalendarDto[]>([])
   const [calendarsAvailable, setCalendarsAvailable] = useState(false)
   /**
@@ -659,7 +687,7 @@ export function SettingsScreen() {
     async (profile: ProfileDto, next: boolean) => {
       if (next && !profile.hasPin) {
         // Can't require a PIN that doesn't exist yet — collect one first.
-        setPinFor(profile)
+        setPinFlow({ profile, task: 'set' })
         return
       }
       try {
@@ -680,6 +708,17 @@ export function SettingsScreen() {
 
   // ---- Household management ----
   const [renamingId, setRenamingId] = useState<number | null>(null)
+  /** The member being held, if any — the only route to Edit and Remove. */
+  const [held, setHeld] = useState<number | null>(null)
+  /*
+   * A member row is held, not tapped, to reach Edit and Remove.
+   *
+   * Shared with the care entries list rather than reimplemented — both of the hook's non-obvious
+   * behaviours (a press may wobble; the release is not a second tap) took a round of debugging to
+   * find, and a second copy would have neither.
+   */
+  const holdProps = useLongPress<number>({ onPress: setHeld })
+  const heldProfile = profiles.find((p) => p.id === held) ?? null
   const [nameDraft, setNameDraft] = useState('')
 
   const commitRename = useCallback(
@@ -749,20 +788,44 @@ export function SettingsScreen() {
     [refresh],
   )
 
+  /**
+   * Remove a member's PIN.
+   *
+   * Your own goes through the keypad, because the server asks for the PIN before removing it — and
+   * it has to, or "clear, then set" would be a change of PIN with no PIN typed, which is the whole
+   * thing the re-entry exists to prevent. Somebody else's is an administrator resetting a forgotten
+   * PIN, which is the one case where there is nothing to ask for.
+   */
   const clearPin = useCallback(
-    async (id: number) => {
+    async (profile: ProfileDto) => {
+      if (profile.id === sessionProfileId && profile.hasPin) {
+        setPinFlow({ profile, task: 'clear' })
+        return
+      }
       try {
-        await api.clearPin(id)
+        await api.clearPin(profile.id)
         await refresh()
       } catch (err) {
         if (!(err instanceof ApiError)) throw err
       }
     },
-    [refresh],
+    [refresh, sessionProfileId],
   )
 
-  // ---- Set-PIN flow (two-step enter → confirm) ----
-  const [pinFor, setPinFor] = useState<ProfileDto | null>(null)
+  // ---- PIN flow: set one, change one (current → new → confirm), or remove one ----
+  const [pinFlow, setPinFlow] = useState<{ profile: ProfileDto; task: PinTask } | null>(null)
+
+  /**
+   * Whether this flow opens on the PIN already in force.
+   *
+   * Exactly the server's rule, so the keypad never demands digits the server was not going to check
+   * and never skips the ones it was: your own PIN has to be proved, a PIN that does not exist yet
+   * cannot be, and an administrator resetting somebody else's does not know it.
+   */
+  const asksForCurrentPin = useCallback(
+    (profile: ProfileDto) => profile.hasPin && profile.id === sessionProfileId,
+    [sessionProfileId],
+  )
 
   if (markFor) {
     return (
@@ -775,13 +838,15 @@ export function SettingsScreen() {
     )
   }
 
-  if (pinFor) {
+  if (pinFlow) {
     return (
-      <SetPinFlow
-        profile={pinFor}
-        onCancel={() => setPinFor(null)}
+      <PinFlow
+        profile={pinFlow.profile}
+        task={pinFlow.task}
+        askCurrent={asksForCurrentPin(pinFlow.profile)}
+        onCancel={() => setPinFlow(null)}
         onDone={async () => {
-          setPinFor(null)
+          setPinFlow(null)
           await refresh()
         }}
       />
@@ -860,14 +925,19 @@ export function SettingsScreen() {
                 meta={`${profiles.length} ${profiles.length === 1 ? 'member' : 'members'}`}
                 onClick={() => navigate('/settings/household')}
               />
-              {/* The account avatar is the only way into Config, so this is one of the two routes
-                  to notifications — the other being the drag-down drawer. */}
+              {/*
+                This said THIS PANEL and opened the inbox — a row whose title named no subject and
+                whose destination was a list rather than a setting. The badge on the account avatar
+                opens the inbox now, which is where a count belongs; this is the *setting* beside it,
+                and it says which one it is. The inbox is one tap on from it, for anyone who came
+                looking here.
+              */}
               <ConfigLink
                 icon="ico-alert"
-                label="This panel"
-                sub="The notification inbox, and what is allowed to notify"
+                label="Notifications"
+                sub="What is allowed to notify, and the inbox it goes to"
                 meta={unreadNotifications > 0 ? `${unreadNotifications} waiting` : 'Nothing waiting'}
-                onClick={() => navigate('/notifications')}
+                onClick={() => navigate('/settings/notifications')}
               />
               <ConfigLink
                 icon="ico-calendar"
@@ -894,6 +964,16 @@ export function SettingsScreen() {
               />
               {/* Its tab no longer exists — Care has one settings surface and it is this one. The
                   meta names the cat, because that is the setting people come here to change. */}
+              {/* Its own row, not a line inside Devices: the child is not a device, which is the
+                  whole of what the CARE split recognised. The meta names the child, because that is
+                  the setting people come here to change. */}
+              <ConfigLink
+                icon="ico-baby"
+                label="Baby settings"
+                sub="What the panel calls the child, and the pull from Huckleberry"
+                meta={babyName ?? 'No name set'}
+                onClick={() => navigate('/settings/baby')}
+              />
               <ConfigLink
                 icon="ico-care"
                 label="Litter settings"
@@ -912,12 +992,17 @@ export function SettingsScreen() {
                 meta={weatherPlace ?? 'Not resolved yet'}
                 onClick={() => navigate('/settings/weather')}
               />
+              {/* Leads to Baby settings, where the pull out of Huckleberry now lives. It used to
+                  open the Care tab, which was right while the pull chip sat in that tab's footer
+                  and is a dead end now that it does not — nothing in Care names the integration
+                  any more. The meta still states what is connected; the connection itself is
+                  still made in Home Assistant, not here. */}
               <ConfigLink
                 icon="ico-bottle"
                 label="Huckleberry"
                 sub="Baby tracking, through Home Assistant"
                 meta={babyHealth?.configured === false ? 'Not connected' : babyHealth?.status ?? '—'}
-                onClick={() => navigate('/care?subject=conrad')}
+                onClick={() => navigate('/settings/baby')}
               />
             </div>
 
@@ -925,7 +1010,7 @@ export function SettingsScreen() {
             <div className="ml-config-index">
               <ConfigLink
                 icon="ico-list"
-                label="To-Do lists"
+                label="Lists"
                 sub="Which lists sync to the panel"
                 meta={listsAvailable ? `${selectedLists} of ${taskLists.length}` : 'Not connected'}
                 onClick={() => navigate('/settings/lists')}
@@ -1168,22 +1253,113 @@ export function SettingsScreen() {
           </>
         )}
 
+        {/*
+          NOTIFICATIONS — what is allowed to speak, and the way to what it has said.
+
+          Moved here from the foot of the inbox. The two are different kinds of thing: this decides
+          what the panel may raise from now on, and the inbox is the record of what it already has.
+          Keeping the switches under the list meant the household scrolled past seven days of history
+          to reach a preference, and it put a setting on the one screen that is reached by tapping a
+          badge — a place people arrive to read, not to configure.
+        */}
+        {view === 'notifications' && (
+          <>
+            <p className="ml-settings__intro">
+              Which parts of the house may raise something. Turning one off stops new notifications
+              from it — anything already in the inbox stays there.
+            </p>
+
+            <SectionLabel label="What notifies" status={`${ALL_SOURCES.length} sources`} />
+            <div className="ml-sourcechips">
+              {ALL_SOURCES.map((s) => {
+                const on = notificationSources[s] ?? false
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    className={'ml-sourcechip' + (on ? ' ml-sourcechip--on' : '')}
+                    onClick={() => void setNotificationSource(s, !on)}
+                    aria-pressed={on}
+                  >
+                    <span className="ml-sourcechip__dot" aria-hidden="true" />
+                    {SOURCE_LABELS[s]}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* The record, one tap on — and it opens *over* this screen rather than replacing it,
+                because the panel is a sheet now. Somebody who came to Config to change what
+                notifies can glance at what has been notifying and still be where they were. */}
+            <SectionLabel label="The record" />
+            <ConfigLink
+              icon="ico-alert"
+              label="Notifications"
+              sub="Everything the panel has raised in the last seven days"
+              meta={unreadNotifications > 0 ? `${unreadNotifications} waiting` : 'Nothing waiting'}
+              onClick={openNotifications}
+            />
+
+            {/* The seven-day line went with the inbox's — it was the same standing fact said twice.
+                What is left is the part that is about *this* screen: how far a switch reaches. */}
+            <div className="ml-settings__footnote">
+              A source switched off here is silent everywhere — the cards that slide in, the
+              drag-down drawer and the inbox alike.
+            </div>
+          </>
+        )}
+
         {view === 'privacy' && (
           <>
-            {profiles.map((p) => (
-              <LedgerRow
-                key={p.id}
-                title={`${p.name} — require PIN when idle`}
-                sub={p.hasPin ? `Locks after ${timeoutMin} minutes` : 'Set a PIN to enable'}
-                right={
-                  <Toggle
-                    on={p.requirePinWhenIdle && p.hasPin}
-                    onChange={(next) => setRequirePin(p, next)}
-                    label={`${p.name} require PIN when idle`}
-                  />
-                }
-              />
-            ))}
+            {/*
+              CHANGE PIN, beside the lock it governs.
+
+              <b>There was no way to change a PIN at all.</b> The toggle collects one when there is
+              none, and after that the only route to a different four digits was Household → Clear
+              PIN followed by turning the lock back on — two screens, and neither of them asks for
+              the PIN being replaced. So the household could not change a PIN without effectively
+              removing it first, and anybody standing at the already-unlocked panel could set a
+              member's PIN to something only they knew.
+
+              The button appears only where it will work: your own, or an administrator on anybody's.
+              A member tapping it on somebody else's row would get a 403 from the server, which is a
+              correct answer to a question the screen should not have offered.
+            */}
+            {profiles.map((p) => {
+              const mayChange = p.id === sessionProfileId || isAdmin
+              return (
+                <LedgerRow
+                  key={p.id}
+                  title={`${p.name} — require PIN when idle`}
+                  sub={p.hasPin ? `Locks after ${timeoutMin} minutes` : 'Set a PIN to enable'}
+                  right={
+                    <div className="ml-rowactions">
+                      {p.hasPin && mayChange && (
+                        <button
+                          type="button"
+                          className="ml-linkbtn"
+                          onClick={() => setPinFlow({ profile: p, task: 'set' })}
+                        >
+                          Change PIN
+                        </button>
+                      )}
+                      <Toggle
+                        on={p.requirePinWhenIdle && p.hasPin}
+                        onChange={(next) => setRequirePin(p, next)}
+                        label={`${p.name} require PIN when idle`}
+                      />
+                    </div>
+                  }
+                />
+              )
+            })}
+            {/* Said up front rather than discovered at the keypad: being signed in is not proof of
+                knowing the PIN — the wall panel is signed in all day. */}
+            <div className="ml-settings__footnote">
+              Changing your own PIN asks for the current one first, even here, even signed in. So
+              does removing it, under Household. An administrator can reset another member’s without
+              it, which is how a forgotten PIN is recovered.
+            </div>
             <LedgerRow
               title="Microphone indicator"
               sub="Always shown when mic is live — cannot be disabled"
@@ -1481,7 +1657,11 @@ export function SettingsScreen() {
           <>
             <LedgerRow
               title="Night dimming"
-              sub={dimming ? `Panel dims from ${nightStart} to ${nightEnd}` : 'Panel never dims by itself'}
+              // The window is stored — and edited, in the two time fields below — as `HH:mm`, which
+              // is what `<input type="time">` requires. The sentence about it is read by a person.
+              sub={dimming
+                ? `Panel dims from ${clockFromStored(nightStart)} to ${clockFromStored(nightEnd)}`
+                : 'Panel never dims by itself'}
               right={<Toggle on={dimming} onChange={setDimming} label="Night dimming" />}
             />
             {/* The window itself, shown only when it governs anything. Two plain time fields: this
@@ -1529,7 +1709,7 @@ export function SettingsScreen() {
               sub={
                 night.overridden
                   ? night.overrideUntil
-                    ? `Just for now — the schedule takes over at ${toClock(night.overrideUntil)}`
+                    ? `Just for now — the schedule takes over at ${clockLabel(night.overrideUntil)}`
                     : 'Holding until you change it — no schedule to hand back to'
                   : 'Just for now. The schedule keeps running.'
               }
@@ -1586,7 +1766,14 @@ export function SettingsScreen() {
         {view === 'household' && (
           <>
             {profiles.map((p) => (
-              <LedgerRow key={p.id}>
+              /* Wrapped rather than widening `LedgerRow` with a className and five pointer props
+                 for one screen's sake — the hold belongs to this list, not to every ledger row. */
+              <div
+                key={p.id}
+                className={'ml-memberhold' + (held === p.id ? ' ml-memberhold--held' : '')}
+                {...holdProps(p.id)}
+              >
+              <LedgerRow>
                 <span className={'ml-memberavatar' + (p.id === activeId ? ' ml-memberavatar--owner' : '')} aria-hidden="true">
                   {p.initial}
                 </span>
@@ -1631,9 +1818,22 @@ export function SettingsScreen() {
                 <div className="ml-row__right">
                   <div className="ml-rowactions">
                     {p.hasPin && (
-                      <button type="button" className="ml-linkbtn" onClick={() => clearPin(p.id)}>
-                        Clear PIN
-                      </button>
+                      <>
+                        {/* Your own PIN is changed here as well as under Privacy & Lock — this is
+                            the screen the household is already on when they are thinking about a
+                            member, and a control that only exists two taps away is one nobody
+                            finds. Both routes are the same flow and ask the same question. */}
+                        <button
+                          type="button"
+                          className="ml-linkbtn"
+                          onClick={() => setPinFlow({ profile: p, task: 'set' })}
+                        >
+                          Change PIN
+                        </button>
+                        <button type="button" className="ml-linkbtn" onClick={() => void clearPin(p)}>
+                          Clear PIN
+                        </button>
+                      </>
                     )}
                     {/* Accounts drill-in. Its own control rather than making the whole row tappable:
                         the row's name is already a rename button, so a row-level tap would have to
@@ -1646,13 +1846,46 @@ export function SettingsScreen() {
                     >
                       Accounts ▸
                     </button>
-                    <button type="button" className="ml-linkbtn ml-linkbtn--danger" onClick={() => removeProfile(p.id)} aria-label={`Remove ${p.name}`}>
-                      ×
-                    </button>
+                    {/* No delete here. Removing a member is behind a press and hold — see the
+                        action row below the list. */}
                   </div>
                 </div>
               </LedgerRow>
+              </div>
             ))}
+            {/*
+              Edit and remove, behind a press and hold.
+
+              <b>Removing a member used to be a `×` sitting on every row, permanently.</b> It took
+              away a person's PIN, their linked accounts and their history in one unguarded tap, on a
+              wall panel, beside a rename control — and it was the smallest target in the row. The
+              hold is the deliberate act that a tap on a shared screen is not.
+
+              No confirmation dialogue after it: the hold *is* the confirmation, and stacking a modal
+              on top would teach people to tap through both.
+            */}
+            {heldProfile && (
+              <div className="ml-memberactions">
+                <span className="ml-memberactions__who">{heldProfile.name}</span>
+                <button
+                  type="button"
+                  className="ml-memberactions__btn"
+                  onClick={() => { setRenamingId(heldProfile.id); setNameDraft(heldProfile.name); setHeld(null) }}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="ml-memberactions__btn ml-memberactions__btn--danger"
+                  onClick={() => { void removeProfile(heldProfile.id); setHeld(null) }}
+                >
+                  Remove
+                </button>
+                <button type="button" className="ml-memberactions__cancel" onClick={() => setHeld(null)}>
+                  Cancel
+                </button>
+              </div>
+            )}
             <LedgerRow title={<span className="ml-linkadd">＋ Add member</span>} onClick={addProfile} />
           </>
         )}
@@ -1822,10 +2055,10 @@ export function SettingsScreen() {
 
                 {/* Said plainly because it is the next thing anyone tries: linking is per-member here,
                     but choosing *which* of their calendars or lists display is still done from the
-                    signed-in profile's own Calendars / To-Do Lists pages. */}
+                    signed-in profile's own Calendars / Lists pages. */}
                 <div className="ml-settings__footnote">
                   Linking is done here for any member. Choosing which of their calendars and lists appear on the
-                  panel is still done from Calendars and To-Do Lists while signed in as {member.name}.
+                  panel is still done from Calendars and Lists while signed in as {member.name}.
                 </div>
               </>
             )}
@@ -1917,77 +2150,141 @@ function roleLabel(p: ProfileDto, activeId: number | null): string {
   return parts.join(' · ')
 }
 
-/** Two-step PIN capture reusing the shared deco keypad. */
-function SetPinFlow({
+/**
+ * PIN capture on the shared deco keypad: the current PIN, then the new one, then the confirm — or
+ * just the current one when the PIN is being removed.
+ *
+ * <b>Where the wrong-current-PIN answer comes from, and why it comes late.</b> There is no endpoint
+ * that answers "is this the right PIN": AUDIT A1 deleted the one there was, because an advisory
+ * yes/no is a lock the client is free to ignore. So the current PIN is proved by the write that
+ * uses it — which means somebody who mistypes it learns so after entering the new PIN twice, and is
+ * put back at the first step. That is the honest cost of not reintroducing an oracle, and it falls
+ * on a mistake rather than on the ordinary path.
+ *
+ * Wrong attempts count against the same lockout as the Lock screen, so this is not a quieter place
+ * to guess: the cooldown appears here exactly as it does there, and the keys stop answering until
+ * it runs out.
+ */
+function PinFlow({
   profile,
+  task,
+  askCurrent,
   onCancel,
   onDone,
 }: {
   profile: ProfileDto
+  task: PinTask
+  /** Whether to open on the PIN in force — see `asksForCurrentPin`, which mirrors the server. */
+  askCurrent: boolean
   onCancel: () => void
   onDone: () => void
 }) {
-  const [step, setStep] = useState<'enter' | 'confirm'>('enter')
-  const [first, setFirst] = useState('')
-  const [digits, setDigits] = useState('')
+  const [state, setState] = useState(() => startPinChange(askCurrent))
   const [shake, setShake] = useState(false)
   const [error, setError] = useState('')
+  /** Seconds left on the server's cooldown, counted down so the keypad re-enables on its own. */
+  const [lockedFor, setLockedFor] = useState<number | null>(null)
+  const savingRef = useRef(false)
 
-  const press = useCallback((d: string) => setDigits((c) => (c.length >= PIN_LENGTH ? c : c + d)), [])
-  const backspace = useCallback(() => setDigits((c) => c.slice(0, -1)), [])
-  const clear = useCallback(() => setDigits(''), [])
+  const press = useCallback(
+    (d: string) => {
+      if (savingRef.current || lockedFor) return
+      setState((s) => pinPress(s, d))
+    },
+    [lockedFor],
+  )
+  const backspace = useCallback(() => setState(pinBackspace), [])
+  const clear = useCallback(() => setState(pinClearDigits), [])
 
   useEffect(() => {
-    if (digits.length !== PIN_LENGTH) return
-    if (step === 'enter') {
-      setFirst(digits)
-      setDigits('')
+    if (!pinComplete(state) || savingRef.current) return
+
+    const next = advance(state, task)
+    if (next.kind === 'next') {
       setError('')
-      setStep('confirm')
+      setState(next.state)
       return
     }
-    // confirm
-    if (digits === first) {
-      ;(async () => {
-        try {
-          await api.setPin(profile.id, digits)
-          onDone()
-        } catch (err) {
-          if (err instanceof ApiError) {
-            setError('Could not save PIN')
-            setStep('enter')
-            setFirst('')
-          } else throw err
-        }
-      })()
-    } else {
+    if (next.kind === 'mismatch') {
       setShake(true)
       setError('PINs did not match')
       window.setTimeout(() => setShake(false), 400)
-      setStep('enter')
-      setFirst('')
+      setState(next.state)
+      return
     }
-    setDigits('')
-  }, [digits, step, first, profile.id, onDone])
+
+    savingRef.current = true
+    ;(async () => {
+      try {
+        if (next.kind === 'clear') await api.clearPin(profile.id, next.currentPin)
+        else await api.setPin(profile.id, next.pin, next.currentPin ?? undefined)
+        onDone()
+      } catch (err) {
+        if (!(err instanceof ApiError)) throw err
+        if (err.status === 401) {
+          // The PIN in force was wrong. The body carries the cooldown once the lockout has started —
+          // the same shape the Lock screen reads, from the same counter.
+          const failure = err.body as { retryAfterSeconds?: number | null } | undefined
+          if (failure?.retryAfterSeconds) setLockedFor(failure.retryAfterSeconds)
+          setError('That PIN is not right')
+          setShake(true)
+          window.setTimeout(() => setShake(false), 400)
+        } else {
+          setError(task === 'clear' ? 'Could not remove PIN' : 'Could not save PIN')
+        }
+        // Back to the beginning, with nothing half-entered left on the keypad.
+        setState(startPinChange(askCurrent))
+      } finally {
+        savingRef.current = false
+      }
+    })()
+  }, [state, task, askCurrent, profile.id, onDone])
+
+  useEffect(() => {
+    if (!lockedFor) return
+    const id = window.setInterval(() => setLockedFor((s) => (s && s > 1 ? s - 1 : null)), 1000)
+    return () => window.clearInterval(id)
+  }, [lockedFor])
+
+  const title = task === 'clear' ? 'Remove PIN' : profile.hasPin ? 'Change PIN' : 'Set PIN'
+  const hint = lockedFor ? `LOCKED · ${lockedFor}s` : error.toUpperCase()
 
   return (
     <ScreenShell
-      header={<DrillInHeader title="Set PIN" status={profile.name} onBack={onCancel} />}
+      header={<DrillInHeader title={title} status={profile.name} onBack={onCancel} />}
       nav={false}
     >
-      <div className={'ml-lock' + (shake ? ' ml-lock--shake' : '')}>
-        <div className="ml-lock__labelrow">
-          <span className="label ml-lock__who">
-            {step === 'enter' ? `New PIN for ${profile.name}` : 'Confirm PIN'}
+      {/* Its own vocabulary rather than the Lock screen's. The two shared one while both were a
+          label row over a centred keypad; the Lock screen is a chooser with a sheet now, and a
+          class called `ml-lock__footer` on a Settings screen would only mislead whoever reads the
+          stylesheet next. */}
+      <div className={'ml-setpin' + (shake ? ' ml-setpin--shake' : '')}>
+        <div className="ml-setpin__labelrow">
+          <span className="label ml-setpin__who">{stepPrompt(state, task, profile.name)}</span>
+          {hint && <span className="ml-setpin__hint">{hint}</span>}
+        </div>
+        <div className="ml-setpin__entry">
+          <PinPad
+            digits={state.digits}
+            length={PIN_LENGTH}
+            onPress={press}
+            onBackspace={backspace}
+            onClear={clear}
+          />
+        </div>
+        <div className="ml-setpin__footer">
+          {/* Which of three identical keypads this is. The header says what is being done; this says
+              how far through it you are, which is the question somebody two steps in actually has. */}
+          <span className="ml-setpin__footer-note">
+            {task === 'clear'
+              ? 'Enter the PIN to remove it'
+              : state.step === 'current'
+                ? 'Step 1 of 3'
+                : askCurrent
+                  ? state.step === 'enter' ? 'Step 2 of 3' : 'Step 3 of 3'
+                  : state.step === 'enter' ? 'Step 1 of 2' : 'Step 2 of 2'}
           </span>
-          {error && <span className="ml-lock__hint">{error.toUpperCase()}</span>}
-        </div>
-        <div className="ml-lock__entry">
-          <PinPad digits={digits} length={PIN_LENGTH} onPress={press} onBackspace={backspace} onClear={clear} />
-        </div>
-        <div className="ml-lock__footer">
-          <span className="ml-lock__footer-note" />
-          <button type="button" className="ml-lock__settings" onClick={onCancel}>
+          <button type="button" className="ml-setpin__cancel" onClick={onCancel}>
             CANCEL
           </button>
         </div>

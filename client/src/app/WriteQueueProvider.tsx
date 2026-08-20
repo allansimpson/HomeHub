@@ -1,8 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useConnection } from './ConnectionProvider'
-import { executeOp, loadQueue, newId, saveQueue } from './writeQueue'
-import type { ExecOutcome, QueuedOp } from './writeQueue'
+import {
+  discardConflict, executeDurably, keepMine, localQueueStore, newId, persistAhead,
+  queueForProfile, removeOp, replayQueue, updateOp,
+} from './writeQueue'
+import type { DroppedOp, ExecOutcome, QueuedOp } from './writeQueue'
+import { useSession } from './SessionProvider'
 
 /** A surfaced edit-vs-edit conflict awaiting the user's choice. */
 export interface Conflict {
@@ -24,14 +28,22 @@ type RunOutcome = ExecOutcome | { kind: 'queued'; opId: string }
  * order on reconnect. A 409 becomes a surfaced {@link Conflict} the user resolves — keep-mine
  * (force overwrite) or discard (server wins) — never a silent overwrite. Successful replay fires a
  * `homehub:sync` event so providers refresh.
+ *
+ * A coordinator only: every durability rule lives in `writeQueue.ts` as a pure function over the
+ * store, and the `pending`/`dropped` state here is a mirror of storage rather than the truth of it.
+ * Nothing waits for a render to become durable.
  */
 export interface WriteQueueState {
   pendingCount: number
   conflicts: Conflict[]
+  /** Writes that will not be retried, awaiting acknowledgement. See {@link dismissDropped}. */
+  dropped: DroppedOp[]
   /** Try a mutation now, or queue it if offline. Domain providers reconcile from the outcome. */
-  run: (draft: Omit<QueuedOp, 'id' | 'createdAt'>) => Promise<RunOutcome>
+  run: (draft: Omit<QueuedOp, 'id' | 'createdAt' | 'ownerProfileId'>) => Promise<RunOutcome>
   resolveConflict: (opId: string, choice: 'keep-mine' | 'discard') => Promise<void>
   retry: () => void
+  /** Acknowledge the set-aside notice. The writes are already gone; this clears the telling. */
+  dismissDropped: () => void
   /**
    * Take a queued op back before it is ever sent. Returns whether one was found to withdraw.
    *
@@ -42,9 +54,24 @@ export interface WriteQueueState {
    * only version of that promise that survives being made offline.
    */
   withdraw: (opId: string) => boolean
+  /**
+   * Rewrite a queued op's body before it is ever sent. Returns whether one was found to amend.
+   *
+   * <b>The correction half of what {@link withdraw} does for deletion.</b> Correcting an entry that
+   * has not left the panel yet cannot go out as a PUT: there is no server row to address, and no id
+   * to address it by. Withdrawing and re-adding would work but hands the entry a new place in the
+   * queue and a new identity, so an amendment made twice could race its own create. Rewriting the
+   * op in place keeps one create, in its original order, carrying the corrected values.
+   *
+   * False once the op has gone — the entry has a real id by then, and an ordinary conditional PUT
+   * is the right way to correct it.
+   */
+  amend: (opId: string, body: unknown, label?: string) => boolean
 }
 
 const WriteQueueContext = createContext<WriteQueueState | null>(null)
+
+const store = localQueueStore
 
 function fireSync() {
   window.dispatchEvent(new Event('homehub:sync'))
@@ -52,98 +79,123 @@ function fireSync() {
 
 export function WriteQueueProvider({ children }: { children: ReactNode }) {
   const { online } = useConnection()
-  const [pending, setPending] = useState<QueuedOp[]>(() => loadQueue())
-  const [conflicts, setConflicts] = useState<Conflict[]>([])
+  const { activeProfileId, locked } = useSession()
+  const [pending, setPending] = useState<QueuedOp[]>(() => store.read())
+  const [dropped, setDropped] = useState<DroppedOp[]>(() => store.readDropped())
   const replaying = useRef(false)
+  /*
+   * Ids currently mid-flight, held out of the pending count.
+   *
+   * Write-ahead means every ordinary online tap is briefly a queued operation — persisted, sent,
+   * removed, all inside a few hundred milliseconds. Counting those would flash "1 change pending"
+   * across the top of the panel on every touch, which reads as trouble and is not. Durability the
+   * household can see should be durability the household actually needs to see.
+   */
+  const inFlight = useRef(new Set<string>())
 
-  // Persist the queue whenever it changes.
-  useEffect(() => {
-    saveQueue(pending)
-  }, [pending])
+  // Storage is the truth; this pulls the mirror back into line with it after any durable change.
+  const sync = useCallback(() => {
+    setPending(store.read())
+    setDropped(store.readDropped())
+  }, [])
 
-  const enqueue = useCallback((op: QueuedOp) => setPending((p) => [...p, op]), [])
+  const owned = useMemo(
+    () => queueForProfile(pending, locked ? null : activeProfileId),
+    [pending, locked, activeProfileId],
+  )
+  const conflicts = useMemo<Conflict[]>(
+    () => owned.flatMap((op) => (op.conflict ? [{ op, current: op.conflict.current }] : [])),
+    [owned],
+  )
+  const pendingCount = owned.filter((op) => !op.conflict && !inFlight.current.has(op.id)).length
+  const activeDropped = useMemo(
+    () => (locked || activeProfileId == null
+      ? []
+      : dropped.filter((d) => d.ownerProfileId == null || d.ownerProfileId === activeProfileId)),
+    [dropped, locked, activeProfileId],
+  )
 
   const run = useCallback(
-    async (draft: Omit<QueuedOp, 'id' | 'createdAt'>): Promise<RunOutcome> => {
-      const op: QueuedOp = { ...draft, id: newId(), createdAt: Date.now() }
+    async (draft: Omit<QueuedOp, 'id' | 'createdAt' | 'ownerProfileId'>): Promise<RunOutcome> => {
+      if (locked || activeProfileId == null) {
+        return { kind: 'error', status: 401, message: 'Unlock a profile before saving changes.' }
+      }
+      const op: QueuedOp = {
+        ...draft,
+        id: newId(),
+        createdAt: Date.now(),
+        ownerProfileId: activeProfileId,
+      }
       if (!online) {
-        enqueue(op)
+        // Durable before the caller is told it is queued — not one render later.
+        persistAhead(store, op)
+        sync()
         return { kind: 'queued', opId: op.id }
       }
-      const outcome = await executeOp(op)
-      if (outcome.kind === 'offline') {
-        enqueue(op)
-        return { kind: 'queued', opId: op.id }
+
+      inFlight.current.add(op.id)
+      let result
+      try {
+        result = await executeDurably(store, op)
+      } finally {
+        // Cleared before the mirror is refreshed, or an op that fell through to `offline` would be
+        // held out of a count that has no reason to be recomputed again.
+        inFlight.current.delete(op.id)
       }
-      if (outcome.kind === 'conflict') {
-        setConflicts((c) => [...c, { op, current: outcome.current }])
-      }
-      return outcome
+      sync()
+      if (result.dropped) fireSync()
+      return result.outcome.kind === 'offline' ? { kind: 'queued', opId: op.id } : result.outcome
     },
-    [online, enqueue],
+    [online, locked, activeProfileId, sync],
   )
 
   const replay = useCallback(async () => {
-    if (replaying.current) return
+    if (replaying.current || locked || activeProfileId == null) return
     replaying.current = true
     try {
-      let changed = false
-      // Snapshot; process FIFO, stopping if we go offline again.
-      const queue = loadQueue()
-      const remaining: QueuedOp[] = []
-      const newConflicts: Conflict[] = []
-      let stopped = false
-      for (const op of queue) {
-        if (stopped) {
-          remaining.push(op)
-          continue
-        }
-        const outcome = await executeOp(op)
-        if (outcome.kind === 'offline' || outcome.kind === 'error') {
-          stopped = true
-          remaining.push(op)
-        } else if (outcome.kind === 'conflict') {
-          newConflicts.push({ op, current: outcome.current })
-          changed = true
-        } else {
-          // ok or gone → the op is done.
-          changed = true
-        }
-      }
-      setPending(remaining)
-      if (newConflicts.length) setConflicts((c) => [...c, ...newConflicts])
-      if (changed) fireSync()
+      const result = await replayQueue(store, activeProfileId)
+      sync()
+      if (result.changed) fireSync()
     } finally {
       replaying.current = false
     }
-  }, [])
+  }, [locked, activeProfileId, sync])
 
-  // Replay whenever the connection is up and there's queued work.
+  // Replay whenever the connection is up and this profile has queued work.
   useEffect(() => {
-    if (online && pending.length > 0) void replay()
+    if (online && !locked && owned.some((op) => !op.conflict)) void replay()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online])
+  }, [online, locked, activeProfileId])
 
   const resolveConflict = useCallback(async (opId: string, choice: 'keep-mine' | 'discard') => {
-    let target: Conflict | undefined
-    setConflicts((c) => {
-      target = c.find((x) => x.op.id === opId)
-      return c.filter((x) => x.op.id !== opId)
-    })
+    const target = store.read().find((op) => op.id === opId)
+    if (!target || locked || target.ownerProfileId !== activeProfileId) return
+
     if (choice === 'discard') {
+      discardConflict(store, opId)
+      sync()
       fireSync() // revert optimistic state to the server's
       return
     }
-    if (target) {
-      const outcome = await executeOp(target.op, /* forceOverwrite */ true)
-      if (outcome.kind === 'conflict') {
-        // Shouldn't happen with force; if it does, re-surface.
-        setConflicts((c) => [...c, { op: target!.op, current: outcome.current }])
-      } else {
-        fireSync()
-      }
-    }
-  }, [])
+
+    /*
+     * Keep-mine goes back through the durable path, and this is the whole of the fix.
+     *
+     * It used to leave state, force-execute, and look at the answer only for another conflict —
+     * so an `offline` or a refusal fell through every branch of it, and because a conflicted op had
+     * never been in `pending`, the edit existed nowhere at all. Somebody chose to keep their work
+     * and the panel quietly threw it away, with no race required and nothing on screen. Now the
+     * choice is persisted first: worst case it waits in the queue for the network to come back.
+     */
+    const forced = keepMine(target)
+    persistAhead(store, forced)
+    sync()
+
+    const { outcome, dropped: setAside } = await executeDurably(store, forced)
+    sync()
+    if (outcome.kind === 'conflict') return // re-surfaced; shouldn't happen with the version cleared
+    if (outcome.kind !== 'offline' || setAside) fireSync()
+  }, [locked, activeProfileId, sync])
 
   /*
    * Read from the persisted queue rather than from `pending`, and written straight back.
@@ -154,17 +206,34 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
    * replayed, not the one this render happens to be holding.
    */
   const withdraw = useCallback((opId: string): boolean => {
-    const queue = loadQueue()
-    const without = queue.filter((op) => op.id !== opId)
-    if (without.length === queue.length) return false
-    saveQueue(without)
-    setPending(without)
+    const target = store.read().find((op) => op.id === opId)
+    if (!target || locked || target.ownerProfileId !== activeProfileId) return false
+    removeOp(store, opId)
+    sync()
     return true
-  }, [])
+  }, [locked, activeProfileId, sync])
+
+  /* Through storage rather than `pending`, for the same reason `withdraw` is — see its note. */
+  const amend = useCallback((opId: string, body: unknown, label?: string): boolean => {
+    const target = store.read().find((op) => op.id === opId)
+    if (!target || locked || target.ownerProfileId !== activeProfileId) return false
+    updateOp(store, opId, { body, label: label ?? target.label })
+    sync()
+    return true
+  }, [locked, activeProfileId, sync])
+
+  const dismissDropped = useCallback(() => {
+    store.writeDropped([])
+    sync()
+  }, [sync])
 
   const value = useMemo<WriteQueueState>(
-    () => ({ pendingCount: pending.length, conflicts, run, resolveConflict, retry: () => void replay(), withdraw }),
-    [pending.length, conflicts, run, resolveConflict, replay, withdraw],
+    () => ({
+      pendingCount, conflicts, dropped: activeDropped, run, resolveConflict,
+      retry: () => void replay(), dismissDropped, withdraw, amend,
+    }),
+    [pendingCount, conflicts, activeDropped, run, resolveConflict, replay, dismissDropped,
+      withdraw, amend],
   )
 
   return <WriteQueueContext.Provider value={value}>{children}</WriteQueueContext.Provider>

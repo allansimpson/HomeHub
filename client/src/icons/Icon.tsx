@@ -6,6 +6,15 @@ export type IconId =
   | 'ico-home'
   | 'ico-calendar'
   | 'ico-meals'
+  | 'ico-baby'
+  | 'ico-devices'
+  /**
+   * Reserved, not in the bar.
+   *
+   * `ico-care` (the open hand) and `ico-climate` (three waves) were cell 4 and cell 5 before the
+   * CARE split. The handoff keeps both in the pack because either may return — do not delete them
+   * to tidy up, and do not put them back in `NAV_SECTIONS` without one.
+   */
   | 'ico-care'
   | 'ico-climate'
   | 'ico-weather'
@@ -14,7 +23,15 @@ export type IconId =
   // Care log tiles (see IconSprite — drawn to the section set's geometry, not part of Icons v2).
   | 'ico-bottle'
   | 'ico-diaper'
-  | 'ico-nursing'
+  /** Final artwork from the Care handoff, not drawn to match the set. See IconSprite. */
+  | 'ico-breast'
+  | 'ico-pump'
+  | 'ico-solids'
+  | 'ico-sleep'
+  | 'ico-medicine'
+  | 'ico-bath'
+  | 'ico-tummytime'
+  | 'ico-temperature'
   | 'ico-refresh'
   | 'ico-person'
   | 'ico-gear'
@@ -37,6 +54,8 @@ export type IconId =
   | 'ico-add'
   | 'ico-minus'
   | 'ico-check'
+  /** A newer panel, downloaded and waiting to be let in — the update plate's glyph. */
+  | 'ico-download'
   /** Take a turn's words somewhere else — the transcript's copy control (`CopyTurn`). */
   | 'ico-copy'
   | 'ico-delete'

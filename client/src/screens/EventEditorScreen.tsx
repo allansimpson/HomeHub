@@ -11,9 +11,11 @@ import { allDayBounds, formatTime, snapMinutes, monthName } from '../app/dates'
 import { localDay } from '../app/eventDrafts'
 import { markDefinition } from '../app/calendarMarks'
 import {
-  NothingToTake, PhotoOffer, ReadFromPhotoRow, ReadFromSheet, ReadingBlock, SourceStrip, TakeUndo,
+  AmberNotice, NothingToTake, PhotoOffer, ReadFromPhotoRow, ReadFromSheet, ReadingBlock, SourceStrip,
+  TakeUndo,
 } from './FormPhoto'
 import { useFormPhoto } from './useFormPhoto'
+import { PhotoViewer } from './PhotoViewer'
 import type { FormField } from '../app/formFill'
 import { FIELD_NAMES } from '../app/formFill'
 import type { EventDraft } from '../app/eventDrafts'
@@ -151,7 +153,12 @@ export function EventEditorScreen() {
   }, [])
 
   const photo = useFormPhoto(applyFill)
-  const untouched = touched.size === 0 && photo.stage === 'idle'
+  /*
+   * The offer only ever shows on an empty form — it disappears the moment anything is typed or read,
+   * and a form handed over from the confirm sheet's EDIT arrived already filled off a photograph, so
+   * it was never empty either. A form in progress reaches a photo through REPLACE on the strip.
+   */
+  const untouched = touched.size === 0 && photo.stage === 'idle' && !handoff
 
   /** What a held-back value reads as under its row. */
   const offerLabel = useCallback((field: FormField): string => {
@@ -209,9 +216,21 @@ export function EventEditorScreen() {
   const offering = (field: FormField) =>
     photo.offers.includes(field) ? <PhotoOffer value={offerLabel(field)} onTake={() => takeOffer(field)} /> : null
 
+  /**
+   * Which rows are wearing amber at this moment.
+   *
+   * The notice under NOTE counts these rather than the reading's own list: a row somebody has since
+   * corrected is no longer amber, and BEGINS/ENDS are not on the screen at all when the engagement
+   * is a whole day — a sentence about two hard lines with only one of them visible sends people
+   * looking for a row that isn't there.
+   */
+  const amberShown = (['title', 'date', 'begins', 'ends', 'where'] as const).filter(
+    (f) => photo.amber.has(f) && !touched.has(f) && !(allDay && (f === 'begins' || f === 'ends')),
+  )
+
   /** Amber marks a value that was read poorly or filled by rule — the same treatment as the sheet. */
   const amberOn = (field: 'title' | 'date' | 'begins' | 'ends' | 'where') =>
-    photo.amber.has(field) && !touched.has(field) ? ' ml-evt__amber' : ''
+    amberShown.includes(field) ? ' ml-evt__amber' : ''
 
   /** The event's own mark, overriding its kind and its calendar's; null to inherit. */
   const [mark, setMark] = useState<string | null>(null)
@@ -404,38 +423,9 @@ export function EventEditorScreen() {
     // A modal over Calendar, but the standard nav stays (CALENDAR lit); no avatar, no back button.
     <ScreenShell header={header} avatar={false}>
       <div className="ml-editor">
-        {/* The photo affordance, and whatever it turned into.
-
-            Only on a new engagement: an event that already exists was written by somebody, and
-            offering to re-read it off a picture is a different act than filling a blank form. */}
-        {editId == null && (
-          <>
-            {untouched && photo.stage === 'idle' && <ReadFromPhotoRow onOpen={photo.open} />}
-            {photo.stage === 'reading' && <ReadingBlock preview={photo.photo?.preview ?? null} />}
-            {photo.stage === 'none' && (
-              <NothingToTake message={photo.refusal} onAnother={photo.open} onDismiss={photo.dismiss} />
-            )}
-            {photo.stage === 'filled' && (
-              <>
-                <SourceStrip
-                  preview={photo.photo?.preview ?? null}
-                  summary={photo.summary}
-                  onReplace={photo.replace}
-                />
-                {photo.undoable && (
-                  <TakeUndo
-                    field={FIELD_NAMES[photo.undoable.field]}
-                    onUndo={() => {
-                      undoTake(photo.undoable!.field, photo.undoable!.label)
-                      photo.clearUndo()
-                    }}
-                  />
-                )}
-              </>
-            )}
-          </>
-        )}
-
+        {/* The field list. Held at a third opacity while a photograph is being read — see
+            `.ml-editor__fields--reading`; the rows do not skeleton and do not fill one at a time. */}
+        <div className={'ml-editor__fields' + (photo.stage === 'reading' ? ' ml-editor__fields--reading' : '')}>
         {/* TITLE — stacked, Marcellus value + brass caret */}
         <div className="ml-evt__row ml-evt__row--stacked">
           <span className="ml-evt__label">Title</span>
@@ -602,6 +592,10 @@ export function EventEditorScreen() {
           {offering('note')}
         </div>
 
+        {/* What amber means — said once, under the last field, rather than beside every row that
+            carries it. Only for rows the reading was unsure of and nobody has since corrected. */}
+        {photo.stage === 'filled' && <AmberNotice count={amberShown.length} />}
+
         {/* SOURCE — the photograph this engagement was read off (screens 13 and 14). Only ever drawn
             for an engagement that came off one; a typed engagement has no source to state. */}
         {editId != null && source && <SourceBlock eventId={editId} source={source} />}
@@ -615,6 +609,41 @@ export function EventEditorScreen() {
           >
             {confirmDelete ? 'Tap again to delete' : 'Delete engagement'}
           </button>
+        )}
+        </div>
+
+        {/* The photo affordance, and whatever it turned into, at the FOOT of the field list — in
+            space the form already carries below NOTE, so nothing above the fold moves at any point
+            in the flow: the offer, the reading and the record of what was read all take this place.
+
+            Only on a new engagement: an event that already exists was written by somebody, and
+            offering to re-read it off a picture is a different act than filling a blank form. */}
+        {editId == null && (
+          <div className="ml-editor__foot">
+            {untouched && photo.stage === 'idle' && <ReadFromPhotoRow onOpen={photo.open} />}
+            {photo.stage === 'reading' && <ReadingBlock preview={photo.photo?.preview ?? null} />}
+            {photo.stage === 'none' && (
+              <NothingToTake message={photo.refusal} onAnother={photo.open} onDismiss={photo.dismiss} />
+            )}
+            {photo.stage === 'filled' && (
+              <>
+                <SourceStrip
+                  preview={photo.photo?.preview ?? null}
+                  summary={photo.summary}
+                  onReplace={photo.replace}
+                />
+                {photo.undoable && (
+                  <TakeUndo
+                    field={FIELD_NAMES[photo.undoable.field]}
+                    onUndo={() => {
+                      undoTake(photo.undoable!.field, photo.undoable!.label)
+                      photo.clearUndo()
+                    }}
+                  />
+                )}
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -659,8 +688,15 @@ function sourceDay(iso: string): string {
  * Config, or a file since removed — this is a plain row saying so, never an image frame with nothing
  * in it. A broken frame reads as a failure to load and invites somebody to reload a screen that is
  * already showing them everything it has.
+ *
+ * <b>The frame opens.</b> It is drawn `cover` at a fixed height so the block keeps its shape in a
+ * column of rows, and cover crops — a portrait flyer shows its middle and nothing else. Checking what
+ * was printed is the entire reason the photograph is kept, so one press puts it up whole
+ * ({@link PhotoViewer}). A button rather than a tappable image: it is a control, and it has to
+ * announce itself to a screen reader and take focus like one.
  */
 function SourceBlock({ eventId, source }: { eventId: number; source: EventSource }) {
+  const [viewing, setViewing] = useState(false)
   const stamp = source.takenUtc ?? source.addedUtc
   const label = stamp
     ? `${source.takenUtc ? 'Taken' : 'Added'} ${sourceDay(stamp)} · read by Barnaby`
@@ -675,11 +711,24 @@ function SourceBlock({ eventId, source }: { eventId: number; source: EventSource
     )
   }
 
+  const src = api.eventPhotoUrl(eventId)
+
   return (
     <div className="ml-evt__row ml-evt__row--stacked">
       <span className="ml-evt__label">Source</span>
       <span className="ml-evt__sourcelabel">{label}</span>
-      <img className="ml-evt__sourcephoto" src={api.eventPhotoUrl(eventId)} alt="The photograph this engagement was read from" />
+      <button
+        type="button"
+        className="ml-evt__sourceopen"
+        onClick={() => setViewing(true)}
+        aria-label="See the whole photograph"
+      >
+        <img className="ml-evt__sourcephoto" src={src} alt="The photograph this engagement was read from" />
+        {/* Said rather than implied. A picture on a touch screen looks like a picture, and the one
+            thing that would make somebody try pressing it is knowing there is more of it. */}
+        <span className="ml-evt__sourcehint">Tap to see all of it</span>
+      </button>
+      {viewing && <PhotoViewer src={src} onClose={() => setViewing(false)} />}
     </div>
   )
 }

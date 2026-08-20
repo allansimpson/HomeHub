@@ -21,6 +21,8 @@ interface DashboardHeaderProps {
   place?: string
   /** When true, the offline chip replaces the conditions/date detail. */
   offline?: boolean
+  /** Whether that chip should read `Offline` rather than `Reconnecting` — see `OfflineChip`. */
+  settledOffline?: boolean
   /** Active-profile monogram; when set with onSwitchProfile, renders the switcher badge. */
   profileInitial?: string
   /** Opens the profile switcher (Lock screen). */
@@ -31,14 +33,17 @@ interface DashboardHeaderProps {
  * Dashboard header: big clock left; date + conditions (or offline chip) right. Identity is global
  * (spec 13).
  *
- * **No bell.** The unread count moved to the account avatar, which was already the only route to
- * `/settings` → `Notifications` — a count belongs on the door it opens, and the bell was a second
- * glyph crowding the same corner. The drag-down `NotificationPullTab` is still the way to the
- * drawer, so nothing lost a route.
+ * **No bell.** The unread count moved to the account avatar, and a badged avatar now opens the inbox
+ * itself rather than Config — a count belongs on the door it opens, and for a while that door led to
+ * a settings index where nothing was labelled with what the badge counted (`AccountAvatar`). The
+ * bell was a second glyph crowding the same corner. The drag-down `NotificationPullTab` is still the
+ * way to the drawer, so nothing lost a route.
  *
  * @category Shell
  */
-export function DashboardHeader({ clock, ampm, date, conditions, place, offline }: DashboardHeaderProps) {
+export function DashboardHeader({
+  clock, ampm, date, conditions, place, offline, settledOffline,
+}: DashboardHeaderProps) {
   return (
     <header className="ml-header ml-dash-header">
       {/* The meridiem rides after the numerals at a fraction of their size, the same treatment the
@@ -50,7 +55,7 @@ export function DashboardHeader({ clock, ampm, date, conditions, place, offline 
       <div className="ml-dash-header__right">
         {/* Profile chip removed — identity + switch/sign-out live under the Account nav tab. */}
         {offline ? (
-          <OfflineChip />
+          <OfflineChip offline={settledOffline} />
         ) : (
           <>
             <div className="ml-dash-header__date">{date}</div>

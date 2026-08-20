@@ -28,6 +28,14 @@ interface ScreenShellProps {
    * the second the Notifications row states the count in words one tap away.
    */
   avatarBadge?: boolean
+  /**
+   * A strip docked between the content and the bottom nav — the Kitchen's quick row.
+   *
+   * Outside `content` on purpose: it must not move with the scroll, and a sticky element inside a
+   * scroller would still travel on an overscroll bounce. Sits above the nav rather than replacing
+   * it, so where-you-are-in-the-app and where-you-are-in-this-section stay separate questions.
+   */
+  dock?: ReactNode
 }
 
 /**
@@ -45,6 +53,7 @@ export function ScreenShell({
   fixedContent = false,
   avatar = true,
   avatarBadge = true,
+  dock,
 }: ScreenShellProps) {
   const showAvatar = nav && avatar
   return (
@@ -59,6 +68,7 @@ export function ScreenShell({
         <div className={'ml-shell__content' + (fixedContent ? ' ml-shell__content--fixed' : '')}>
           {children}
         </div>
+        {dock}
       </div>
       {nav && <BottomNav />}
     </div>
