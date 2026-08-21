@@ -39,7 +39,7 @@ public sealed class ExtractorEventReader : IEventExtractor
 
         var result = await _client.ExtractAsync<ReadingReply>(
             ImageAnalysisMode.Event,
-            new NormalizedImage(request.ImageBase64, request.MediaType),
+            request.Image,
             Instruction(request),
             ct);
 

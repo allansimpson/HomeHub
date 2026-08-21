@@ -326,7 +326,11 @@ public class AssistController : ControllerBase
         if (req.ConversationId is { } cid)
         {
             convo = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == cid, ct);
-            if (convo is null) { Response.StatusCode = StatusCodes.Status404NotFound; return; }
+            if (convo is null || !Owns(convo))
+            {
+                Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
         }
 
         // Whether this turn is about to open a chat, remembered before `PersistAsync` opens it. Only
@@ -747,7 +751,8 @@ public class AssistController : ControllerBase
         if (req.ConversationId is { } cid)
         {
             convo = await _db.Conversations.FirstOrDefaultAsync(c => c.Id == cid, ct);
-            if (convo is null) return NotFound("That conversation no longer exists.");
+            if (convo is null || !Owns(convo))
+                return NotFound("That conversation no longer exists.");
         }
 
         // Remembered before the chat is opened below — see the streamed path for why.

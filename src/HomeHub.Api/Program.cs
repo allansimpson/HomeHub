@@ -30,6 +30,10 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 
 var builder = WebApplication.CreateBuilder(args);
+// Only Development and the explicit automated-Test environment may use convenience fallbacks. Any
+// custom deployment name (Staging, Live, or a misspelling) receives the hardened policy.
+var requiresDeploymentSafeguards =
+    !builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Test");
 
 // --- Kestrel binding, and presence-detected HTTPS ---
 //
@@ -38,8 +42,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Kestrel logged "Overriding address(es) 'http://0.0.0.0:5220'" on every start, which reads like a
 // misconfiguration when it is simply the same port written down twice. One source, no warning.
 //
-// HTTPS is opt-in by the certificate existing, rather than by a flag. The phone-side scan screen
-// needs `getUserMedia`, which every browser refuses outside a secure context — HTTPS, or localhost.
+// Development/Test may omit HTTPS. Every deployment environment requires a valid certificate; the
+// phone-side scan screen also needs it because browsers refuse getUserMedia outside a secure context.
 // A phone reaching the host by LAN address over plain HTTP is neither, so the camera is not blocked
 // but *absent*, and the screen falls back to "NO CAMERA HERE". That is as true of the deployed panel
 // as of a dev machine: scanning against a laptop is not where anyone unpacks shopping.
@@ -48,8 +52,8 @@ var builder = WebApplication.CreateBuilder(args);
 // whatever `Server:CertPath` / `Server:KeyPath` point at, which `scripts/make-panel-cert.sh` signs
 // with the *same* household CA, so phones that already trust that CA need nothing further.
 //
-// HTTP is always bound, with or without a certificate — the kiosk, bookmarks and the deploy health
-// check all use it, and a host that has not been given a certificate must still serve.
+// HTTP remains loopback-only in hardened deployments for local readiness checks. Browser traffic is
+// HTTPS-only and session cookies are always Secure.
 {
     var isDev = builder.Environment.IsDevelopment();
 
@@ -61,6 +65,14 @@ var builder = WebApplication.CreateBuilder(args);
     var keyPath = isDev
         ? Path.Combine(builder.Environment.ContentRootPath, "..", "..", "certs", "homehub-dev.key")
         : builder.Configuration["Server:KeyPath"];
+
+    if (requiresDeploymentSafeguards
+        && (string.IsNullOrWhiteSpace(certPath) || string.IsNullOrWhiteSpace(keyPath)
+            || !File.Exists(certPath) || !File.Exists(keyPath)))
+    {
+        throw new InvalidOperationException(
+            "Deployment startup requires readable HTTPS certificate and key files.");
+    }
 
     // 0.0.0.0 rather than localhost, in both environments: the panel is reached from tablets and
     // phones on the LAN, and a loopback-only bind is the single most common reason it "works on the
@@ -88,10 +100,50 @@ var builder = WebApplication.CreateBuilder(args);
             // is easier to trust than two that diverge by platform.
             using var fromPem = X509Certificate2.CreateFromPemFile(certPath, keyPath);
             certificate = X509CertificateLoader.LoadPkcs12(fromPem.Export(X509ContentType.Pkcs12), null);
+            if (requiresDeploymentSafeguards)
+            {
+                var now = DateTime.UtcNow;
+                if (!certificate.HasPrivateKey
+                    || now < certificate.NotBefore.ToUniversalTime()
+                    || now >= certificate.NotAfter.ToUniversalTime())
+                {
+                    throw new InvalidOperationException(
+                        "The HTTPS certificate is not currently valid with its private key.");
+                }
+
+                var enhancedUsage = certificate.Extensions
+                    .OfType<X509EnhancedKeyUsageExtension>()
+                    .FirstOrDefault();
+                var permitsServerAuthentication = enhancedUsage?.EnhancedKeyUsages
+                    .Cast<System.Security.Cryptography.Oid>()
+                    .Any(oid => oid.Value == "1.3.6.1.5.5.7.3.1") == true;
+                if (!permitsServerAuthentication)
+                    throw new InvalidOperationException(
+                        "The HTTPS certificate must explicitly permit TLS server authentication.");
+
+                var keyUsage = certificate.Extensions.OfType<X509KeyUsageExtension>().FirstOrDefault();
+                if (keyUsage is null
+                    || (keyUsage.KeyUsages & X509KeyUsageFlags.DigitalSignature) == 0)
+                {
+                    throw new InvalidOperationException(
+                        "The HTTPS certificate must permit digital signatures.");
+                }
+
+                if (certificate.Extensions.OfType<X509BasicConstraintsExtension>()
+                    .Any(constraints => constraints.CertificateAuthority))
+                {
+                    throw new InvalidOperationException(
+                        "The HTTPS listener requires an end-entity certificate, not a CA certificate.");
+                }
+            }
         }
         catch (Exception ex)
         {
-            // A certificate that cannot be read must not take the panel down with it.
+            if (requiresDeploymentSafeguards)
+                throw new InvalidOperationException(
+                    "Deployment startup requires a valid readable HTTPS certificate and key.", ex);
+            // A certificate that cannot be read may degrade only Development/Test. Deployment must
+            // fail closed before opening any browser-facing listener.
             //
             // `File.Exists` above passes on a key the service cannot actually open: existence needs
             // only execute on the directory, while reading needs the file's own permissions. The
@@ -113,7 +165,10 @@ var builder = WebApplication.CreateBuilder(args);
 
     builder.WebHost.ConfigureKestrel(options =>
     {
-        options.ListenAnyIP(httpPort);
+        // Hardened HTTP is retained only for host-local readiness. Session cookies are never valid
+        // there; every browser-facing listener is HTTPS.
+        if (requiresDeploymentSafeguards) options.ListenLocalhost(httpPort);
+        else options.ListenAnyIP(httpPort);
         if (certificate is not null)
             options.ListenAnyIP(httpsPort, listen => listen.UseHttps(certificate));
     });
@@ -149,12 +204,11 @@ builder.Services
         // callback is the one inbound cross-site navigation and it is [AllowAnonymous], carrying
         // its own single-use state. The SPA's own fetches are same-site and unaffected.
         options.Cookie.SameSite = SameSiteMode.Strict;
-        // `Always` would be correct and is what the audit asks for — but HTTP on 5080 is always
-        // bound and HTTPS only appears when a certificate is present, so `Always` on an
-        // HTTP-only deployment means the browser silently discards the cookie and nobody can ever
-        // sign in. SameAsRequest marks it Secure exactly when the request was, which is the strong
-        // behaviour wherever the strong behaviour is possible.
-        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        // Deployment cookies are never allowed onto cleartext transport. Development/Test retain
+        // SameAsRequest so local test clients and certificate-free UI work continue to function.
+        options.Cookie.SecurePolicy = requiresDeploymentSafeguards
+            ? CookieSecurePolicy.Always
+            : CookieSecurePolicy.SameAsRequest;
         // Long, because the wall panel is the point. A kiosk that has to be signed in again after
         // every power cut — with a PIN somebody has to remember — is a kiosk that gets its PIN
         // removed. Sliding, so a panel in daily use never reaches the end of it.
@@ -267,25 +321,68 @@ builder.Services.AddOpenApi();
 //   * a release directory would be worse: `deploy.sh` flips a symlink to a fresh directory, so
 //     keys written beside the binaries would be discarded by the very next deploy.
 // So it goes in the same durable state directory as the image cache and the TTS phrases, and it is
-// stated in configuration rather than inferred. If it is unset the app still starts — losing
-// calendar sync is not worth refusing to serve the clock over — but it says so loudly, because the
-// symptom otherwise appears days later as "Google keeps asking me to sign in again".
+// stated in configuration rather than inferred. Deployment environments fail before database or
+// secret migration if the ring is absent, release-local, or unwritable; encrypting durable tokens
+// with an ephemeral key would turn readable credentials into permanently stranded ciphertext.
 builder.Services.AddSingleton<ISecretProtector, SecretProtector>();
+var connectionString = builder.Configuration.GetConnectionString("HomeHub");
+var runMigrationsOnStartup = builder.Configuration.GetValue("RunMigrationsOnStartup", true);
+var requiresDurableKeyRing = requiresDeploymentSafeguards
+    || (!string.IsNullOrWhiteSpace(connectionString) && runMigrationsOnStartup);
 var keyRingPath = builder.Configuration["DataProtection:KeyPath"];
 var dataProtection = builder.Services.AddDataProtection().SetApplicationName("HomeHub");
+if (requiresDurableKeyRing && string.IsNullOrWhiteSpace(keyRingPath))
+{
+    throw new InvalidOperationException(
+        "Startup secret migration requires DataProtection:KeyPath to be an absolute, durable, writable directory.");
+}
 if (!string.IsNullOrWhiteSpace(keyRingPath))
-    dataProtection.PersistKeysToFileSystem(Directory.CreateDirectory(keyRingPath));
+{
+    try
+    {
+        if (requiresDurableKeyRing && !Path.IsPathFullyQualified(keyRingPath))
+            throw new InvalidOperationException("The key-ring path must be absolute.");
+
+        var fullKeyRingPath = Path.GetFullPath(keyRingPath);
+        var contentRoot = Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(builder.Environment.ContentRootPath));
+        if (requiresDurableKeyRing
+            && (fullKeyRingPath.Equals(contentRoot, StringComparison.Ordinal)
+                || fullKeyRingPath.StartsWith(contentRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("The key ring cannot live inside the replaceable release tree.");
+        }
+
+        if (requiresDurableKeyRing && !Directory.Exists(fullKeyRingPath))
+            throw new InvalidOperationException("The key-ring directory must already exist.");
+
+        var keyRingDirectory = new DirectoryInfo(fullKeyRingPath);
+        var probePath = Path.Combine(fullKeyRingPath, $".homehub-keyring-probe-{Guid.NewGuid():N}");
+        try
+        {
+            using var probe = new FileStream(
+                probePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose);
+            probe.WriteByte(0);
+            probe.Flush(flushToDisk: true);
+        }
+        finally
+        {
+            if (File.Exists(probePath)) File.Delete(probePath);
+        }
+
+        dataProtection.PersistKeysToFileSystem(keyRingDirectory);
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidOperationException(
+            "DataProtection:KeyPath must name an existing absolute, durable, writable directory.", ex);
+    }
+}
 
 // EF Core / SQL Server. The connection string is NEVER committed — it is read from the
 // secrets mechanism: user-secrets in dev, environment variable / protected config for the
 // systemd service in prod (ConnectionStrings__HomeHub). Stage 0 tolerates it being absent
 // so the design-system shell still boots for local UI work.
-var connectionString = builder.Configuration.GetConnectionString("HomeHub");
-var runMigrationsOnStartup = builder.Configuration.GetValue("RunMigrationsOnStartup", true);
-// Unsafe fallbacks are allowed only in the two explicitly non-deployment environments. Any custom
-// name (Staging, Live, TEST-like misspellings) gets production safeguards rather than bypassing them.
-var requiresDeploymentSafeguards =
-    !builder.Environment.IsDevelopment() && !builder.Environment.IsEnvironment("Test");
 if (requiresDeploymentSafeguards && string.IsNullOrWhiteSpace(connectionString))
 {
     throw new InvalidOperationException(
@@ -810,6 +907,27 @@ if (mcp.IsConfigured)
 }
 
 var app = builder.Build();
+
+// Force key-ring load or first-key generation before schema or plaintext-secret migration. A
+// registration-time write probe proves directory access, but only a real protection round trip proves
+// that Data Protection can use this exact persisted ring.
+if (requiresDurableKeyRing)
+{
+    try
+    {
+        const string probeText = "homehub-startup-key-ring-validation";
+        var protector = app.Services.GetRequiredService<IDataProtectionProvider>()
+            .CreateProtector("HomeHub.Startup.KeyRingValidation.v1");
+        var protectedProbe = protector.Protect(probeText);
+        if (!string.Equals(protector.Unprotect(protectedProbe), probeText, StringComparison.Ordinal))
+            throw new InvalidOperationException("The Data Protection round trip returned different plaintext.");
+    }
+    catch (Exception ex)
+    {
+        throw new InvalidOperationException(
+            "DataProtection:KeyPath could not complete a persisted protection round trip before migration.", ex);
+    }
+}
 
 // Which agents are configured, said once, at boot.
 //

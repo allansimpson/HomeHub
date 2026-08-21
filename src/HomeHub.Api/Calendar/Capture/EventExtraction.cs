@@ -44,7 +44,11 @@ public interface IEventExtractor
 /// What the member typed alongside the photo, or null. Read as a hint, never as an instruction — it
 /// helps with "the camp one, not the concert" and cannot change what the extractor is allowed to do.
 /// </param>
-public sealed record ExtractionRequest(string ImageBase64, string MediaType, DateOnly LocalToday, string? Context);
+public sealed record ExtractionRequest(NormalizedImage Image, DateOnly LocalToday, string? Context)
+{
+    public string ImageBase64 => Image.Base64;
+    public string MediaType => Image.MediaType;
+}
 
 /// <summary>How much of an engagement came off the photograph.</summary>
 /// <remarks>

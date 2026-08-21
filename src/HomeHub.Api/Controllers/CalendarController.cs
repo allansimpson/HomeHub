@@ -219,10 +219,6 @@ public class CalendarController : ControllerBase
         ArgumentNullException.ThrowIfNull(request);
         if (string.IsNullOrEmpty(request.ImageBase64)) return BadRequest("A photograph is required.");
 
-        // Measured on the decoded length, so the number means what it says on a file listing.
-        if ((long)request.ImageBase64.Length * 3L / 4L > EventCaptureLimits.MaxImageBytes)
-            return BadRequest("That picture is too large to read.");
-
         if (!_extractor.IsAvailable)
         {
             // Not a failure of the photograph, and not phrased as one. The panel keeps quiet.
@@ -234,10 +230,13 @@ public class CalendarController : ControllerBase
         if (context is { Length: > EventCaptureLimits.MaxContextChars })
             context = context[..EventCaptureLimits.MaxContextChars];
 
+        NormalizedImage image;
+        try { image = ImageIngress.Normalize(request.ImageBase64, request.MediaType); }
+        catch (InvalidDataException ex) { return BadRequest(ex.Message); }
+
         var result = await _extractor.ReadAsync(
             new ExtractionRequest(
-                request.ImageBase64,
-                string.IsNullOrWhiteSpace(request.MediaType) ? "image/jpeg" : request.MediaType,
+                image,
                 ParseLocalDate(request.LocalDate),
                 context),
             ct);

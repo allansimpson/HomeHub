@@ -9,9 +9,18 @@ using HomeHub.Api.Calendar.Capture;
 /// </summary>
 public class EventCaptureApiTests
 {
+    private static string CreateKeyRingDirectory()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(), "homehub-tests", "keys-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
     [Fact]
     public void Production_refuses_to_start_without_the_isolated_image_extractor()
     {
+        var tls = TestTlsCertificate.Create();
         using var app = new HubAppFactory
         {
             EnvironmentName = "Production",
@@ -19,6 +28,9 @@ public class EventCaptureApiTests
             {
                 ["ConnectionStrings:HomeHub"] =
                     "Server=127.0.0.1,1;Database=unreachable;User Id=x;Password=x;Connect Timeout=1;TrustServerCertificate=true",
+                ["DataProtection:KeyPath"] = CreateKeyRingDirectory(),
+                ["Server:CertPath"] = tls.CertificatePath,
+                ["Server:KeyPath"] = tls.KeyPath,
             },
         };
 
@@ -66,7 +78,7 @@ public class EventCaptureApiTests
         var client = app.CreateSeededClient();
 
         var res = await client.PostAsJsonAsync("/api/calendar/read-photo",
-            new ReadPhotoRequest("aGVsbG8=", "image/jpeg", "2026-08-12", null));
+            new ReadPhotoRequest("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "image/png", "2026-08-12", null));
 
         var body = await res.Content.ReadFromJsonAsync<ReadPhotoResponse>();
         Assert.False(body!.Available);
@@ -81,7 +93,7 @@ public class EventCaptureApiTests
         var client = app.CreateSeededClient();
 
         var res = await client.PostAsJsonAsync("/api/calendar/read-photo",
-            new ReadPhotoRequest("aGVsbG8=", "image/png", "2026-08-12", "here's the camp flyer"));
+            new ReadPhotoRequest("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "image/png", "2026-08-12", "here's the camp flyer"));
 
         var body = await res.Content.ReadFromJsonAsync<ReadPhotoResponse>();
         Assert.True(body!.Available);
@@ -102,7 +114,7 @@ public class EventCaptureApiTests
         var client = app.CreateSeededClient();
 
         await client.PostAsJsonAsync("/api/calendar/read-photo",
-            new ReadPhotoRequest("aGVsbG8=", "image/jpeg", "2026-12-30", "the camp flyer"));
+            new ReadPhotoRequest("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "image/png", "2026-12-30", "the camp flyer"));
 
         Assert.Equal(new DateOnly(2026, 12, 30), stub.Seen!.LocalToday);
         Assert.Equal("the camp flyer", stub.Seen.Context);
@@ -147,7 +159,7 @@ public class EventCaptureApiTests
         var client = app.CreateSeededClient();
 
         await client.PostAsJsonAsync("/api/calendar/read-photo",
-            new ReadPhotoRequest("aGVsbG8=", "image/jpeg", "2026-08-12", null));
+            new ReadPhotoRequest("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "image/png", "2026-08-12", null));
 
         var events = await client.GetFromJsonAsync<List<HomeHub.Api.Calendar.CalendarEventDto>>(
             "/api/calendar/events?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z");
@@ -161,7 +173,7 @@ public class EventCaptureApiTests
         var client = app.CreateAnonymousClient();
 
         var res = await client.PostAsJsonAsync("/api/calendar/read-photo",
-            new ReadPhotoRequest("aGVsbG8=", "image/jpeg", "2026-08-12", null));
+            new ReadPhotoRequest("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "image/png", "2026-08-12", null));
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
@@ -179,7 +191,7 @@ public class EventCaptureApiTests
         var client = app.CreateSeededClient();
 
         var res = await client.PostAsJsonAsync("/api/calendar/read-photo",
-            new ReadPhotoRequest("aGVsbG8=", "image/jpeg", "2026-08-13", null));
+            new ReadPhotoRequest("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "image/png", "2026-08-13", null));
 
         var body = await res.Content.ReadFromJsonAsync<ReadPhotoResponse>();
         Assert.True(body!.Available);

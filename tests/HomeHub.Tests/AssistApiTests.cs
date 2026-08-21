@@ -70,6 +70,23 @@ public class AssistApiTests
         Assert.Equal(4, detail!.Messages.Count);
     }
 
+    [Fact]
+    public async Task A_member_cannot_post_into_another_members_conversation()
+    {
+        using var app = new HubAppFactory();
+        var owner = app.CreateSeededClient(profileId: 1);
+        var attacker = app.CreateSeededClient(profileId: 2);
+        var started = await Post(owner, Turn("Private household question"));
+
+        var response = await attacker.PostAsJsonAsync(
+            "/api/assist/chat", Turn("Injected follow-up", started.ConversationId));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var detail = await owner.GetFromJsonAsync<ConversationDetailDto>(
+            $"/api/assist/conversations/{started.ConversationId}");
+        Assert.Equal(2, detail!.Messages.Count);
+    }
+
     /// <summary>
     /// The list is scoped to whoever is signed in, and a query parameter cannot change that.
     /// </summary>

@@ -21,6 +21,27 @@ public class AssistStreamEndpointTests
 {
     private sealed record Frame(string Event, JsonElement Data);
 
+    [Fact]
+    public async Task A_member_cannot_stream_into_another_members_conversation()
+    {
+        using var app = new HubAppFactory();
+        var owner = app.CreateSeededClient(profileId: 1);
+        var attacker = app.CreateSeededClient(profileId: 2);
+        var startedResponse = await owner.PostAsJsonAsync(
+            "/api/assist/chat", new AssistChatRequest(null, null, "Private household question", null, null, null));
+        startedResponse.EnsureSuccessStatusCode();
+        var started = (await startedResponse.Content.ReadFromJsonAsync<AssistChatResponse>())!;
+
+        using var response = await attacker.PostAsJsonAsync(
+            "/api/assist/chat/stream",
+            new AssistChatRequest(started.ConversationId, null, "Injected follow-up", null, null, null));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var detail = await owner.GetFromJsonAsync<ConversationDetailDto>(
+            $"/api/assist/conversations/{started.ConversationId}");
+        Assert.Equal(2, detail!.Messages.Count);
+    }
+
     /// <summary>Open the stream and check the headers that make it one.</summary>
     private static async Task<HttpResponseMessage> OpenAsync(
         HttpClient client, AssistChatRequest req, CancellationToken ct = default)

@@ -72,6 +72,10 @@
          staying on 2.x keeps compatibility with the AspNetCore.OpenApi source generator. -->
     <PackageReference Include="Microsoft.OpenApi" Version="2.11.0" />
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.0.0" />
+    <!-- MIT-licensed decoder/encoder used only at the untrusted image ingress boundary. The native
+         Linux asset is explicit so production cannot compile successfully and then fail on first use. -->
+    <PackageReference Include="SkiaSharp" Version="4.151.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.151.1" />
   </ItemGroup>
 
 </Project>
