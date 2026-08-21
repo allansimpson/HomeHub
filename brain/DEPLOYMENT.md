@@ -1,87 +1,46 @@
 # Deployment
 
-How a build actually reaches the panel, what is unproven about it, and what a deploy has to catch.
+**Owned by Hermes. Claude does not know how this works and should not assume.**
 
-_Last investigated: 2026-08-21 by Claude. Parts of this are inference from artefacts on the server —
-each is marked. Hermes owns this area and should correct anything wrong here rather than work
-around it._
+This file is a placeholder with observations in it, not a description of the process. Hermes fills
+in the process; until then the only honest state of this page is "unknown".
 
-## What is actually used
+_Observations recorded 2026-08-21 by Claude. Confirmed by Allan: `scripts/deploy.sh` has not been
+used to deploy in a good while._
 
-**Not `scripts/deploy.sh`.** That script stamps a release `date +%Y%m%d-%H%M%S` →
-`20260817-193508`. The release running in production is `20260817T193508Z-0bded247023e` — UTC, with
-a `Z`, and a git sha appended. Only one thing in the repo produces that format:
+## Known
 
-```bash
-STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$(git -C /srv/dev/homehub rev-parse --short HEAD)"
-```
+- `scripts/deploy.sh` is **not** the route in use, and has not been for some time.
+- Production is `/opt/homehub`, with `current` a symlink into `releases/`. Test is
+  `/opt/homehub-test`.
+- Nothing deploys on push: no post-receive hook, and `.github/workflows/ci.yml` only builds, tests
+  and audits.
 
-which is `deploy/test-deploy-from-server.md` — a hand-run runbook, executed **on the server**, that
-builds locally, stages a release, flips the symlink and restarts the unit.
+## Unknown — for Hermes to fill in
 
-So the live route is a sequence of commands run by hand, and `scripts/deploy.sh` is a second,
-diverging description of the same job. **Two runbooks for one task is how one of them goes stale
-without anybody noticing** — which is what happened here.
+- **What actually deploys.** Which script or sequence, run from where, by whom.
+- Whether `deploy/test-deploy-from-server.md` and `scripts/deploy.sh` are still meant to be in the
+  repo, or are stale descriptions that should be marked or removed.
+- What the process already verifies before a release goes live.
+- Whether production and test are deployed the same way.
 
-> **Inference, not fact:** the stamp format proves what *made* that release. It does not prove which
-> document Hermes follows today. Hermes should replace this paragraph with the truth.
+## Observations Claude made while looking at the server
 
-⚠️ **The runbook is titled "Deploying the TEST instance."** Production is running a release built by
-it. Either the runbook is misnamed or it was used against the wrong target.
+Raw, and offered as data rather than as conclusions. Some may be intentional, already handled, or
+irrelevant — Hermes is the one who can tell.
 
-## Three things the current process does not catch
+1. **The release stamp does not match `deploy.sh`.** The running release is
+   `20260817T193508Z-0bded247023e`. `deploy.sh` stamps `date +%Y%m%d-%H%M%S` →
+   `20260817-193508`. The UTC-plus-git-sha form appears in the repo only in
+   `deploy/test-deploy-from-server.md`.
+2. **The sha in that stamp is not an object in this repository.** `0bded247023e` is not on any
+   branch, not in the reflog, and `git rev-parse --disambiguate` finds nothing.
+3. **`/opt/homehub/current/wwwroot/build.json` does not exist.** The client build emits one
+   (`client/vite.config.ts`, `stampBuild`); the deployed release predates it.
+4. **The deployed bundle is from 17 Aug** and does not contain the pump-vibration fix — confirmed by
+   reading the minified bundle, not inferred.
 
-### 1 · The running build cannot be traced to a commit
+## Ground rule
 
-The deployed stamp names commit `0bded247023e`. **That object does not exist in this repository** —
-not on `main`, not on any branch, not in the reflog, and `git rev-parse --disambiguate` finds
-nothing. It was presumably built from a working tree whose commit was later rewritten or discarded.
-
-The consequence is not academic: nobody can diff what is running against source, reproduce the
-build, or say with certainty what is in it. Every question of the form *"is this fixed on the
-panel?"* becomes an archaeology exercise against a minified bundle — which is exactly how the
-pump-vibration report was eventually answered.
-
-**A deploy should refuse to run from a dirty or unpushed tree**, or record the full sha of something
-that actually exists on `origin`.
-
-### 2 · The panel has no way to know it is stale
-
-`build.json` is emitted by the client build (`client/vite.config.ts`, `stampBuild`) and is the
-update check for devices with **no service worker** — which is any phone opening the panel over
-plain `http://` on the LAN, since a worker needs a secure context.
-
-`/opt/homehub/current/wwwroot/build.json` **does not exist.** The deployed release predates the
-mechanism, so the very devices it was written for cannot tell they are four days behind. That is a
-large part of why the stale build went unnoticed for so long.
-
-**A deploy should verify `build.json` is present in the release and reports the stamp it just
-built.**
-
-### 3 · Green tests were never a precondition
-
-Both builds were broken for ~7 hours on 2026-08-20 and the client suite reported `613 passed` while
-61 tests silently did not run (`INCIDENTS.md`). Nothing in the path from source to panel would have
-stopped a release during that window.
-
-## What a deploy should catch, in order
-
-Each of these has already failed at least once here.
-
-| Check | Because |
-|---|---|
-| No root-owned files in the tree | Both builds fail claiming files are *missing*, not unreadable |
-| Working tree clean, `HEAD` pushed to `origin` | Otherwise the release names a commit nobody can find |
-| Backend build + tests green | See `ENVIRONMENT.md` for the two env vars they need |
-| Client typecheck, lint, tests green — **and the file count** | vitest prints `passed` while skipping unreadable files |
-| The change is in the built bundle | Grep the artefact. "It is committed" is not "it shipped" |
-| `build.json` present, stamp matches | It is how a worker-less device learns it is behind |
-| Health probe after the flip, against the *right* port | The runbook warns a probe can be answered by the other instance |
-| `PREVIOUS` recorded before flipping | Rollback needs a target |
-
-## Open questions for Hermes
-
-1. Which document is authoritative — the runbook, `scripts/deploy.sh`, or something not in the repo?
-   Whichever it is, **delete or clearly mark the other**.
-2. Was production deployed with the TEST runbook deliberately?
-3. Can a release be built only from a pushed commit, so the panel is always traceable?
+Claude records observations here and asks. **Claude does not change deployment, write a deployment
+procedure, or decide what the process ought to verify.** That is Hermes's call.

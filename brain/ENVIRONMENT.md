@@ -22,7 +22,7 @@ _Last verified: 2026-08-21._
 | Production | `/opt/homehub`, `current` → `releases/<stamp>-<sha>` |
 | Test | `/opt/homehub-test` |
 | Layout | Timestamped release dirs; `current` is a symlink, flipped atomically |
-| Deploy | **See `DEPLOYMENT.md` — `scripts/deploy.sh` is not the route in use** |
+| Deploy | Hermes's — unknown to Claude. See `DEPLOYMENT.md` |
 
 **Nothing deploys on push.** There is no post-receive hook and `.github/workflows/ci.yml` only
 builds, tests and audits. A commit reaching `origin/main` changes nothing on the panel.

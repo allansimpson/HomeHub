@@ -22,13 +22,17 @@ is clever; it is just the small set of facts that were expensive to rediscover.
    the durable part into `PROJECT.md` and delete the rest.
 5. **Write on the way out.** If a session changed who-does-what, what is deployed, or what is safe
    to assume, that belongs here *before* the session ends.
+6. **Stay inside what you own.** In someone else's area — see `OWNERSHIP.md` — record what you
+   observed and ask. Do not write a procedure for it, decide what it ought to check, or set the
+   other agent's agenda. An observation is useful; an executive decision made without the owner is
+   how this folder starts being wrong with confidence.
 
 ## The files
 
 | File | Holds | Shape |
 |---|---|---|
 | `OWNERSHIP.md` | Who is responsible for what, and what to hand over rather than do | Stable; edit in place |
-| `DEPLOYMENT.md` | How a build reaches the panel, and what the process fails to catch | Stable; edit in place |
+| `DEPLOYMENT.md` | **Hermes's.** Observations and open questions until Hermes fills it in | Hermes writes; Claude observes |
 | `ENVIRONMENT.md` | This machine and its servers — paths, commands, limits, what agents cannot do | Stable; edit in place |
 | `STATE.md` | What is true *right now* — deployed release, work in flight, blockers | Volatile; **overwrite** |
 | `DECISIONS.md` | Choices made and why, so neither of us re-litigates or silently reverses one | Append |
