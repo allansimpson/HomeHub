@@ -9,12 +9,9 @@ import type { ProfileDto } from '../api/types'
  * care log it was carrying, and a phone at home was typing four digits several times an evening for
  * a record nobody else was going to read.
  *
- * What is stored here is deliberately not a credential. There is no PIN, no hash of one, and
- * nothing that would let this device mint a session — the HttpOnly cookie the server set is still
- * the only thing that authorises a request, and it is still the server that decides. This is a note
- * about *when somebody last proved who they were on this device*, and the panel uses it to decide
- * whether to ask again. A stolen phone yields the note and nothing else; every call it makes is
- * still answered by the server's own view of the session.
+ * PIN recency lives only in this JavaScript lifetime. Browser persistence is caller-controlled and
+ * therefore cannot be allowed to suppress a PIN or open an encrypted vault after reload. The
+ * HttpOnly cookie remains the only request credential and the server still decides the identity.
  *
  * Pure and apart from the provider so the rules can be tested directly. They decide when a
  * household member is asked for a PIN, and getting them wrong is either a lock-out or a panel that
@@ -23,6 +20,9 @@ import type { ProfileDto } from '../api/types'
 
 const TRUST_KEY = 'homehub.unlock.v1'
 const IDENTITY_KEY = 'homehub.identity.v1'
+// PIN recency is deliberately tab-memory only. Persisted browser storage is caller-controlled and
+// cannot be allowed to decide whether encrypted profile data opens after a reload.
+let unlockNote: UnlockNote | null = null
 
 /**
  * Twelve hours, chosen against a night rather than a working day.
@@ -39,7 +39,7 @@ export function mayAccessPrivateCache(serverSessionConfirmed: boolean, locked: b
   return serverSessionConfirmed && !locked
 }
 
-/** When this device last saw somebody prove who they were, and which profile it was. */
+/** When this tab last saw somebody prove who they were, and which profile it was. */
 export interface UnlockNote {
   profileId: number
   /** Epoch ms of the successful unlock. */
@@ -47,11 +47,13 @@ export interface UnlockNote {
 }
 
 export function loadUnlock(): UnlockNote | null {
-  return readJson<UnlockNote>(TRUST_KEY)
+  return unlockNote
 }
 
 export function saveUnlock(note: UnlockNote): void {
-  writeJson(TRUST_KEY, note)
+  unlockNote = note
+  // Remove notes written by older builds so they cannot regain authority after an upgrade.
+  remove(TRUST_KEY)
 }
 
 /**
@@ -62,6 +64,7 @@ export function saveUnlock(note: UnlockNote): void {
  * outlived a profile switch would break it in the one situation the household would notice.
  */
 export function clearUnlock(): void {
+  unlockNote = null
   remove(TRUST_KEY)
 }
 

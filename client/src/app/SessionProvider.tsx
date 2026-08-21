@@ -8,7 +8,7 @@ import {
 } from './sessionTrust'
 import type { ProfileDto, SettingsDto } from '../api/types'
 import { clearCareOfflineData, setCareStorageUnlocked } from '../screens/care/careOffline'
-import { setQueueIdentity } from './writeQueue'
+import { closeQueueExecution, setQueueIdentity } from './writeQueue'
 
 /**
  * Household session — who this *device* is signed in as, and the lock state the Lock screen and
@@ -143,6 +143,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const profilesRef = useRef<ProfileDto[]>([])
   profilesRef.current = profiles
 
+  // Cookie-changing actions are one-at-a-time. Without this, two quick profile choices can both
+  // drain the old owner and then race their sign-ins, leaving UI identity and HttpOnly cookie split.
+  const sessionTransition = useRef<Promise<void>>(Promise.resolve())
+  const duringSessionTransition = useCallback(async <T,>(work: () => Promise<T>): Promise<T> => {
+    const previous = sessionTransition.current
+    let release!: () => void
+    sessionTransition.current = new Promise<void>((resolve) => { release = resolve })
+    await previous
+    try { return await work() } finally { release() }
+  }, [])
+
   const refresh = useCallback(async () => {
     try {
       const [nextProfiles, nextSettings, session] = await Promise.all([
@@ -241,10 +252,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const completeUnlock = useCallback(async (id: number, pin?: string) => {
+  const completeUnlock = useCallback(async (id: number, pin?: string) => duringSessionTransition(async () => {
     // Close replay before sign-in can replace the cookie. It reopens only after the server confirms
     // the exact profile that now owns the session.
-    setQueueIdentity(null)
+    await closeQueueExecution()
     // `remember: true` — this is the shared wall panel, and a household that has to re-enter a PIN
     // after every power cut takes the PIN off. The cookie is HttpOnly and per-device, so staying
     // signed in costs nothing the panel's physical location does not already cost.
@@ -289,15 +300,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       if (!(err instanceof ApiError)) throw err
     }
-  }, [])
+  }), [duringSessionTransition])
 
   const switchProfile = useCallback(
     async (id: number) => {
       const target = profiles.find((p) => p.id === id) ?? null
       if (id !== activeProfileId) {
-        setQueueIdentity(null)
         setCareStorageUnlocked(false)
         clearCareOfflineData()
+        await closeQueueExecution()
       }
       // A profile with a PIN is not switched to, it is signed in to — so this only raises the Lock
       // screen and lets completeUnlock do the work. Setting activeProfileId optimistically here
@@ -346,8 +357,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [profiles, activeProfileId])
 
-  const signOut = useCallback(async () => {
-    setQueueIdentity(null)
+  const signOut = useCallback(async () => duringSessionTransition(async () => {
+    await closeQueueExecution()
     setCareStorageUnlocked(false)
     clearCareOfflineData()
     setActiveProfileId(null)
@@ -370,7 +381,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (err instanceof ApiError) setOffline(true)
       else throw err
     }
-  }, [])
+  }), [duringSessionTransition])
 
   const setCatName = useCallback(async (name: string | null) => {
     try {

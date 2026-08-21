@@ -744,9 +744,18 @@
 
 /*
  * 76px and nowrap. It was 56 and it wrapped; do not narrow it (PANTRY_SHELVES §1).
+ *
+ * A **floor**, not a width. `width: 4.75rem` held the box at 76px whatever was in it, and
+ * `not counted` — the longest thing `inHandLabel` can say, and the one that is a deliberate
+ * decision rather than missing data — is 86px. A right-aligned line wider than its content box
+ * does not tuck itself back inside; on `/kitchen/plan/:date` it hung 10px past the gutter while
+ * every other amount in the same column stopped at it, which is the "right edges disagree" fault
+ * of `design_handoff_kitchen_shell` §5 in miniature. Widening the column instead moves the 10px
+ * onto the name, which already ellipses for exactly this.
  */
 .ml-kitchen__shelfamount {
-  width: 4.75rem; /* 76px */
+  flex: 0 0 auto;
+  min-width: 4.75rem; /* 76px */
   text-align: right;
   white-space: nowrap;
   /* IBM Plex Mono is the spec's face for amounts; it is not bundled, so this falls through to the
@@ -970,6 +979,15 @@
  * Cuisine chips scroll sideways, counted, ordered by most cooked. The last chip clipping at the
  * gutter is what makes the scroll discoverable — there is deliberately no "+N", which would hide
  * the tail behind a number nobody can act on.
+ *
+ * Every element that scrolls sideways carries **`data-hscroll`** in the markup — the chip rows,
+ * the recipe photo strip, the delivery shot strip. It is not styling; it is the declaration that
+ * this element's right edge is *meant* to run off the fold, which is the one exemption the shell's
+ * acceptance checks grant (`design_handoff_kitchen_shell/ACCEPTANCE_CHECKS.md`, checks 1 and 2).
+ * Without it a deliberately clipped chip is indistinguishable from `SKIP` losing its border, and a
+ * check that cannot tell those apart has to be silent about both. The scroller's own left edge is
+ * still asserted at the gutter: running off the right says "there is more this way", starting off
+ * the left implies content behind you that is not there.
  */
 .ml-kitchen__chips {
   display: flex;
@@ -2128,9 +2146,12 @@
   color: var(--alert);
 }
 
-/* Right-aligned in the mono column, as on every amount in the section. */
+/* Right-aligned in the mono column, as on every amount in the section. `min-width` rather than
+   `width` for the reason `.ml-kitchen__shelfamount` gives: a label longer than the column runs past
+   the gutter rather than tucking itself in. */
 .ml-kitchen__ingamount {
-  width: 5.25rem;
+  flex: 0 0 auto;
+  min-width: 5.25rem;
   text-align: right;
   font-family: var(--font-serif);
   font-size: 0.9375rem;
@@ -2485,6 +2506,31 @@
 .ml-kitchen__ingstate--cantsay { color: var(--alert); }
 .ml-kitchen__ingstate--onshelf { color: var(--live-text); }
 
+/*
+ * G1 · nothing on the list (PANTRY_BEHAVIOURS §6, surface 9e).
+ *
+ * Statement then explanation, both at the gutter and both left-aligned. The section's one centred
+ * empty state is a pantry nobody has filled in; this is a panel with nothing in it *yet*, and the
+ * difference is that this one fills itself. Sized between a row and a heading so it reads as the
+ * first thing on the list rather than as a heading over an absent one.
+ */
+.ml-kitchen__nothing {
+  padding-block: 1.75rem 0.5rem;
+}
+.ml-kitchen__nothingsay {
+  font-family: var(--font-serif);
+  font-size: 1.4375rem; /* 23px */
+  color: var(--text-primary);
+}
+.ml-kitchen__nothingwhy {
+  padding-top: 0.5rem;
+  max-width: 22rem;
+  font-size: 0.875rem; /* 14px */
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
 /* ---------- The gutter, for everything that is not a row or a band ---------- */
 
 /*
@@ -2502,8 +2548,16 @@
  * Listed by class rather than by `:not()` on a container, so a new row type cannot accidentally be
  * caught and double-inset — the cost being that a *new* block has to be added here too. Nothing in
  * the unit suite can catch that: the check has to measure rendered glyphs, so it lives in the
- * out-of-repo Playwright harness (`~/homehub-browser-verification/gutters.mjs`), which walks every
- * `/kitchen` route and reports any text whose first glyph lands left of `--gutter`.
+ * out-of-repo Playwright harness, which walks every `/kitchen` route and reports any text whose
+ * first glyph lands left of `--gutter`.
+ *
+ * That harness used to run at 540 × 1169 only, and an allow-list checked at one viewport is an
+ * allow-list nobody is checking: below 540 `tokens.css` narrows `--gutter` to 1rem, so a block with
+ * no inset at all still lined up near enough to pass. `shell.mjs` beside it now runs the same walk
+ * at **450 × 1000** as well, resolves `--gutter` off the DOM rather than assuming 16px to the rem,
+ * and adds the two assertions the glyph check structurally cannot make — no border box crossing the
+ * viewport edge, and no screen ending in dead space while a group still holds rows
+ * (`design_handoff_kitchen_shell/ACCEPTANCE_CHECKS.md`). A block missed here fails there.
  */
 .ml-kitchen__askwhy,
 .ml-kitchen__askline,
@@ -2536,7 +2590,9 @@
 /* Three more blocks that sit loose in a scroller rather than inside a row or a band. */
 .ml-kitchen__tonightmeta,
 .ml-kitchen__aislefoot,
-.ml-kitchen__leftoverhead {
+.ml-kitchen__leftoverhead,
+/* The empty list's two lines. */
+.ml-kitchen__nothing {
   padding-inline: var(--gutter);
 }
 

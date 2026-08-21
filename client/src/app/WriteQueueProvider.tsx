@@ -144,7 +144,9 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
       }
       sync()
       if (result.dropped) fireSync()
-      return result.outcome.kind === 'offline' ? { kind: 'queued', opId: op.id } : result.outcome
+      return result.outcome.kind === 'offline' || result.outcome.kind === 'cancelled'
+        ? { kind: 'queued', opId: op.id }
+        : result.outcome
     },
     [online, locked, activeProfileId, sync],
   )
@@ -194,7 +196,7 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
     const { outcome, dropped: setAside } = await executeDurably(store, forced)
     sync()
     if (outcome.kind === 'conflict') return // re-surfaced; shouldn't happen with the version cleared
-    if (outcome.kind !== 'offline' || setAside) fireSync()
+    if ((outcome.kind !== 'offline' && outcome.kind !== 'cancelled') || setAside) fireSync()
   }, [locked, activeProfileId, sync])
 
   /*

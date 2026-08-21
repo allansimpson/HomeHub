@@ -44,6 +44,13 @@ export function KitchenListScreen() {
   }
 
   const sections = grocerySections(list?.lines ?? [])
+  /*
+   * Nothing on it at all — not "nothing open". A list holding three ticked lines is a record of a
+   * shop that just happened, and telling somebody it is empty while three receipts are on screen is
+   * the sort of thing that makes a panel feel like it is not reading the same screen you are.
+   * `list == null` is the request still in flight, which is not an empty list either.
+   */
+  const bare = list != null && list.lines.length === 0
   const open = list?.openCount ?? 0
   const mirror = list ? mirrorLines(list.mirror) : null
 
@@ -100,6 +107,27 @@ export function KitchenListScreen() {
             <span className="ml-kitchen__mirrordot" />
             <span className="ml-kitchen__mirrorlabel">{mirror.label}</span>
             <span className="ml-kitchen__mirrorsub">{mirror.detail}</span>
+          </div>
+        )}
+
+        {/*
+          Nothing on the list (PANTRY_BEHAVIOURS §6, surface 9e).
+
+          Stated, then explained — because the explanation is the useful half: the list fills itself
+          from the week's meals, and somebody who does not know that reads an empty list as a
+          feature that has not been set up. **Not centred, and no illustration.** The section allows
+          exactly one centred empty state and it is a pantry nobody has filled in yet; everything
+          else stays where the rows would have been, at the gutter, so an empty panel looks like the
+          panel it is rather than a different screen. The mirror strip above stays put — a mirror
+          nobody can see is a mirror nobody trusts, and that holds hardest when there is nothing to
+          mirror.
+        */}
+        {bare && (
+          <div className="ml-kitchen__nothing">
+            <p className="ml-kitchen__nothingsay">Nothing on the list</p>
+            <p className="ml-kitchen__nothingwhy">
+              Things you&rsquo;ll need for this week&rsquo;s meals turn up here on their own.
+            </p>
           </div>
         )}
 

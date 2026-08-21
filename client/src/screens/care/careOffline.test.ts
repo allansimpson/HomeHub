@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  clearCareOfflineData, completedEntryInput, draftEntry, localElapsedMinutes, mergeEntries, mergeLastByType, nextLocalId,
+  acknowledgeTimerReplacement, clearCareOfflineData, completedEntryInput, draftEntry, localElapsedMinutes, mergeEntries, mergeLastByType, nextLocalId,
   finishLocalTimer, pauseLocalTimer, resumeLocalTimer, startLocalTimer, switchLocalPhase,
   toTimerDto,
 } from './careOffline'
@@ -204,6 +204,13 @@ describe('local timers', () => {
   const running = (over: Partial<LocalTimer> = {}): LocalTimer => ({
     type: 'Nursing', side: 'left', startedAt: start, pausedAt: null, accumulatedMinutes: 0,
     openedAt: start, phaseOneMinutes: null, phaseTwoMinutes: null, phase: null, ...over,
+  })
+
+  it('keeps the only durable timer copy until its replacement entry is acknowledged', () => {
+    const timers = startLocalTimer([], 'Bottle', {}, start)
+
+    expect(acknowledgeTimerReplacement(timers, 'Bottle', false)).toEqual(timers)
+    expect(acknowledgeTimerReplacement(timers, 'Bottle', true)).toEqual([])
   })
 
   it('will not start a second session of the same type', () => {

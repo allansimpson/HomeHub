@@ -93,7 +93,7 @@ export function KitchenRecipeScreen() {
         <div className="ml-band ml-band--quiet">
           <span className="ml-band__label">MADE IT LOOK LIKE THIS</span>
         </div>
-        <div className="ml-kitchen__photostrip">
+        <div className="ml-kitchen__photostrip" data-hscroll>
           {recipe.hasImage && (
             <img
               className="ml-kitchen__photo"

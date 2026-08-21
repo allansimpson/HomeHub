@@ -372,6 +372,13 @@ export function cancelLocalTimer(timers: LocalTimer[], type: CareEntryTypeName):
   return timers.filter((t) => t.type !== type)
 }
 
+/** Remove a completed timer only after its replacement entry is durably acknowledged. */
+export function acknowledgeTimerReplacement(
+  timers: LocalTimer[], type: CareEntryTypeName, replacementDurable: boolean,
+): LocalTimer[] {
+  return replacementDurable ? cancelLocalTimer(timers, type) : timers
+}
+
 /**
  * A local session in the shape the running panel and the strip already read.
  *

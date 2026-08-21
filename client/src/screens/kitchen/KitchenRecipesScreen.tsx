@@ -93,7 +93,7 @@ export function KitchenRecipesScreen() {
 
         {/* Side-scrolling and counted. It takes new cuisines at their earned position — no tree,
             no picker, and no "+N" that hides the tail. */}
-        <div className="ml-kitchen__chips ml-cut">
+        <div className="ml-kitchen__chips ml-cut" data-hscroll>
           <button
             type="button"
             className={`ml-kitchen__chip${cuisine == null ? ' ml-kitchen__chip--on' : ''}`}

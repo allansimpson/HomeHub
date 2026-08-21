@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { mayAccessPrivateCache, TRUST_WINDOW_MS, withinTrustWindow } from './sessionTrust'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  clearUnlock, mayAccessPrivateCache, shouldAskForPin, TRUST_WINDOW_MS, withinTrustWindow,
+} from './sessionTrust'
 import type { UnlockNote } from './sessionTrust'
+import type { ProfileDto } from '../api/types'
+
+afterEach(() => {
+  clearUnlock()
+  vi.unstubAllGlobals()
+})
 
 /**
  * When the panel asks for a PIN again.
@@ -65,5 +73,20 @@ describe('private offline cache boundary', () => {
     expect(mayAccessPrivateCache(false, false)).toBe(false)
     expect(mayAccessPrivateCache(true, true)).toBe(false)
     expect(mayAccessPrivateCache(true, false)).toBe(true)
+  })
+
+  it('does not let a forged persisted unlock note bypass the PIN boundary', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => JSON.stringify({ profileId: 1, atMs: Date.now() }),
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    })
+    const profile = {
+      id: 1,
+      hasPin: true,
+      requirePinWhenIdle: true,
+    } as ProfileDto
+
+    expect(shouldAskForPin(profile)).toBe(true)
   })
 })

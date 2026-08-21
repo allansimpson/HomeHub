@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { cutHeight } from '../app/kitchenDomain'
+import { useCutFit } from './cutFit'
 
 interface CutGroupProps {
   /**
@@ -7,6 +8,11 @@ interface CutGroupProps {
    *
    * Four on a location shelf, two on `WORTH USING SOON` — see `PANTRY_SHELVES` §1, which fixes both
    * because four groups at those heights fill P1's content area exactly.
+   *
+   * **A floor rather than a fixed figure.** The number is the reference design's, chosen against a
+   * 540 × 1169 canvas; on a screen with more room than that the group grows past it a whole row at
+   * a time ({@link CutFitProvider}). It is never reduced, so the drawn panel is always at least
+   * what the design asked for.
    */
   rows: number
   /**
@@ -36,9 +42,32 @@ interface CutGroupProps {
  * @category Layout
  */
 export function CutGroup({ rows, rowHeight, children, className }: CutGroupProps) {
+  const el = useRef<HTMLDivElement>(null)
+  const fit = useCutFit()
+
+  /*
+   * The row count the viewport turned out to have room for.
+   *
+   * Starts at the drawn figure and is only ever raised — `Math.max` below is what guarantees that,
+   * so a fit arriving late, or not at all outside a `ScrollArea`, leaves the panel exactly as the
+   * reference draws it.
+   */
+  const [fitted, setFitted] = useState(rows)
+  const shown = Math.max(rows, fitted)
+
+  useEffect(() => {
+    const node = el.current
+    if (!fit || !node) return
+    return fit.join({ el: node, rowHeight, baseRows: rows, apply: setFitted })
+  }, [fit, rowHeight, rows])
+
+  // Rows arriving is the commonest reason a group's content changes height, and it moves nothing
+  // the ResizeObserver on the scroller can see — the group is capped, so its own box holds still.
+  useEffect(() => { fit?.schedule() }, [fit, children])
+
   // The arithmetic lives in `kitchenDomain` so it can be tested against the sentence that
   // justifies it; 1rem is 16 canvas pixels, and the panel is really driving a 4K portrait screen.
-  const height = cutHeight(rows, rowHeight) / 16
+  const height = cutHeight(shown, rowHeight) / 16
 
   /*
    * A ceiling, not a height.
@@ -51,6 +80,7 @@ export function CutGroup({ rows, rowHeight, children, className }: CutGroupProps
    */
   return (
     <div
+      ref={el}
       className={'ml-cut' + (className ? ` ${className}` : '')}
       style={{ maxHeight: `${height}rem` }}
     >

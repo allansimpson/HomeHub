@@ -118,7 +118,7 @@ export function KitchenShopScreen() {
 
         {/* Chips, not modes. `EVERYTHING` leads; `NEEDED SOON` carries the same brass bar the
             urgent rows do, so the filter and the marker are visibly the same idea. */}
-        <div className="ml-kitchen__chips ml-cut">
+        <div className="ml-kitchen__chips ml-cut" data-hscroll>
           <button
             type="button"
             className={`ml-kitchen__chip${soonOnly ? '' : ' ml-kitchen__chip--on'}`}

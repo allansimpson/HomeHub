@@ -164,7 +164,7 @@ export function KitchenDeliveryScreen() {
     >
       <ScrollArea>
         {/* A chip, not a login. Walmart is the common case and nothing here depends on it. */}
-        <div className="ml-kitchen__chips">
+        <div className="ml-kitchen__chips" data-hscroll>
           {['Walmart', 'Tesco', 'Butcher'].map((name) => (
             <button
               key={name}
@@ -184,7 +184,7 @@ export function KitchenDeliveryScreen() {
           </span>
         </div>
         <div className="ml-band-shade">
-          <div className="ml-kitchen__shotstrip">
+          <div className="ml-kitchen__shotstrip" data-hscroll>
             {shots.map((shot) => (
               <div key={shot.from} className="ml-kitchen__shot">
                 {shot.preview && <img className="ml-kitchen__shotimg" src={shot.preview} alt="" />}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  MAX_ATTEMPTS, canExecuteQueuedOp, executeDurably, isRetryable, keepMine, persistAhead,
+  MAX_ATTEMPTS, canExecuteQueuedOp, closeQueueExecution, executeDurably, isRetryable, keepMine, localQueueStore, persistAhead,
   queueForProfile, removeOp, replayQueue, setQueueIdentity, updateOp,
 } from './writeQueue'
 import type { DroppedOp, QueueStore, QueuedOp } from './writeQueue'
@@ -81,6 +81,27 @@ describe('offline queue identity boundary', () => {
     expect(canExecuteQueuedOp(mine)).toBe(false)
   })
 
+  it('aborts and drains an in-flight durable request before a profile transition continues', async () => {
+    const store = memStore()
+    const mine = op('mine', 2)
+    let requestSignal: AbortSignal | undefined
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      requestSignal = init?.signal ?? undefined
+      requestSignal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    })))
+    setQueueIdentity(2)
+
+    const sending = executeDurably(store, mine)
+    await Promise.resolve()
+    expect(store.ops.map((item) => item.id)).toEqual(['mine'])
+
+    const closing = closeQueueExecution()
+    expect(requestSignal?.aborted).toBe(true)
+    await expect(sending).resolves.toMatchObject({ outcome: { kind: 'cancelled' }, settled: false })
+    await expect(closing).resolves.toBeUndefined()
+    expect(store.ops.map((item) => item.id)).toEqual(['mine'])
+  })
+
   it('refuses to persist another profile\'s operation into this store', async () => {
     const store = memStore()
     setQueueIdentity(2)
@@ -95,6 +116,15 @@ describe('offline queue identity boundary', () => {
 })
 
 describe('durable storage rules', () => {
+  it('does not report durability when browser persistence rejects the write', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: () => { throw new DOMException('quota', 'QuotaExceededError') },
+    })
+
+    expect(() => persistAhead(localQueueStore, op('a', 2))).toThrow(/persist/i)
+  })
+
   it('upserts in place so a re-persist keeps its position in the queue', () => {
     const store = memStore([op('a', 2), op('b', 2), op('c', 2)])
 

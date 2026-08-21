@@ -5,7 +5,7 @@ import { useNow } from '../../app/useNow'
 import { useConnection } from '../../app/ConnectionProvider'
 import { useWriteQueue } from '../../app/WriteQueueProvider'
 import {
-  cancelLocalTimer, completedEntryInput, draftEntry, finishLocalTimer, loadCachedEntries,
+  acknowledgeTimerReplacement, cancelLocalTimer, completedEntryInput, draftEntry, finishLocalTimer, loadCachedEntries,
   loadCachedSummary, loadLocalTimers, loadPending, mergeEntries, mergeLastByType, nextLocalId,
   pauseLocalTimer, resumeLocalTimer, saveCachedEntries, saveCachedSummary, saveLocalTimers,
   savePending, startLocalTimer, switchLocalPhase, switchLocalSide, toTimerDto,
@@ -276,6 +276,12 @@ export function useCareLog(childKey: string) {
       // that is never going to come.
       setError('That entry could not be saved.')
       return null
+    } catch (err) {
+      // A persistence failure means no durable replacement exists. Returning null keeps any source
+      // timer intact; unexpected failures still reach the error boundary after the user is warned.
+      setError('That entry could not be stored safely; the timer was kept.')
+      if (err instanceof Error && err.message.includes('could not be persisted')) return null
+      throw err
     } finally {
       setWriting(false)
     }
@@ -519,12 +525,12 @@ export function useCareLog(childKey: string) {
     if (local) {
       /*
        * The one place a local session crosses over: it stops being a timer and becomes an entry,
-       * which the queue already knows how to carry safely. The session is cleared first so a slow
-       * or queued write cannot leave a finished clock still running on screen.
+       * which the queue already knows how to carry safely. The timer remains the durable source
+       * until add confirms either a server row or a write-ahead queued replacement.
        */
-      putLocalTimers(cancelLocalTimer(heldTimers, type))
       const input = completedEntryInput(local, amount, unit)
-      await add(atUtc ? { ...input, atUtc } : input)
+      const replacement = await add(atUtc ? { ...input, atUtc } : input)
+      putLocalTimers(acknowledgeTimerReplacement(heldTimers, type, replacement !== null))
       return
     }
 

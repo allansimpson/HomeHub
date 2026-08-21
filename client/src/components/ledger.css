@@ -6815,8 +6815,25 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   --care-row: 3.3125rem;
   --care-rows: 6;
   --care-dayhead: 1.75rem;
-  min-height: calc(2.3125rem + var(--care-rows) * var(--care-row) + var(--care-dayhead));
+  /*
+   * What the block gives up to the action row, and the reason it is a variable.
+   *
+   * EDIT and DELETE appear under the block, and the contract is that nothing moves when they do —
+   * the list shows fewer rows instead. The list alone used to shrink, which did nothing: this
+   * `min-height` is load-bearing rather than a floor (the natural content height is exactly equal
+   * to it), so the row the list gave up was reclaimed *inside* the block and the two buttons landed
+   * a full action row lower than they should. Both figures now come off the same declaration.
+   */
+  --care-give: 0rem;
+  min-height: calc(
+    2.3125rem + var(--care-rows) * var(--care-row) + var(--care-dayhead) - var(--care-give)
+  );
   touch-action: pan-y;
+}
+/* Exactly the action row (44px) plus its gap (10px). Tied to `.ml-careactions__btn`'s min-height
+   and `.ml-careactions`' margin — change either and this moves with it. */
+.ml-sincepager--selecting {
+  --care-give: 3.375rem;
 }
 .ml-sincepager__track { will-change: transform; }
 /* The incoming page, drawn beside the outgoing one so the pair travels as a unit. */
@@ -7122,7 +7139,9 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
  * where they sit on every other page — the list shows fewer rows instead.
  */
 .ml-carelist {
-  height: calc(var(--care-rows) * var(--care-row) + var(--care-dayhead));
+  /* `--care-give` is inherited from the block above, so the list and its container can never
+     disagree about how much room the action row is costing them. */
+  height: calc(var(--care-rows) * var(--care-row) + var(--care-dayhead) - var(--care-give, 0rem));
   overflow-y: auto;
   overscroll-behavior: contain;
   /*
@@ -7134,11 +7153,6 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
    * the one page you could not swipe off: the finger is on the list, not on the frame.
    */
   touch-action: pan-y;
-}
-/* Exactly the action row (44px) plus its gap (10px). Tied to `.ml-careactions__btn`'s min-height —
-   change one and this moves with it, or the grid below shifts when a row is held. */
-.ml-carelist--selecting {
-  height: calc(var(--care-rows) * var(--care-row) + var(--care-dayhead) - 3.375rem);
 }
 
 /*

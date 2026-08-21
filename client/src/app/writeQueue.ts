@@ -60,6 +60,7 @@ export type ExecOutcome =
   | { kind: 'conflict'; current: unknown }
   | { kind: 'gone' }
   | { kind: 'offline' }
+  | { kind: 'cancelled' }
   | { kind: 'error'; status: number; message: string }
 
 /**
@@ -121,8 +122,10 @@ function readJson<T>(key: string): T[] {
 function writeJson(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* storage full / unavailable — best effort */
+  } catch (cause) {
+    // A write-ahead queue that silently ignores persistence failure is not durable. Callers must
+    // retain their source data (notably a completed care timer) and surface the refusal.
+    throw new Error('The offline write could not be persisted.', { cause })
   }
 }
 
@@ -142,9 +145,21 @@ export function queueForProfile(ops: QueuedOp[], profileId: number | null): Queu
 // In-memory execution gate. SessionProvider closes it synchronously before sign-out, lock, or a
 // profile-changing sign-in can replace the HttpOnly cookie used by fetch.
 let queueIdentity: number | null = null
+const activeRequests = new Map<AbortController, Promise<void>>()
 
 export function setQueueIdentity(profileId: number | null): void {
   queueIdentity = profileId
+  if (profileId == null) {
+    for (const controller of activeRequests.keys()) controller.abort()
+  }
+}
+
+/** Close execution and wait until requests using the old session cookie have fully settled. */
+export async function closeQueueExecution(): Promise<void> {
+  queueIdentity = null
+  const draining = [...activeRequests.values()]
+  for (const controller of activeRequests.keys()) controller.abort()
+  await Promise.allSettled(draining)
 }
 
 export function canExecuteQueuedOp(op: QueuedOp): boolean {
@@ -221,7 +236,11 @@ export function isRetryable(status: number): boolean {
 }
 
 /** Execute one queued op against the API. `forceOverwrite` drops the version check (keep-mine). */
-export async function executeOp(op: QueuedOp, forceOverwrite = false): Promise<ExecOutcome> {
+export async function executeOp(
+  op: QueuedOp,
+  forceOverwrite = false,
+  beforeDrain?: (outcome: ExecOutcome) => void,
+): Promise<ExecOutcome> {
   if (!canExecuteQueuedOp(op)) {
     return { kind: 'error', status: 401, message: 'Queued operation belongs to another profile.' }
   }
@@ -229,33 +248,47 @@ export async function executeOp(op: QueuedOp, forceOverwrite = false): Promise<E
   const sep = op.path.includes('?') ? '&' : '?'
   const url = `/api${op.path}${useVersion ? `${sep}baseVersion=${op.baseVersion}` : ''}`
 
-  let res: Response
-  try {
-    res = await fetch(url, {
-      method: op.method,
-      headers: op.body != null ? { 'Content-Type': 'application/json' } : undefined,
-      body: op.body != null ? JSON.stringify(op.body) : undefined,
-      cache: 'no-store',
-    })
-  } catch {
-    return { kind: 'offline' }
-  }
+  const controller = new AbortController()
+  let markDrained!: () => void
+  const drained = new Promise<void>((resolve) => { markDrained = resolve })
+  activeRequests.set(controller, drained)
 
-  if (res.ok) {
-    const text = await res.text().catch(() => '')
-    return { kind: 'ok', data: text ? JSON.parse(text) : undefined }
+  try {
+    let outcome: ExecOutcome
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: op.method,
+        headers: op.body != null ? { 'Content-Type': 'application/json' } : undefined,
+        body: op.body != null ? JSON.stringify(op.body) : undefined,
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+    } catch {
+      outcome = controller.signal.aborted ? { kind: 'cancelled' } : { kind: 'offline' }
+      beforeDrain?.(outcome)
+      return outcome
+    }
+
+    if (res.ok) {
+      const text = await res.text().catch(() => '')
+      outcome = { kind: 'ok', data: text ? JSON.parse(text) : undefined }
+    } else if (res.status === 409) {
+      const current = await res.json().catch(() => undefined)
+      outcome = { kind: 'conflict', current }
+    } else if (res.status === 404) {
+      outcome = { kind: 'gone' }
+    } else {
+      const detail = await res.text().catch(() => '')
+      outcome = { kind: 'error', status: res.status, message: detail.trim() || res.statusText }
+    }
+    // A cookie transition cannot pass its barrier until this synchronous durability decision ran.
+    beforeDrain?.(outcome)
+    return outcome
+  } finally {
+    activeRequests.delete(controller)
+    markDrained()
   }
-  if (res.status === 409) {
-    const current = await res.json().catch(() => undefined)
-    return { kind: 'conflict', current }
-  }
-  if (res.status === 404) return { kind: 'gone' }
-  // The body, where the server sent one. A 400 from these controllers is a written sentence meant
-  // for the household — "That barcode already belongs to Olive oil." — and `statusText` alone
-  // ("Bad Request") throws it away at the last moment. Falls back where the body is empty or
-  // unreadable, so this can only ever add detail.
-  const detail = await res.text().catch(() => '')
-  return { kind: 'error', status: res.status, message: detail.trim() || res.statusText }
 }
 
 /** What a durable execution did to the queue, for the caller that has a UI to update. */
@@ -287,43 +320,58 @@ export async function executeDurably(
   }
 
   persistAhead(store, op)
-  const outcome = await executeOp(op, forceOverwrite)
+  let settledResult: DurableResult | null = null
+  const settle = (outcome: ExecOutcome): DurableResult => {
+    if (settledResult) return settledResult
 
-  switch (outcome.kind) {
-    case 'ok':
-    // A row that is gone is a write with nothing left to apply. Terminal, and the resync that
-    // follows is what puts the screen back in step with it.
-    case 'gone':
-      removeOp(store, op.id)
-      return { outcome, settled: true }
+    switch (outcome.kind) {
+      case 'ok':
+      // A row that is gone is a write with nothing left to apply. Terminal, and the resync that
+      // follows is what puts the screen back in step with it.
+      case 'gone':
+        removeOp(store, op.id)
+        settledResult = { outcome, settled: true }
+        break
 
-    case 'offline':
-      // Retained exactly once, and the attempt is *not* charged. This panel is offline as a matter
-      // of course — a kitchen wall with a flaky access point — and spending the retry budget on the
-      // network would set aside a perfectly good write for the sin of being made in the wrong room.
-      return { outcome, settled: false }
+      case 'offline':
+      case 'cancelled':
+        // Retained exactly once. A cancellation is a profile transition, not permission to forget
+        // the operation that was durably written before its request started.
+        settledResult = { outcome, settled: false }
+        break
 
-    case 'conflict':
-      // Durable, so the question survives a reload. Replay steps over it until somebody answers.
-      updateOp(store, op.id, { conflict: { current: outcome.current, at: Date.now() } })
-      return { outcome, settled: false }
+      case 'conflict':
+        // Durable, so the question survives a reload. Replay steps over it until somebody answers.
+        updateOp(store, op.id, { conflict: { current: outcome.current, at: Date.now() } })
+        settledResult = { outcome, settled: false }
+        break
 
-    case 'error': {
-      if (!isRetryable(outcome.status)) {
-        return { outcome, settled: true, dropped: dropOp(store, op, 'rejected', outcome.message) }
-      }
-      const attempts = (op.attempts ?? 0) + 1
-      if (attempts >= MAX_ATTEMPTS) {
-        return {
-          outcome,
-          settled: true,
-          dropped: dropOp(store, { ...op, attempts }, 'retry-exhausted', outcome.message),
+      case 'error': {
+        if (!isRetryable(outcome.status)) {
+          settledResult = {
+            outcome, settled: true, dropped: dropOp(store, op, 'rejected', outcome.message),
+          }
+          break
         }
+        const attempts = (op.attempts ?? 0) + 1
+        if (attempts >= MAX_ATTEMPTS) {
+          settledResult = {
+            outcome,
+            settled: true,
+            dropped: dropOp(store, { ...op, attempts }, 'retry-exhausted', outcome.message),
+          }
+          break
+        }
+        updateOp(store, op.id, { attempts })
+        settledResult = { outcome, settled: false }
+        break
       }
-      updateOp(store, op.id, { attempts })
-      return { outcome, settled: false }
     }
+    return settledResult
   }
+
+  const outcome = await executeOp(op, forceOverwrite, settle)
+  return settledResult ?? settle(outcome)
 }
 
 /** What a replay pass did, for the caller that has a UI to update. */
@@ -370,7 +418,7 @@ export async function replayQueue(store: QueueStore, profileId: number | null): 
     if (dropped) result.dropped.push(dropped)
     if (settled) result.changed = true
 
-    if (outcome.kind === 'offline') {
+    if (outcome.kind === 'offline' || outcome.kind === 'cancelled') {
       result.stoppedOffline = true
       break
     }

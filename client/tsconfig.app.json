@@ -23,6 +23,6 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
-  /* Read with Node's APIs, so it is compiled by tsconfig.node.json instead. */
-  "exclude": ["src/app/kitchenCut.test.ts"]
+  /* Read with Node's APIs, so they are compiled by tsconfig.checks.json instead. */
+  "exclude": ["src/app/kitchenCut.test.ts", "src/app/kitchenShell.test.ts"]
 }

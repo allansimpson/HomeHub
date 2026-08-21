@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { CutFitProvider } from './CutFitProvider'
 
 interface ScrollAreaProps {
   children: ReactNode
@@ -10,6 +11,9 @@ interface ScrollAreaProps {
  * Vertical scroll region for drill-in lists. No native scrollbar; scrollability is signalled by
  * (a) a bottom fade-out gradient, (b) a 3px brass position tick riding a hairline track, and
  * (c) an optional caption — the three indicators the dense-data spec (11) calls for.
+ *
+ * It is also where the Kitchen's cut groups are fitted to the viewport, since this is the element
+ * whose leftover height they are competing for ({@link CutFitProvider}).
  *
  * @category Structure
  */
@@ -45,7 +49,12 @@ export function ScrollArea({ children, caption }: ScrollAreaProps) {
 
   return (
     <div className={'ml-scroll' + (atEnd ? ' ml-scroll--end' : '')}>
-      <div className="ml-scroll__inner" ref={innerRef}>{children}</div>
+      {/* The scroller is also what the cut groups inside it share their leftover room with — see
+          {@link CutFitProvider}. It is owned here rather than by the groups because the room is one
+          quantity, and two groups each reading "300px going spare" would both take them. */}
+      <div className="ml-scroll__inner" ref={innerRef}>
+        <CutFitProvider scroller={innerRef}>{children}</CutFitProvider>
+      </div>
       {thumb && (
         <div className="ml-scroll__track" aria-hidden="true">
           <div className="ml-scroll__tick" style={{ top: `${thumb.top * 100}%`, height: `${thumb.height * 100}%` }} />

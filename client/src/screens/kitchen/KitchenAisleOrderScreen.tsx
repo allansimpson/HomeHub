@@ -61,7 +61,7 @@ export function KitchenAisleOrderScreen() {
     >
       <ScrollArea>
         {/* Store chips lead: the order belongs to a shop, so the shop is chosen first. */}
-        <div className="ml-kitchen__chips ml-cut">
+        <div className="ml-kitchen__chips ml-cut" data-hscroll>
           {STORES.map((name) => (
             <button
               key={name}

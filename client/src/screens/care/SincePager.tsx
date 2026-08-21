@@ -215,7 +215,9 @@ export function SincePager({
     <>
       <div
         ref={frame}
-        className="ml-sincepager"
+        /* The block, not the list, carries the selecting state: its `min-height` is what actually
+           holds the height, so shrinking only the list inside it moved nothing. */
+        className={'ml-sincepager' + (selecting ? ' ml-sincepager--selecting' : '')}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -245,8 +247,8 @@ export function SincePager({
 
         Deliberately not a modal and not a menu: the entries being corrected are minutes old and the
         list is right there, so the handoff puts the two verbs under the list and lets DELETE act
-        immediately. Nothing below this row moves when it appears — the list gives up exactly this
-        row's height plus its gap (see `.ml-carelist--selecting`).
+        immediately. Nothing below this row moves when it appears — the block gives up exactly this
+        row's height plus its gap (see `--care-give` on `.ml-sincepager`).
       */}
       {selecting && (
         <div className="ml-careactions">
@@ -500,7 +502,7 @@ function EntriesPage({
     /* Fixed height, scrolling inside: it is the height of six SINCE rows, which is what keeps the
        LOG grid from moving when the pages swap. The last row clipping is the scroll affordance —
        and unlike its neighbours this page genuinely has more than fits, so it earns one. */
-    <div className={'ml-carelist' + (selecting ? ' ml-carelist--selecting' : '')}>
+    <div className="ml-carelist">
       {entries.map((entry, i) => {
         const selected = selection.has(entry.id)
         /* First row of its day carries the heading. Newest first, so the run is contiguous. */
