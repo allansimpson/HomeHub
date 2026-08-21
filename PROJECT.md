@@ -5,6 +5,10 @@ Reference for the **HomeHub** household panel (product name **Central Home**; vi
 the provider-seam model, key decisions, and the go-live checklist. Build/run/deploy commands live
 in [`README.md`](README.md).
 
+**Agents start in [`brain/`](brain/)** — shared working memory between Claude and Hermes, holding
+what is deployed, who owns what, and what has already gone wrong. This file is the project's
+knowledge; `brain/` is the agents' knowledge of each other and of the machine.
+
 **Status: build complete — Stages 0–9 shipped.** The app runs end-to-end on simulated/local
 providers today; each real integration activates by adding config (see [Go-live](#10--go-live)).
 
