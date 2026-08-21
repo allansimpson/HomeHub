@@ -7,8 +7,10 @@ _Last reviewed: 2026-08-21._
 
 ## Hermes
 
-- **Deployment.** `scripts/deploy.sh`, the servers at `/opt/homehub` and `/opt/homehub-test`, the
-  release/symlink layout, certificates, and the systemd unit. Hermes decides when a build ships.
+- **Deployment.** The servers at `/opt/homehub` and `/opt/homehub-test`, the release/symlink
+  layout, certificates, and the systemd unit. Hermes decides when a build ships. The route in use is
+  **not** `scripts/deploy.sh` — see `DEPLOYMENT.md`, which also lists what the process is not
+  catching.
 - **Anything needing root.** Agents cannot use `sudo` here — it prompts for a password. If a task
   needs it, it stops and becomes Hermes's.
 - **Server-side operational config** — connection strings, environment, the panel's own machine.

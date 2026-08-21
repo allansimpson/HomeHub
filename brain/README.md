@@ -28,6 +28,7 @@ is clever; it is just the small set of facts that were expensive to rediscover.
 | File | Holds | Shape |
 |---|---|---|
 | `OWNERSHIP.md` | Who is responsible for what, and what to hand over rather than do | Stable; edit in place |
+| `DEPLOYMENT.md` | How a build reaches the panel, and what the process fails to catch | Stable; edit in place |
 | `ENVIRONMENT.md` | This machine and its servers — paths, commands, limits, what agents cannot do | Stable; edit in place |
 | `STATE.md` | What is true *right now* — deployed release, work in flight, blockers | Volatile; **overwrite** |
 | `DECISIONS.md` | Choices made and why, so neither of us re-litigates or silently reverses one | Append |
