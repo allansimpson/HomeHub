@@ -12,7 +12,7 @@ _Updated: 2026-08-21 by Claude._
 | Panel is running | `20260817T193508Z-0bded247023e`, built **17 Aug 14:35** |
 | `origin/main` | `bab0234` |
 | Gap | **The panel is four days and several features behind the repo.** |
-| Note | The stamp's sha `0bded247023e` is not an object in this repo — observation only, see `DEPLOYMENT.md` |
+| Re-checked | 2026-08-21 15:48Z — still the 17 Aug release; no deploy since |
 
 ## Waiting to ship
 

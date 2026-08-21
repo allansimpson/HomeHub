@@ -10,7 +10,11 @@ used to deploy in a good while._
 
 ## Known
 
-- `scripts/deploy.sh` is **not** the route in use, and has not been for some time.
+- `scripts/deploy.sh` is **not** the route in use, and has not been for some time. The release
+  names date the change: `/opt/homehub/releases` holds four `20260809-…` entries in `deploy.sh`'s
+  format, then `20260812T…` and `20260817T…` in another. The method changed between 9 and 12 Aug.
+- **The setup works.** It has been deploying successfully all along; Allan's read is that it may
+  want fine tuning, not repair.
 - Production is `/opt/homehub`, with `current` a symlink into `releases/`. Test is
   `/opt/homehub-test`.
 - Nothing deploys on push: no post-receive hook, and `.github/workflows/ci.yml` only builds, tests
@@ -33,8 +37,15 @@ irrelevant — Hermes is the one who can tell.
    `20260817T193508Z-0bded247023e`. `deploy.sh` stamps `date +%Y%m%d-%H%M%S` →
    `20260817-193508`. The UTC-plus-git-sha form appears in the repo only in
    `deploy/test-deploy-from-server.md`.
-2. **The sha in that stamp is not an object in this repository.** `0bded247023e` is not on any
-   branch, not in the reflog, and `git rev-parse --disambiguate` finds nothing.
+2. **The stamp suffix is not an object in this repository** — neither `0bded247023e` (17 Aug) nor
+   `2b9980de24a5` (12 Aug). It is systematic across both releases made by the current method, not a
+   one-off.
+
+   Claude first read this as "the running build cannot be traced to a commit". **That was an
+   assumption, not a finding.** It rested on the suffix being `git rev-parse --short HEAD`, which is
+   only true of the runbook Allan says is not the route in use. The suffix could be a build id, a
+   content digest, or a sha from a source location that is not this clone. Hermes knows which; until
+   then this is a question, not a problem.
 3. **`/opt/homehub/current/wwwroot/build.json` does not exist.** The client build emits one
    (`client/vite.config.ts`, `stampBuild`); the deployed release predates it.
 4. **The deployed bundle is from 17 Aug** and does not contain the pump-vibration fix — confirmed by
