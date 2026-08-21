@@ -3,7 +3,8 @@
 Who is responsible for what. The point is not territory — it is knowing which of us a given change
 should be handed to, and what the other should *not* do unannounced.
 
-_Last reviewed: 2026-08-21._
+_Last reviewed: 2026-08-21. The split below is **confirmed by Allan**: Hermes handles deployment,
+Claude handles the dev base code. Hermes should still correct any detail it owns._
 
 ## Hermes
 
@@ -17,9 +18,12 @@ _Last reviewed: 2026-08-21._
 
 ## Claude
 
-- **The codebase.** Application code, tests, styles, and the design-handoff implementations.
-- **Verification before a deploy** — builds, both test suites, lint, typecheck.
+- **The dev base code.** Application code, tests, styles, and the design-handoff implementations, in
+  `/srv/dev/homehub`.
+- **Verification** — builds, both test suites, lint, typecheck — so what Hermes ships is known-green.
 - **Writing down what changed**, here and in commit messages.
+- **Not deployment.** Claude does not deploy, does not write the deployment procedure, and does not
+  decide what it should verify. Observations go in `DEPLOYMENT.md` as questions.
 
 ## Shared, and therefore worth announcing
 
