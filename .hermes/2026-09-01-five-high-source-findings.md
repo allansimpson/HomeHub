@@ -61,7 +61,15 @@ capabilities, potentially including MCP-backed house reads and writes.
 - Tests prove `barnaby`, or any other tool-bearing profile, cannot be selected for production
   extraction.
 
-**Status at `0a717fc`: OPEN.** Both cited files are byte-identical to the reviewed candidate.
+**Status: application half REMEDIATED 2026-09-01 (`600abb5`+).** Both cited files are still
+byte-identical, and deliberately so — nothing in `HermesEventExtractor` says where it may run, and
+nothing should; the isolation belongs at composition. `Program.cs` already refused to start under
+deployment safeguards without the isolated loopback extractor, which makes the agent branch of the
+ladder unreachable in production. **That was true before this review and had no test**, which is
+precisely why the finding read as open: there was nothing for a reader to notice in either cited
+file. `Production_refuses_the_household_agent_as_an_image_reader` now pins it, for both an explicitly
+disabled extractor and an absent one. Re-review welcome on whether the composition-level gate meets
+the intent of the first three definition-of-done items.
 
 > **This one also contradicts the repo's own decision record, and that is arguably the worse fault.**
 > `brain/DECISIONS.md:93-97` (2026-08-19, *"The image extractor runs tool-less"*) states that the
@@ -196,9 +204,14 @@ task creation. Compromise of one old shared credential therefore compromises eve
 - Rotate and remove any deployed legacy key.
 - Hardened-startup rejection coverage, and positive/negative method-scope tests.
 
-**Status at `0a717fc`: OPEN.** Both files are byte-identical. The route correctly rejects
-missing/wrong tokens and applies method scoping; the legacy credential's scope is still
-`McpMethods.All`.
+**Status: application half REMEDIATED 2026-09-01 (`600abb5`+); rotation still outstanding.**
+`Program` now throws under deployment safeguards on a non-empty `Mcp:ApiKey`, naming
+`Mcp:Credentials:<agent>` in the message. The scope mapping in `McpAccess` is left as it is: it is
+still correct for development and TEST, and removing it would delete the enumerated-not-implied
+behaviour that keeps a later tool from silently joining the legacy grant. Two tests — the refusal,
+and that named credentials are *not* caught by it. **Hermes still owns "rotate and remove any
+deployed legacy key"**; the application can refuse it, but cannot remove it from the server's
+environment.
 
 ---
 

@@ -208,3 +208,42 @@ count on the same shelf as the row above it, and half a can is exactly what `½`
 Reversals are cheap to make and expensive to discover, so: the argument against fractions is
 recorded above rather than deleted, and it is still the right argument for anywhere a pantry figure
 is compared down a column rather than read aloud.
+
+## 2026-09-01 · Production refuses both the house-agent image reader and the shared MCP key
+
+Two of Hermes's five High findings (H1, H5), remediated in the application. Both were the same
+shape: a migration aid that stayed reachable in production, guarded by prose rather than by a
+refusal.
+
+**H1 — the reader.** `EventCapture` still defaults to `Provider=hermes`, `Agent=barnaby`, and
+`HermesEventExtractor` asks *in words* that image text not be obeyed and no tools be used. Wording is
+not a capability boundary. What was already true, and what the finding did not credit, is that
+`Program` refuses to start under deployment safeguards unless the isolated loopback extractor is
+configured — so the agent branch of the ladder is unreachable in production. **What was missing was
+any proof of that**, which is exactly why the finding read as open: the two files that send the image
+are unchanged, will stay unchanged, and say nothing about where they may run. The isolation lives at
+composition, where the choice is made, and now has tests that fail if the refusal is ever removed.
+
+**The 2026-08-19 entry above was wrong, and that is the more serious half.** It says the household's
+own agent "remains reachable by explicit config but is not the default". It *is* the default in
+`EventCaptureOptions`. The entry was describing the isolated `ImageExtractor` path while naming the
+`EventCapture` one — two different sections, one of them safe. So the decision record asserted a
+safety property the build did not have, which is the failure `2026-08-20 · the locked specs outrank
+the screenshots and the code comments` records once already. Corrected reading: **the tool-less
+reader is the only path production permits, enforced at startup; the house agent remains the
+development and TEST default and is refused in production.**
+
+**H5 — the key.** `Mcp:ApiKey` was honoured so a running panel would not lose its agent's tools on an
+update, and warned at startup. A warning is not least privilege: the key is granted every enumerated
+method, so one stale credential on one forgotten LAN host is equivalent to all of them. It is now
+refused under deployment safeguards, with the message naming `Mcp:Credentials:<agent>` so whoever
+meets it mid-deploy is told what to do instead. The refusal is deliberately narrow, and a test pins
+that named credentials are not caught by it — a gate that also rejected the replacement would make
+the migration impossible to complete.
+
+**Startup, not per-request, for both.** A credential rejected at call time looks to the household
+exactly like an agent that has broken, and the moment to discover it is the deploy rather than the
+next time somebody asks the panel to turn the heating down.
+
+**Neither closes anything else.** H2, H3 and H4 remain open and still block production; H5 also needs
+the deployed key rotated out, which is Hermes's.

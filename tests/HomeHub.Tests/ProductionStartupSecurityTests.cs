@@ -117,6 +117,100 @@ public class ProductionStartupSecurityTests
         Assert.Contains("isolated image extractor", ex.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// H1's fourth definition-of-done item: prove a tool-bearing profile cannot be selected for
+    /// production extraction.
+    /// </summary>
+    /// <remarks>
+    /// <b>The gate is a startup refusal, not a runtime check, and that is the part worth pinning.</b>
+    /// The extractor ladder in `Program` prefers the isolated loopback reader and only falls through
+    /// to `HermesEventExtractor` — the household's own tool-capable agent — when `ImageExtractor` is
+    /// not configured. Under deployment safeguards that fall-through is unreachable because the app
+    /// refuses to start at all, so the guarantee rests entirely on this throw continuing to exist.
+    ///
+    /// Written because the finding was reported against the two files that *send* the image, both of
+    /// which are unchanged and will stay unchanged: nothing in `HermesEventExtractor` says it may not
+    /// run in production, and nothing should — the isolation belongs at composition, where the choice
+    /// is actually made. Which leaves nothing in either file for a reader to notice, and no test
+    /// saying so. This is that test.
+    /// </remarks>
+    [Theory]
+    // Switched off explicitly, and never configured at all — the second is what an older household
+    // actually has, and it is the one the ladder would otherwise fall through to the agent on.
+    [InlineData("false")]
+    [InlineData(null)]
+    public void Production_refuses_the_household_agent_as_an_image_reader(string? enabled)
+    {
+        var settings = ExtractorSettings();
+        settings["ConnectionStrings:HomeHub"] =
+            $"Data Source=file:agentreader-{Guid.NewGuid():N}?mode=memory&cache=shared";
+        // The isolated reader off, and the legacy house-agent path configured exactly as a household
+        // following the old defaults would leave it.
+        if (enabled is null) settings.Remove("ImageExtractor:Enabled");
+        else settings["ImageExtractor:Enabled"] = enabled;
+        settings["EventCapture:Provider"] = "hermes";
+        settings["EventCapture:Agent"] = "barnaby";
+
+        using var app = new HubAppFactory { EnvironmentName = "Production", Settings = settings };
+
+        var ex = Assert.ThrowsAny<Exception>(() => _ = app.Server);
+        Assert.Contains("isolated image extractor", ex.ToString(), StringComparison.OrdinalIgnoreCase);
+        // Named in the message on purpose: whoever hits this at three in the morning needs to be told
+        // that the fallback is refused, not merely that something is unconfigured.
+        Assert.Contains("household-agent", ex.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// H5: the deprecated shared MCP key is refused under deployment safeguards, and named
+    /// credentials are unaffected.
+    /// </summary>
+    /// <remarks>
+    /// The negative case is the one that matters, and it is the easy one to omit: a gate that
+    /// refuses the legacy key but also refuses the replacement would be discovered by whoever
+    /// migrates, at the worst possible moment. Both are asserted here so the refusal stays narrow.
+    /// </remarks>
+    [Fact]
+    public void Production_refuses_the_deprecated_shared_mcp_key()
+    {
+        var settings = ExtractorSettings();
+        settings["ConnectionStrings:HomeHub"] =
+            $"Data Source=file:mcpkey-{Guid.NewGuid():N}?mode=memory&cache=shared";
+        settings["Mcp:ApiKey"] = "legacy-shared-key-value";
+
+        using var app = new HubAppFactory { EnvironmentName = "Production", Settings = settings };
+
+        var ex = Assert.ThrowsAny<Exception>(() => _ = app.Server);
+        Assert.Contains("Mcp:ApiKey", ex.ToString(), StringComparison.Ordinal);
+        // The message has to say what to do instead, because the household reading it is mid-deploy.
+        Assert.Contains("Mcp:Credentials", ex.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_mcp_key_refusal_does_not_catch_named_credentials()
+    {
+        var settings = ExtractorSettings();
+        settings["ConnectionStrings:HomeHub"] =
+            $"Data Source=file:mcpnamed-{Guid.NewGuid():N}?mode=memory&cache=shared";
+        settings["Mcp:Credentials:barnaby:ApiKey"] = "per-agent-key";
+        settings["Mcp:Credentials:barnaby:Methods:0"] = "get_calendar";
+
+        using var app = new HubAppFactory { EnvironmentName = "Production", Settings = settings };
+
+        /*
+         * Asserted as "not this error" rather than "starts cleanly", because this harness cannot get
+         * a production host all the way up — the in-memory provider is not relational and the
+         * migration step refuses it. Stating that as `Assert.NotNull(app.Server)` would have made a
+         * passing test out of an unrelated failure the day the gate broke.
+         *
+         * The claim being pinned is narrow and is the one that matters: whatever else stops this
+         * host, it is not the legacy-key refusal. A gate that also rejected the replacement would
+         * make the migration it exists to force impossible to complete, and would be discovered by
+         * whoever attempted it, mid-deploy.
+         */
+        var ex = Record.Exception(() => _ = app.Server);
+        Assert.DoesNotContain("Mcp:ApiKey", ex?.ToString() ?? string.Empty, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Production_refuses_to_serve_when_schema_or_secret_migration_fails()
     {

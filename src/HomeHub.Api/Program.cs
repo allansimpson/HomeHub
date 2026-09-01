@@ -870,6 +870,34 @@ builder.Services.AddOptions<McpOptions>()
     .Bind(builder.Configuration.GetSection(McpOptions.Section))
     .ValidateOnStart();
 var mcp = builder.Configuration.GetSection(McpOptions.Section).Get<McpOptions>() ?? new McpOptions();
+
+/*
+ * The deprecated shared key is refused outright in a hardened deployment.
+ *
+ * It was kept honoured so that a panel already running the house would not lose its agent's tools the
+ * moment it took an update, and it warned at startup. <b>A warning is not least privilege.</b> The
+ * key is granted every enumerated method — reads, climate writes and `add_todo` alike — so anything
+ * holding it holds the whole MCP surface, and one stale credential on one forgotten LAN host is
+ * therefore equivalent to all of them. That is the tolerable shape of a migration aid and the wrong
+ * shape for a production credential, and the migration has had long enough.
+ *
+ * Named credentials with explicit method allowlists (`Mcp:Credentials:<agent>`) are the replacement
+ * and already work; this only stops the old one being an alternative to doing that. Development and
+ * the automated-test environment are unaffected, so nothing about working on the seam changes.
+ *
+ * Refused at startup rather than at call time on purpose: a key that is rejected per-request looks
+ * to the household exactly like an agent that has broken, and the moment to find out is the deploy
+ * rather than the next time somebody asks the panel to turn the heating down.
+ */
+if (requiresDeploymentSafeguards && !string.IsNullOrWhiteSpace(mcp.ApiKey))
+{
+    throw new InvalidOperationException(
+        "Mcp:ApiKey is the deprecated single shared key and grants every house method, including "
+        + "climate writes and task creation; it is not permitted under deployment safeguards. Replace "
+        + "it with per-agent credentials (Mcp:Credentials:<agent>:ApiKey) listing only the methods "
+        + "that agent needs, and rotate the old key out of the deployed environment.");
+}
+
 if (mcp.IsConfigured)
 {
     // The filters read the authenticated caller off the request, so the accessor is a dependency of
