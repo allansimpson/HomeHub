@@ -331,41 +331,36 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
 - **Ruling: the Kitchen drill-in title is 22px.** The handoff draws it at 22 on nine panels and 24
   on three, with nothing distinguishing them. One component, one size; 22 is the majority and the
   one that fits `How long things last`. Recorded in the CSS so it is not re-measured every sweep.
-- **Not blocked after all: `WHERE IT LIVES`, `CUPBOARD · MIDDLE SHELF` and `EDIT`.** This entry said
-  for weeks that they could not be built from this machine, because they need a schema change
-  (`PantryItem.Shelf`, `PantryEvent.Location`, a `Moved` kind) and `dotnet ef migrations add`
-  supposedly could not run here — user-secrets empty, `/etc/homehub-test/homehub-test.env` root-only,
-  no `sudo`, and `HomeHubDbContextFactory` refusing to guess a connection string.
-  **That last step is where the reasoning went wrong.** `dotnet ef` builds the `DbContext` at design
-  time and never connects, so *any* well-formed connection string satisfies it — which is exactly
-  what `ENVIRONMENT.md` has documented since 2026-08-28, when `AddWeatherAlertProduct` was added by
-  precisely that route. The two files have contradicted each other since, and this one was believed.
-  Verified 2026-09-01: `dotnet ef migrations list --no-build` with a throwaway string enumerates all
-  seven migrations. Nothing about it needs Hermes or a password.
-
-  **Then, on inspection, the rest of the entry was wrong too. Three separate ways.**
-
-  1. **`CUPBOARD · MIDDLE SHELF` is not work to do — the standing rule already refuses it.**
-     `PANTRY_DATA_CONTRACT` §1 enumerates the item's fields and there is **no shelf among them**:
-     `location` is the three-value enum the code already implements. The sub-shelf exists only in the
-     `.dc.html` drawing. `DECISIONS.md` 2026-08-20 — *the locked specs outrank the screenshots* — is
-     exactly this case, and `PantryEnums.cs` already carries the reasoning: per-bin precision is "a
-     level of precision nobody maintains past week two". So this stays unbuilt **by decision**, not by
-     omission, and should stop being listed as a blocked feature.
-  2. **`MOVE IT` is already built.** `KitchenItemSheet` reveals the three locations inline and
-     PATCHes; the endpoint has existed all along. This entry has been describing shipped code.
-  3. **The schema change it names is not the one the work needs.** `PantryItem.Shelf` is refused by
-     (1), and `PantryEvent.Location` does not exist under that name. What the drawing's `since 3 Aug`
-     and `Usually kept here · 4 of the last 4` actually require is a **`PantryEventKind.Moved = 12`**
-     — no migration at all, the enum is stored as an int and its own comment invites new members — and
-     **one nullable `PantryEvent.ResultingLocation` column**, which is the only migration involved.
-
-  **What is genuinely left**, and it is smaller than this entry has implied: the Kitchen item sheet
-  has no `WHERE IT LIVES` section. It puts the location in the drill-in header instead, with a
-  written rationale (a context label, since the sheet is reached from several places). The section
-  the handoff draws needs the move history above to say `since` and `n of the last m`. Note the
-  section *does* exist on the older phone screen `screens/pantry/ItemSheet.tsx`, which is why a grep
-  for the wording finds it and the sweep does not.
+- **`WHERE IT LIVES` is built (2026-09-01), to Claude Design's answers.** The item sheet's P4 section:
+  `Cupboard · middle shelf`, `since 3 Aug`, and `Usually kept here · 4 of the last 4`.
+  **It was almost dropped, and the near-miss is the useful part.** The entry here said it was blocked
+  on a migration nobody could run; that was wrong (`dotnet ef` never connects at design time). It then
+  looked like the sub-shelf was *refused* by `DECISIONS.md` 2026-08-20 — locked specs outrank
+  drawings — because `PANTRY_DATA_CONTRACT` §1 enumerates the item's fields and has no shelf. Allan
+  called it outdated on that basis. Design's answer: it is current, the sub-shelf is real, and §1 is
+  being amended. **The rule held; the spec was simply behind the design.** Design's field spec is
+  still to come and should be reviewed against what was built.
+  **Shape, all eight points as answered.** Free text, not an enum — the first real kitchen produces
+  "behind the pasta" and "the bit above the microwave". Scoped per location, so a freezer offers
+  freezer places (`GET /api/pantry/shelves?location=`). 24 characters. Unset renders the bare
+  location, no placeholder and no hanging separator. `since` dates the last move and falls back to
+  when the item arrived. The habit line counts **sightings, not moves** — a jar that never moves is
+  the one you are surest of — and is omitted below two, because `1 of the last 1` claims total
+  confidence from a single look. `EDIT` stays undrawn until an edit surface exists; that is now the
+  next Pantry screen for Design.
+  **Three things worth knowing about the build.**
+  1. `PantryEventKind.Moved = 12` plus nullable `ResultingLocation` / `ResultingShelf` — additive,
+     reversible, no data touched.
+  2. **One request is one sighting.** A PATCH that moves something writes both a correction and a
+     move, and both land after the location changed, so the habit line counted a single tap as two
+     agreements. The correction now gives up its place and the move carries it. Caught by a test that
+     expected `1 of the last 4` and got `2`.
+  3. **The rows needed the gutter the handoff does not draw.** Its `padding:12px 0` assumes the
+     panel's own 34px inset; taken literally the rows went full-bleed and `since 3 Aug` lost its last
+     glyph off the right edge of a 412px phone. Invisible to every test — the string was present and
+     correct and simply not on screen. Found by rendering it.
+  Verified in a browser at 412×915: all five strings present, no page errors, metas landing on the
+  same right edge as the facts strip.
 - **Still open after the 2026-08-23 sweeps, in priority order.** Nothing below is unknown; each is
   a decision or a dependency rather than a miss.
   1. **A dead session now locks.** Closed: any 401 from a data call fires `SESSION_LOST_EVENT` from

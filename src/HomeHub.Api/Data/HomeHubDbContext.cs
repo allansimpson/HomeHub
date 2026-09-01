@@ -649,6 +649,7 @@ public class HomeHubDbContext : DbContext
             entity.Property(i => i.Unit).HasMaxLength(PantryFieldLimits.Unit);
             entity.Property(i => i.PackUnit).HasMaxLength(PantryFieldLimits.Unit);
             entity.Property(i => i.CatalogueRef).HasMaxLength(PantryFieldLimits.Barcode);
+            entity.Property(i => i.Shelf).HasMaxLength(PantryFieldLimits.Shelf);
             // Counts are fractional ("0.5 lb") but never want floating point, same as recipe amounts.
             entity.Property(i => i.Quantity).HasPrecision(9, 3);
             // Three decimals here too: a pack count divided by a pack size is where the fractions
@@ -663,6 +664,7 @@ public class HomeHubDbContext : DbContext
         {
             entity.Property(e => e.Delta).HasPrecision(9, 3);
             entity.Property(e => e.ResultingQuantity).HasPrecision(9, 3);
+            entity.Property(e => e.ResultingShelf).HasMaxLength(PantryFieldLimits.Shelf);
             // Archiving an item must not orphan its ledger, and the item is archived rather than
             // deleted precisely so this cascade never fires in normal use.
             entity.HasOne(e => e.Item)

@@ -45,6 +45,19 @@ public static class PantryFieldLimits
     /// <summary>Graph task id for the mirror.</summary>
     public const int TodoTaskId = 200;
 
+    /// <summary>
+    /// "middle shelf", "behind the pasta", "the bit above the microwave" — where in a location a
+    /// thing actually is.
+    /// </summary>
+    /// <remarks>
+    /// Free text, and short on purpose. Design set ~24 characters because it renders on one line
+    /// after the location — `Cupboard · middle shelf` — and a phrase that wraps stops being a
+    /// glanceable answer to "where exactly". Deliberately not a fixed vocabulary: the first real
+    /// kitchen produces "behind the pasta" and "the bit above the microwave", which no enum was ever
+    /// going to hold.
+    /// </remarks>
+    public const int Shelf = 24;
+
     /// <summary>"Produce", "Chilled" — the household's own word for a part of a shop.</summary>
     public const int AisleName = 80;
 

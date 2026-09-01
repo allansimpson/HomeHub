@@ -48,6 +48,26 @@ public class PantryEvent
     /// <summary>The item's estimate immediately after this event.</summary>
     public EstimateState? ResultingState { get; set; }
 
+    /// <summary>Where the item was immediately after this event, and where in it.</summary>
+    /// <remarks>
+    /// Recorded on every event that is a *sighting* — somebody looked and said something true — which
+    /// is what makes the item sheet's `Usually kept here · 4 of the last 4` answerable. That line
+    /// counts sightings rather than moves, deliberately: a jar that has never moved has no moves to
+    /// count, and it is exactly the jar you are most sure about.
+    ///
+    /// Null on events that say nothing about place — a deduction knows an amount left, not a shelf —
+    /// so the count skips them rather than treating an unknown as an agreement.
+    ///
+    /// <b>Stored rather than derived.</b> The item's current location is on the item, so the naive
+    /// version of this line asks "how many recent events happened while it was where it is now",
+    /// which is a question about the present that answers itself: 4 of the last 4, always, because
+    /// the item can only be in one place. The whole point is that the *past* disagrees.
+    /// </remarks>
+    public PantryLocation? ResultingLocation { get; set; }
+
+    /// <inheritdoc cref="ResultingLocation"/>
+    public string? ResultingShelf { get; set; }
+
     public DateTime AtUtc { get; set; }
 
     /// <summary>Who did it. An id, not a relationship — a removed profile must not take the ledger

@@ -30,7 +30,7 @@ const item = (over: Partial<PantryItemDto> = {}): PantryItemDto => ({
   id: 1, name: 'Double cream', location: 'Fridge', tracking: 'Counted', quantity: 1,
   unit: 'ea', estimateState: null, packSize: null, packUnit: null, lastSeenAtUtc: null,
   lastSeenByName: null, catalogueRef: null, isArchived: false, version: 1, openedAtUtc: null,
-  goodUntil: null, ...over,
+  goodUntil: null, shelf: null, ...over,
 })
 
 describe('the one word a night carries', () => {

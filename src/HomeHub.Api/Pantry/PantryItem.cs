@@ -28,6 +28,24 @@ public class PantryItem
     public PantryLocation Location { get; set; } = PantryLocation.Cupboard;
 
     /// <summary>
+    /// Where in that location, in the household's own words — "middle shelf", "behind the pasta".
+    /// Null until somebody says, which is most rows.
+    /// </summary>
+    /// <remarks>
+    /// <b>This reverses the note that used to sit on <see cref="PantryLocation"/></b>, which held that
+    /// per-shelf precision is "a level nobody maintains past week two" and that the only thing the
+    /// panel does with a location is group the list and word a sentence. Design overruled it on
+    /// 2026-09-01 with the case the old note did not answer: the three locations tell you the thing is
+    /// in the cupboard, and this is the difference between that and being able to *find* it.
+    ///
+    /// The old objection is still true about *fixed vocabularies*, and that is why this is free text
+    /// rather than an enum. It is also why nothing requires it: an unmaintained value renders as the
+    /// bare location, which is exactly what the row said before, so a household that stops bothering
+    /// loses nothing and is never nagged.
+    /// </remarks>
+    public string? Shelf { get; set; }
+
+    /// <summary>
     /// Chosen at creation (defaulted by the catalogue, editable) and drives everything: what the row
     /// shows, whether a deduction does arithmetic, and whether a shortfall can even be claimed.
     /// </summary>

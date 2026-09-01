@@ -3728,3 +3728,77 @@
 .ml-kitchen__recipe--dense .ml-kitchen__recipename {
   font-size: 1rem; /* 16px */
 }
+
+/*
+ * `WHERE IT LIVES` — two rows under a brass field label (Pantry Turn 1, P4).
+ *
+ * Baseline-aligned rather than centred, because each row is a phrase at 15px with a small meta value
+ * at 11px beside it, and centring two sizes makes the smaller one float. The rule sits under the
+ * first row only: it separates the place from the claim about the place, and a second rule would
+ * close the group off from the actions it belongs with.
+ *
+ * `--quiet` on the second row's phrase is the design's own distinction — the place is the fact and
+ * `Usually kept here` is a label for the figure opposite it, so the two must not read as equals.
+ */
+.ml-kitchen__placerow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  /*
+   * The gutter is not optional here. The handoff draws `padding:12px 0` because its panel already
+   * carries the 34px inset; taking that literally made these rows full-bleed, and `since 3 Aug` ran
+   * off the right edge of a 412px phone with the last glyph cut. Nothing in a unit test can see
+   * that — the string was present and correct, and simply not on the screen.
+   */
+  padding: 0.75rem var(--gutter);
+}
+
+.ml-kitchen__placerow--ruled {
+  border-bottom: var(--control-border) solid var(--rule-minor);
+}
+
+.ml-kitchen__placename {
+  flex: 1;
+  font-size: 0.9375rem; /* 15px */
+  font-weight: 300;
+}
+
+.ml-kitchen__placename--quiet {
+  color: var(--text-secondary);
+}
+
+.ml-kitchen__placemeta {
+  font-size: 0.6875rem; /* 11px */
+  color: var(--text-muted);
+}
+
+/*
+ * The shelf field inside the move panel.
+ *
+ * Free text with the household's own phrases offered under it. The input is deliberately as wide as
+ * the sheet: 24 characters of "the bit above the microwave" is most of that budget, and a narrow box
+ * would suggest a two-word answer was expected.
+ */
+.ml-kitchen__shelffield {
+  display: block;
+  padding: 0.75rem var(--gutter) 0;
+}
+
+.ml-kitchen__shelffield input {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: none;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.9375rem; /* 15px */
+  font-weight: 300;
+}
+
+.ml-kitchen__shelfideas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem var(--gutter) 0;
+}

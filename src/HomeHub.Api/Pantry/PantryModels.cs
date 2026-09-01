@@ -35,7 +35,29 @@ public record PantryItemDto(
     /// </remarks>
     DateTime? OpenedAtUtc = null,
     /// <summary>A date the packet stated, if one did. Sorts; never warns (ADD_TO_PANTRY §6).</summary>
-    DateOnly? GoodUntil = null);
+    DateOnly? GoodUntil = null,
+    /// <summary>Where in the location — "middle shelf". Null on most rows, and that is not a gap.</summary>
+    string? Shelf = null,
+    /// <summary>
+    /// When it was last put where it is. The item sheet's `since 3 Aug`.
+    /// </summary>
+    /// <remarks>
+    /// The last <see cref="PantryEventKind.Moved"/>, or the day it was added when it has never moved.
+    /// Design chose that fallback over an empty line because the sentence reads the same either way
+    /// and stays true: a thing that arrived in the cupboard in June has been there since June.
+    /// </remarks>
+    DateTime? InPlaceSinceUtc = null,
+    /// <summary>
+    /// How many of the last four sightings found it where it is now, and how many there were.
+    /// </summary>
+    /// <remarks>
+    /// The `4 of the last 4` under `Usually kept here`. Null — not zero, and not `1 of 1` — when
+    /// there is only one sighting: the line is a confidence signal, and a single look is not
+    /// confidence. Sightings rather than moves, because a jar that has never moved is exactly the one
+    /// you are most certain about, and counting moves would leave it blank.
+    /// </remarks>
+    int? KeptHereCount = null,
+    int? KeptHereOf = null);
 
 /// <summary>
 /// Everything 9a renders in one response: the list, the hedged tally, and who last touched it.
@@ -117,7 +139,18 @@ public record PantryItemInput(
     /// <summary>
     /// A date the packet states (ADD_TO_PANTRY §6). Optional, never inferred, never notified.
     /// </summary>
-    DateOnly? GoodUntil = null);
+    DateOnly? GoodUntil = null,
+    /// <summary>
+    /// Where in the location, in the household's own words. Free text, ≤24 characters.
+    /// </summary>
+    /// <remarks>
+    /// <b>Optional and trailing</b>, for the same reason <see cref="PackSize"/> is: most writers of
+    /// this shape have no opinion about shelves. A scan and a delivery line PATCH the same record,
+    /// and an omitted value therefore leaves the stored one alone — treating absence as "clear it"
+    /// would have the pantry quietly forget where things are on every restock. An explicit empty
+    /// string clears it, the same shape as <c>Barcode</c>.
+    /// </remarks>
+    string? Shelf = null);
 
 /// <summary>One row of an item's history, for the row sheet and the run list.</summary>
 public record PantryEventDto(

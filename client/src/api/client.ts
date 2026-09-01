@@ -955,6 +955,19 @@ export const api = {
     request<PantryListDto>(`/pantry${location && location !== 'All' ? `?location=${location}` : ''}`),
   getPantryEvents: (id: number, take = 40) =>
     request<PantryEventDto[]>(`/pantry/${id}/events?take=${take}`),
+  /**
+   * One item, with the two facts only the sheet asks for — `inPlaceSinceUtc` and the kept-here
+   * count. The sheet used to pick its item out of `getPantry()`, which was fine while everything it
+   * showed was already on the row; those two are ledger questions and are not worth answering for
+   * forty rows to render one.
+   */
+  getPantryItem: (id: number) => request<PantryItemDto>(`/pantry/${id}`),
+  /**
+   * Shelf phrases this household already uses in a location — suggestions, never a vocabulary.
+   * Scoped so a freezer offers freezer places; anything may still be typed.
+   */
+  getPantryShelves: (location?: string) =>
+    request<string[]>(`/pantry/shelves${location ? `?location=${encodeURIComponent(location)}` : ''}`),
   createPantryItem: (input: PantryItemInput) =>
     request<PantryItemDto>('/pantry', { method: 'POST', ...json(input) }),
   updatePantryItem: (id: number, input: PantryItemInput, baseVersion?: number) =>

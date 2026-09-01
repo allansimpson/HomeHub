@@ -1636,6 +1636,31 @@ export interface PantryItemDto {
    * it does not infer one, and it does not turn one into a notification.
    */
   goodUntil: string | null
+  /**
+   * Where in the location — the `middle shelf` in `Cupboard · middle shelf`.
+   *
+   * Free text in the household's own words, because the first real kitchen produces "behind the
+   * pasta" and "the bit above the microwave". Null on most rows and that is not a gap: the sheet
+   * renders the location alone, which is exactly what it said before anybody bothered.
+   */
+  shelf: string | null
+  /**
+   * When it was last put where it is — the sheet's `since 3 Aug`.
+   *
+   * Falls back to the day the item was added when it has never moved, which reads the same and stays
+   * true. **Detail only**: present from `getPantryItem`, absent from the list, because it is a ledger
+   * question and a list of forty rows should not be asking it forty times.
+   */
+  inPlaceSinceUtc?: string | null
+  /**
+   * `Usually kept here · 4 of the last 4` — how many recent sightings agree with where it is now.
+   *
+   * Null below two sightings rather than `1 of the last 1`: the line is a confidence signal, and one
+   * look is not confidence. Counts sightings rather than moves, because a jar that has never moved is
+   * the one the household is surest about. Detail only, as above.
+   */
+  keptHereCount?: number | null
+  keptHereOf?: number | null
 }
 
 export interface PendingImportDto {
@@ -1660,6 +1685,14 @@ export interface PantryItemInput {
   name: string
   location: PantryLocationName
   tracking: TrackingClassName
+  /**
+   * Where in the location, in the household's own words — free text, 24 characters.
+   *
+   * **Omit it to leave the stored one alone.** A scan and a delivery line send this same shape and
+   * neither has an opinion about shelves, so absence cannot mean "clear it" — that would have the
+   * pantry forget where everything is on every restock. Send `''` to actually clear it.
+   */
+  shelf?: string | null
   quantity?: number | null
   unit?: string | null
   estimateState?: EstimateStateName | null

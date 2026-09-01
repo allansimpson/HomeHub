@@ -25,6 +25,9 @@ import {
   tallyLine,
   trimNumber,
   usageAmount,
+  placeLine,
+  inPlaceSince,
+  keptHereLine,
 } from './pantryDomain'
 import type {
   GroceryLineDto, ItemUsageDto, MealWeekDto, MirrorStatusDto, PantryEventDto, PantryItemDto,
@@ -43,6 +46,7 @@ import type {
 const item = (over: Partial<PantryItemDto> = {}): PantryItemDto => ({
   openedAtUtc: null,
   goodUntil: null,
+  shelf: null,
   id: 1,
   name: 'Chicken breasts',
   location: 'Fridge',
@@ -572,7 +576,7 @@ describe('the item sheet facts strip', () => {
     id: 1, name: 'Premium Sauce Caramel', location: 'Cupboard', tracking: 'Counted',
     quantity: 454, unit: 'g', estimateState: null, packSize: null, packUnit: null,
     lastSeenAtUtc: null, lastSeenByName: null, catalogueRef: null, isArchived: false,
-    version: 1, openedAtUtc: null, goodUntil: null, ...over,
+    version: 1, openedAtUtc: null, goodUntil: null, shelf: null, ...over,
   })
 
   it('has no answer for ONE IS on a loose row, and says so rather than naming the unit', () => {
@@ -637,5 +641,34 @@ describe('pluralUnit', () => {
     // "0.5 cans" is right; "0.5 can" reads as a typo.
     expect(pluralUnit(0.5, 'can')).toBe('cans')
     expect(pluralUnit(2.5, 'can')).toBe('cans')
+  })
+})
+
+
+describe('WHERE IT LIVES', () => {
+  it('drops the separator when nobody has said where', () => {
+    // No placeholder and no hanging middot: the bare location is exactly what the row said before
+    // the field existed, so a household that never fills it in loses nothing.
+    expect(placeLine('Cupboard', null)).toBe('Cupboard')
+    expect(placeLine('Cupboard', '')).toBe('Cupboard')
+    expect(placeLine('Cupboard', '   ')).toBe('Cupboard')
+    expect(placeLine('Cupboard', 'middle shelf')).toBe('Cupboard · middle shelf')
+  })
+
+  it('dates the place without a year', () => {
+    // Day and month, the same register as the rest of the sheet. A year would be the most prominent
+    // thing in a three-word line and the least useful.
+    expect(inPlaceSince('2026-08-03T09:00:00Z')).toBe('since 3 Aug')
+    expect(inPlaceSince(null)).toBeNull()
+    expect(inPlaceSince('not a date')).toBeNull()
+  })
+
+  it('will not claim confidence from a single sighting', () => {
+    // `1 of the last 1` states total confidence off one look, which is the unhedged claim this
+    // section spends every other line avoiding.
+    expect(keptHereLine(1, 1)).toBeNull()
+    expect(keptHereLine(null, null)).toBeNull()
+    expect(keptHereLine(4, 4)).toBe('4 of the last 4')
+    expect(keptHereLine(1, 4)).toBe('1 of the last 4')
   })
 })

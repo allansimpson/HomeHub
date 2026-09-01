@@ -286,6 +286,48 @@ public class PantryController : ControllerBase
         return await SingleAsync(item.Id, ct);
     }
 
+    /// <summary>One item, with the facts only the sheet asks for.</summary>
+    /// <remarks>
+    /// The row sheet used to find its item by fetching the whole pantry and picking one out of the
+    /// list, which worked while every fact it showed was already on the row. `WHERE IT LIVES` broke
+    /// that: `since` and `n of the last 4` are ledger questions, and answering them for all forty
+    /// rows of a list to render one of them is the kind of cost that never shows up until a
+    /// household has a real pantry.
+    /// </remarks>
+    [HttpGet("{id:int}")]
+    public async Task<ActionResult<PantryItemDto>> Get(int id, CancellationToken ct)
+    {
+        var item = await _db.PantryItems.FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (item is null) return NotFound();
+        return await BuildAsync(item, ct);
+    }
+
+    /// <summary>The shelf phrases this household already uses in one location.</summary>
+    /// <remarks>
+    /// <b>Scoped to the location on purpose</b> — a freezer offers freezer places. Offering "behind
+    /// the pasta" while somebody is filing a bag of peas is how a free-text field turns into a list
+    /// of other people's answers, and the whole reason this is not an enum is that the right words
+    /// are local to the shelf being described.
+    ///
+    /// Suggestions, never a vocabulary: anything may still be typed, and a phrase used once appears
+    /// here for the next person without ever having been "added". Ordered by how often the household
+    /// has used it, so the two or three real places surface above a typo somebody made in June.
+    /// </remarks>
+    [HttpGet("shelves")]
+    public async Task<IReadOnlyList<string>> Shelves([FromQuery] string? location, CancellationToken ct)
+    {
+        var query = _db.PantryItems.Where(i => !i.IsArchived && i.Shelf != null);
+        if (Parse<PantryLocation>(location) is { } loc) query = query.Where(i => i.Location == loc);
+
+        return await query
+            .GroupBy(i => i.Shelf!)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key)
+            .Select(g => g.Key)
+            .Take(12)
+            .ToListAsync(ct);
+    }
+
     /// <summary>Amend an item — amount, state, location, tracking class. Writes an event.</summary>
     [HttpPatch("{id:int}")]
     public async Task<ActionResult<PantryItemDto>> Update(
@@ -300,8 +342,17 @@ public class PantryController : ControllerBase
         // is explicit that no yours-vs-theirs screen is needed here.
         if (baseVersion is { } v && v != item.Version) return Conflict(await BuildAsync(item, ct));
 
+        // Held before anything is applied, so the move can be recognised after. Both halves matter:
+        // `Cupboard → Cupboard · behind the pasta` is a move somebody made and would want dated.
+        var wasLocation = item.Location;
+        var wasShelf = item.Shelf;
+
         item.Name = input.Name.Trim();
         item.Location = Parse<PantryLocation>(input.Location) ?? item.Location;
+        // Silence leaves it alone; an explicit empty string clears it. A scan and a delivery line
+        // both PATCH this shape and neither has an opinion about shelves, so treating an absent
+        // field as "clear it" would have the pantry quietly forget where things are every restock.
+        if (input.Shelf is not null) item.Shelf = Blank(input.Shelf) is { } shelf ? shelf.Trim() : null;
         item.Unit = _units.Normalise(input.Unit);
         // Clearing the pack size clears its unit with it: "3 of nothing" is not a state, and a
         // stranded pack unit would make PantryAmounts read a loose row as a packaged one.
@@ -349,12 +400,39 @@ public class PantryController : ControllerBase
             await TeachCatalogueAsync(existing, item.Name, item.Unit, item.Location, item.Tracking, null, ct);
         }
 
-        _ledger.Record(
+        var correction = _ledger.Record(
             item, PantryEventKind.Corrected, this.CallerId(),
             setQuantity: item.Tracking == TrackingClass.Counted ? input.Quantity ?? 0 : null,
             setState: item.Tracking == TrackingClass.Estimated
                 ? Parse<EstimateState>(input.EstimateState) ?? item.EstimateState ?? EstimateState.Plenty
                 : null);
+
+        /*
+         * A move is its own row, in addition to the correction above rather than instead of it.
+         *
+         * One PATCH can change two unrelated things — "there are three left and I put them in the
+         * freezer" — and collapsing that into a single event would force a choice about which fact
+         * the row is *about*. The item sheet asks the ledger two separate questions (`since 3 Aug`,
+         * and how many recent sightings agree on a place), and both want the move dated on its own
+         * terms.
+         *
+         * Recorded after the correction so it is the newer row, which is what `since` reads.
+         */
+        if (item.Location != wasLocation || item.Shelf != wasShelf)
+        {
+            /*
+             * <b>One request is one sighting.</b> The correction above was written after the move had
+             * been applied, so it records the *new* place too — and `n of the last 4` would then read
+             * a single tap as two independent agreements that the thing lives there. Moving a jar
+             * once must not make the panel twice as confident about it.
+             *
+             * The move is the row that carries the place, so the correction gives it up. It keeps
+             * everything else it is for: the amount, who, and when.
+             */
+            correction.ResultingLocation = null;
+            correction.ResultingShelf = null;
+            _ledger.Record(item, PantryEventKind.Moved, this.CallerId());
+        }
 
         item.Version++;
         await _db.SaveChangesAsync(ct);
@@ -869,7 +947,8 @@ public class PantryController : ControllerBase
             .OrderByDescending(e => e.AtUtc)
             .Select(e => e.ByProfileId)
             .FirstOrDefaultAsync(ct);
-        return ToDto(item, lastSeen, new Dictionary<int, int?> { [item.Id] = by }, names);
+        var dto = ToDto(item, lastSeen, new Dictionary<int, int?> { [item.Id] = by }, names);
+        return await WithPlaceHistoryAsync(dto, item, ct);
     }
 
     /// <summary>
@@ -1410,6 +1489,64 @@ public class PantryController : ControllerBase
             item.PackSize, item.PackUnit,
             lastSeen.TryGetValue(item.Id, out var at) ? at : null,
             by is { } id ? names.GetValueOrDefault(id) : null,
-            item.CatalogueRef, item.IsArchived, item.Version, item.OpenedAt, item.GoodUntil);
+            item.CatalogueRef, item.IsArchived, item.Version, item.OpenedAt, item.GoodUntil,
+            item.Shelf);
+    }
+
+    /// <summary>
+    /// The two facts under `WHERE IT LIVES` that only the ledger can answer.
+    /// </summary>
+    /// <remarks>
+    /// Detail-only, and deliberately not part of <see cref="ToDto"/>: this is two more queries per
+    /// item, and the list renders forty of them. The sheet asks; a row never does.
+    /// </remarks>
+    private async Task<PantryItemDto> WithPlaceHistoryAsync(PantryItemDto dto, PantryItem item, CancellationToken ct)
+    {
+        // `since` — the last time it was put somewhere, falling back to the day it arrived. Design
+        // chose that fallback over a blank line because it reads the same and stays true.
+        var lastMove = await _db.PantryEvents
+            .Where(e => e.PantryItemId == item.Id
+                && e.Kind == PantryEventKind.Moved
+                && e.UndoneByEventId == null)
+            .OrderByDescending(e => e.AtUtc)
+            .Select(e => (DateTime?)e.AtUtc)
+            .FirstOrDefaultAsync(ct);
+
+        /*
+         * `Usually kept here · n of the last 4`.
+         *
+         * Sightings, not moves — a jar that has never moved has no moves to count and is exactly the
+         * one you are most sure of. Undone rows are excluded on both sides: a reversed event is not
+         * a place anybody observed.
+         *
+         * The shelf is compared as well as the location, because the line sits directly under
+         * `Cupboard · middle shelf` and "here" is the whole of what that says. Comparing only the
+         * location would answer a question the panel did not ask, and would read as confident about
+         * a shelf it had never checked.
+         */
+        var recent = await _db.PantryEvents
+            .Where(e => e.PantryItemId == item.Id
+                && e.ResultingLocation != null
+                && e.UndoneByEventId == null
+                && e.Kind != PantryEventKind.Undone)
+            .OrderByDescending(e => e.AtUtc)
+            .Select(e => new { e.ResultingLocation, e.ResultingShelf })
+            .Take(4)
+            .ToListAsync(ct);
+
+        // One sighting is not evidence of a habit, so the row is omitted rather than rendered as
+        // `1 of the last 1` — which would state maximum confidence on minimum evidence.
+        if (recent.Count < 2)
+        {
+            return dto with { InPlaceSinceUtc = lastMove ?? item.CreatedUtc };
+        }
+
+        var here = recent.Count(e => e.ResultingLocation == item.Location && e.ResultingShelf == item.Shelf);
+        return dto with
+        {
+            InPlaceSinceUtc = lastMove ?? item.CreatedUtc,
+            KeptHereCount = here,
+            KeptHereOf = recent.Count,
+        };
     }
 }

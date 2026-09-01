@@ -71,6 +71,13 @@ public sealed class PantryLedger
             ScanSequence = scanSequence,
         };
 
+        // Where the item was, on the events that actually know. See `IsSighting`.
+        if (IsSighting(kind))
+        {
+            evt.ResultingLocation = item.Location;
+            evt.ResultingShelf = item.Shelf;
+        }
+
         if (item.Tracking == TrackingClass.Counted)
         {
             if (setQuantity is { } target)
@@ -212,4 +219,26 @@ public sealed class PantryLedger
 
     /// <summary>Counts floor at zero — a shelf cannot hold minus one tin.</summary>
     private static decimal Floor(decimal value) => value < 0 ? 0 : decimal.Round(value, 3);
+
+    /// <summary>
+    /// Whether this kind of event means somebody was actually looking at the thing.
+    /// </summary>
+    /// <remarks>
+    /// Only these record a place, which is what the item sheet's `Usually kept here · n of the last
+    /// 4` counts. The two exclusions are the point of the method:
+    ///
+    /// <b><see cref="PantryEventKind.Deducted"/></b> is cooking taking stock off a row. Nobody opened
+    /// a cupboard; the plan did the arithmetic. Counting it would let a fortnight of dinners bury the
+    /// one time somebody moved the jar and said so.
+    ///
+    /// <b><see cref="PantryEventKind.Undone"/></b> is a compensating row that reverses another. It
+    /// describes the ledger, not the shelf, and it is written at a moment when the item may be
+    /// somewhere it never was — so a place on it would be a fact nobody observed.
+    /// </remarks>
+    private static bool IsSighting(PantryEventKind kind) => kind switch
+    {
+        PantryEventKind.Deducted => false,
+        PantryEventKind.Undone => false,
+        _ => true,
+    };
 }

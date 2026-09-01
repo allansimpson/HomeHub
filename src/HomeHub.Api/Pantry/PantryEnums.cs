@@ -1,10 +1,16 @@
 namespace HomeHub.Api.Pantry;
 
-/// <summary>Where a thing lives. Three places, fixed — PANTRY_DATA_CONTRACT §1.</summary>
+/// <summary>Which of the three places a thing lives in — PANTRY_DATA_CONTRACT §1.</summary>
 /// <remarks>
-/// Deliberately not per-shelf or per-bin. "Top shelf of the door" is a level of precision nobody
-/// maintains past week two, and the only thing the panel does with a location is group the list and
-/// word a sentence ("Put 1 lb in the fridge").
+/// <b>This used to say the panel would never go finer, and it does now.</b> The old note held that
+/// "top shelf of the door" is a level of precision nobody maintains past week two, and that the only
+/// thing the panel does with a location is group the list and word a sentence. Design overruled that
+/// on 2026-09-01: knowing a thing is in the cupboard is not the same as being able to find it.
+///
+/// What survives is the objection to a *fixed vocabulary*, which was the sound half — so the finer
+/// place is free text on <see cref="PantryItem.Shelf"/>, never an enum. This type stays exactly three
+/// values, because it is what the shelf switch, the grouping and "put 1 lb in the fridge" are built
+/// on, and those genuinely do not want a fourth.
 /// </remarks>
 public enum PantryLocation
 {
@@ -90,6 +96,17 @@ public enum PantryEventKind
 
     /// <summary>An opened thing finished, closing the window <see cref="MarkedOpened"/> began.</summary>
     MarkedFinished = 11,
+
+    /// <summary>
+    /// Put somewhere else — a different location, a different shelf, or both. Never changes a
+    /// quantity.
+    /// </summary>
+    /// <remarks>
+    /// Its own kind rather than a <see cref="Corrected"/> with a location on it, because the item
+    /// sheet's `since 3 Aug` is "when did this last move", and a ledger that files a move as a
+    /// correction cannot answer that without guessing which corrections happened to change a place.
+    /// </remarks>
+    Moved = 12,
 }
 
 /// <summary>What caused an event, so a receipt or a run list can be reversed as a unit.</summary>

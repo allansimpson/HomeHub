@@ -666,3 +666,51 @@ function sameUnit(a: string | null, b: string | null): boolean {
 function capitalise(word: string): string {
   return word.charAt(0).toUpperCase() + word.slice(1)
 }
+
+// ---- WHERE IT LIVES ----
+
+/**
+ * `Cupboard`, or `Cupboard · middle shelf` when somebody has said where.
+ *
+ * The separator only appears with something after it. An unset shelf renders the bare location —
+ * which is exactly what the row said before the field existed — rather than a placeholder or a
+ * hanging `·`. Design was explicit that there is no "not set yet" state to nag about: most rows will
+ * never carry one, and the section still earns its place on the second line.
+ */
+export function placeLine(location: string, shelf: string | null | undefined): string {
+  const where = shelf?.trim()
+  return where ? `${location} · ${where}` : location
+}
+
+/**
+ * `since 3 Aug` — when the thing was last put where it is.
+ *
+ * Deliberately the same wording whether it was moved there or arrived there. A jar that has sat in
+ * the cupboard since it was bought has been there since it was bought, and a second phrasing for that
+ * would be a distinction the household did not ask for and cannot act on.
+ */
+export function inPlaceSince(sinceUtc: string | null | undefined, now: Date = new Date()): string | null {
+  if (!sinceUtc) return null
+  const at = new Date(sinceUtc)
+  if (Number.isNaN(at.getTime())) return null
+  // Day and month, no year — the same register as the rest of the sheet's dates. A year would be
+  // the most prominent thing in a three-word line and the least useful.
+  const day = at.getDate()
+  const month = at.toLocaleString('en-GB', { month: 'short' })
+  void now
+  return `since ${day} ${month}`
+}
+
+/**
+ * `4 of the last 4` under `Usually kept here`, or null when the line should not be drawn.
+ *
+ * <b>Null below two sightings.</b> The line is a confidence signal, and `1 of the last 1` states
+ * total confidence off a single look — which is precisely the unhedged claim this section spends
+ * every other line avoiding. The server already declines to send a count in that case; this is the
+ * same rule stated where the wording lives, so a future caller cannot reintroduce it by passing
+ * numbers straight in.
+ */
+export function keptHereLine(count: number | null | undefined, of: number | null | undefined): string | null {
+  if (count == null || of == null || of < 2) return null
+  return `${count} of the last ${of}`
+}
