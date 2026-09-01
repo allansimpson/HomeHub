@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { api, ApiError, SESSION_LOST_EVENT, armSessionLostNotice } from '../api/client'
+import { api, ApiError, SESSION_LOST_EVENT, armSessionLostNotice, setPrivateNetworkConfirmed } from '../api/client'
 import { useConnection } from './ConnectionProvider'
 import {
   clearIdentity, clearUnlock, loadIdentity, mayAccessPrivateCache, saveIdentity, saveUnlock,
@@ -128,6 +128,12 @@ const settingsOrNullWhenSignedOut = async (): Promise<SettingsDto | null> => {
     return await api.getSettings()
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return null
+    // Status 0 covers both "no route to the server" and "the identity boundary is still shut" — the
+    // device-only case, where the panel is unlocked against the device and nothing has confirmed who
+    // this is. Neither is a reason to fail the whole session read: settings are household data the
+    // panel can do without until the boundary opens, and treating their absence as fatal is what
+    // left it sitting on the picker.
+    if (err instanceof ApiError && err.status === 0) return null
     throw err
   }
 }
@@ -188,15 +194,44 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [nextProfiles, nextSettings, session] = await Promise.all([
+      /*
+       * <b>Confirmation first, private data second, and never in one `Promise.all`.</b>
+       *
+       * These three used to be fetched together, which was fine while nothing gated any of them.
+       * With the request layer refusing private calls until identity is confirmed it became a
+       * deadlock: `/settings` is private, so the batch failed, so identity was never established, so
+       * the boundary never opened and the panel sat on the picker saying `0 PROFILES`. It cost me a
+       * browser run to see, because every unit test in the suite passed.
+       *
+       * The ordering is not a workaround for that — it is the requirement stated properly. Confirm
+       * who is asking, open the boundary, then fetch the things that needed it open. A batch cannot
+       * express that, because the whole point is that one depends on the other.
+       */
+      const [nextProfiles, session] = await Promise.all([
         api.listProfiles(),
-        settingsOrNullWhenSignedOut(),
         api.getSession(),
       ])
       setProfiles(nextProfiles)
-      setSettings(nextSettings)
       setActiveProfileId(session.profileId)
       setQueueIdentity(locked ? null : session.profileId)
+      /*
+       * The request layer's identity boundary, opened here and nowhere else.
+       *
+       * This is the only place the server has actually said who is signed in, which is the whole
+       * condition: `deviceOnly` is an unlocked panel whose identity nothing has confirmed, and it
+       * must not start private calls however plausible its stored profile looks. Locked closes it
+       * for the obvious reason.
+       *
+       * Deliberately *not* also set in the `catch` below — an unreachable server tells us nothing
+       * new about identity, and the boundary should stay wherever it was rather than flapping on
+       * every failed poll.
+       */
+      setPrivateNetworkConfirmed(!locked && session.profileId != null)
+
+      // Now that the boundary is open — or has stayed shut, in which case this returns null the same
+      // way it does for a signed-out panel, and nothing private has been asked for.
+      const nextSettings = await settingsOrNullWhenSignedOut()
+      setSettings(nextSettings)
       setIsAdmin(session.isAdmin)
       setOffline(false)
       // Re-remembered on every good read, so a renamed profile or a changed avatar is what the
@@ -213,6 +248,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
+  }, [locked])
+
+  /*
+   * Closed the moment the panel locks, before anything else reacts to it.
+   *
+   * `refresh` above opens the boundary, but it only runs when a read succeeds — so a lock that
+   * happens between polls would otherwise leave it open until the next one. Locking is a revocation
+   * from the request layer's point of view, and revocations must not wait for a network round trip.
+   */
+  useEffect(() => {
+    if (locked) setPrivateNetworkConfirmed(false)
   }, [locked])
 
   /*

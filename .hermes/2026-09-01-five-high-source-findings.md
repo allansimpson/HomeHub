@@ -153,7 +153,38 @@ and permits old-identity requests to overlap cookie replacement.
 - Refresh/remount only after the new identity is server-confirmed and unlocked.
 - Deliberately suspended-request tests across lock, sign-out and profile switch.
 
-**Status: REMEDIATED 2026-09-01, with one exception to confirm.** `PrivateSession` is the single
+**Status: REMEDIATED 2026-09-01. Corrected the same day after Hermes rejected my first exception.**
+
+My first version treated unlocked device-only as fully private, reasoning that an unreachable server
+has nothing to leak. Hermes rejected the reasoning outright, and was right: *"the server is currently
+unreachable" is not a stable capability boundary* — connectivity returns while stale cookies, polling
+effects and cached state are still live, and that window is where an old identity's request lands
+under a new one's cookie.
+
+The boundary is now the three states specified. **Locked**: lock surface only. **Unlocked
+device-only**: the local encrypted profile-bound Care vault, and no authenticated network execution.
+**Server-confirmed and unlocked**: the full subtree, and the write queue's replay, which was already
+`deviceOnly`-gated.
+
+**Enforced in `request`, not per provider.** The Care surface transitively needs `useBaby` and
+`useLitter` via `useCareSubjects`, so a device-only tree cannot simply omit the providers without
+losing the capability it exists to preserve. Gating eleven polling effects is eleven chances to miss
+one, and provider twelve would start life outside the boundary. So every call except
+`/session`, `/profiles`, `/health` and `/build` is refused until `SessionProvider` confirms identity —
+a new caller is refused by default and has to argue onto the list. Refusals are `ApiError(0)`, the
+same shape as an unreachable server, so callers degrade as they already do and offline Care works
+unchanged.
+
+**One deadlock found only in a browser.** `refresh()` fetched session, profiles and settings in one
+`Promise.all`, and `/settings` is private — so the batch failed, identity was never established, the
+boundary never opened, and the panel sat on the picker reading `0 PROFILES`. Every unit test passed.
+The fix is the requirement stated properly: confirm, open the boundary, then fetch what needed it
+open. A batch cannot express that dependency.
+
+Verified in a browser at 540×1169: a device-only panel with every API call aborted makes **zero**
+private requests over four seconds and raises no page errors; a confirmed panel renders the dashboard.
+
+Superseded first attempt: `PrivateSession` is the single
 session-bound subtree Hermes asked for: it renders the lock screen itself and mounts everything
 private only when unlocked, keyed by the confirmed profile. All eleven named providers are inside it,
 plus `VoiceProvider` — which answers the Voice audit structurally rather than by inspection, since it

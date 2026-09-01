@@ -3,22 +3,35 @@ import { useSession } from './SessionProvider'
 import { LockScreen } from '../screens/LockScreen'
 
 /**
- * The identity this subtree may run as, or null when it must not run at all.
+ * The three states the panel is actually in, which is not the same as locked or unlocked.
  *
- * Extracted so the rule is testable without a DOM — the client suite renders nothing, and a boundary
- * that only a browser can check is a boundary that gets checked once. Returning the *key* rather
- * than a boolean is deliberate: "may it run" and "who for" are the same question here, and answering
- * them separately is how a subtree ends up mounted for the wrong member.
+ * <b>`offlineCare` is the one that is easy to get wrong, and I did.</b> The first version of this
+ * treated an unlocked device-only session as fully private, on the reasoning that an unreachable
+ * server has nothing to leak. Hermes rejected that: *"the server is currently unreachable" is not a
+ * stable capability boundary* — connectivity returns while stale cookies, polling effects and cached
+ * state are still live, and the window between the two is exactly where an old identity's request
+ * lands under a new one's cookie.
+ *
+ * So device-only is its own state with its own capability: the encrypted, profile-bound Care vault
+ * and its local UI, and no authenticated network execution at all.
  */
-export function privateSessionKey(
+export type PrivateMode = 'locked' | 'offlineCare' | 'confirmed'
+
+/**
+ * Extracted so the rule is testable without a DOM — the client suite renders nothing, and a boundary
+ * that only a browser can check is a boundary that gets checked once.
+ */
+export function privateSessionMode(
   locked: boolean,
   activeProfileId: number | null,
-): number | null {
-  // Both conditions, not either. A confirmed profile that is locked must not run, and an unlocked
-  // panel with nobody selected has no identity to run as — the second happens on a cold boot, in the
-  // frame before the session answers.
-  if (locked || activeProfileId == null) return null
-  return activeProfileId
+  deviceOnly: boolean,
+): PrivateMode {
+  // Locked, or nobody selected yet — the second is the cold-boot frame before the session answers.
+  if (locked || activeProfileId == null) return 'locked'
+  // Unlocked, but nothing has confirmed against the server who this is. The stored profile is a
+  // memory, not an authorisation.
+  if (deviceOnly) return 'offlineCare'
+  return 'confirmed'
 }
 
 /**
@@ -59,8 +72,8 @@ export function privateSessionKey(
  * household, and both must work on a panel where every private feed is gone.
  */
 export function PrivateSession({ children }: { children: ReactNode }) {
-  const { locked, activeProfileId } = useSession()
-  const key = privateSessionKey(locked, activeProfileId)
+  const { locked, activeProfileId, deviceOnly } = useSession()
+  const mode = privateSessionMode(locked, activeProfileId, deviceOnly)
 
   /*
    * The lock screen renders here rather than inside `App`, which is what makes the gate real.
@@ -73,7 +86,27 @@ export function PrivateSession({ children }: { children: ReactNode }) {
    * `App` keeps its own `/lock` handling, and that is a different screen: the profile switcher, opened
    * deliberately by somebody already unlocked. This is the gate at boot and on idle.
    */
-  if (key == null) return <LockScreen />
+  if (mode === 'locked') return <LockScreen />
 
-  return <div key={key} className="ml-private">{children}</div>
+  /*
+   * Both remaining states mount the same tree, and the difference between them is enforced a layer
+   * down, in `request` itself.
+   *
+   * <b>Not because the distinction is cosmetic, but because putting it here would be weaker.</b> The
+   * Care surface transitively needs `useBaby` and `useLitter` through `useCareSubjects`, so a
+   * device-only tree cannot simply omit the providers without the one capability it exists to
+   * preserve going with them. Gating each provider's polling instead is eleven chances to miss one,
+   * and the twelfth provider added next year would start life outside the boundary.
+   *
+   * So the request layer refuses every private call until `SessionProvider` says the server has
+   * confirmed who is asking. In `offlineCare` the providers mount, fetch nothing, and hold nothing —
+   * a fresh mount that is refused has no data to expose — while the Care vault reads local encrypted
+   * storage and the write queue stays owner-bound and suspended. The full subtree is not "mounted
+   * with data" until confirmation, which is the property the finding asked for.
+   *
+   * Keyed by profile either way: a switch discards the tree rather than handing the next member the
+   * last one's answers, and if confirmation comes back as somebody else the key changes and the
+   * decrypted Care view goes with it.
+   */
+  return <div key={activeProfileId} className="ml-private">{children}</div>
 }

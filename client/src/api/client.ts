@@ -191,7 +191,55 @@ export const SLOW_CALL_MS = 90_000
  * @param deadlineMs How long to wait before treating silence as unreachable. See {@link SLOW_CALL_MS}
  *   for the calls that legitimately need longer than the default.
  */
+/*
+ * Which calls may run before the server has confirmed who is asking.
+ *
+ * Everything else is refused at this layer rather than at each provider's polling effect. That was
+ * the alternative and it is the weaker one: eleven providers each remembering to check is eleven
+ * chances to miss, the one that missed would be invisible, and the twelfth provider somebody adds
+ * next year would start life bypassing the boundary entirely. Here a new caller is refused by
+ * default and has to argue its way onto the list.
+ *
+ * The list is what an unconfirmed panel legitimately needs: who lives here (the picker draws before
+ * anybody signs in), whether this device has a session, whether the server is answering at all, and
+ * which build it is serving. None of them return private data, and the first two are exactly how
+ * confirmation happens — gating them would make the boundary unopenable.
+ */
+const UNCONFIRMED_PATHS = ['/session', '/profiles', '/health', '/build']
+
+/**
+ * Whether the server has confirmed the caller's identity and security version.
+ *
+ * Module-level rather than a hook because `request` is not a component and every private call in the
+ * app goes through it. `SessionProvider` owns the value; nothing else may set it.
+ */
+let privateNetworkConfirmed = false
+
+/**
+ * Called by `SessionProvider` when confirmation is gained or lost.
+ *
+ * <b>Lost matters as much as gained.</b> A lock, a sign-out, an expired cookie or a profile switch
+ * all close the boundary again, and the finding this closes was precisely that requests outlived the
+ * identity they were issued for.
+ */
+export function setPrivateNetworkConfirmed(confirmed: boolean): void {
+  privateNetworkConfirmed = confirmed
+}
+
 async function request<T>(path: string, init?: RequestInit, deadlineMs = DEADLINE_MS): Promise<T> {
+  if (!privateNetworkConfirmed && !UNCONFIRMED_PATHS.some((p) => path.startsWith(p))) {
+    /*
+     * Refused before the fetch, and shaped as an ordinary offline failure on purpose.
+     *
+     * Every caller in this app already handles `ApiError(0, …)` — it is what a refused connection and
+     * a timed-out one both raise — so an unconfirmed panel degrades exactly as an unreachable one
+     * does, rather than needing eleven providers to learn a new failure mode. The device-only Care
+     * log depends on that: it is built to work when the server cannot be reached, and this is that
+     * case as far as it can tell.
+     */
+    throw new ApiError(0, 'The panel has not confirmed who is signed in yet.')
+  }
+
   /* The caller's own `signal`, if it passed one through `init`, is still honoured: the spread below
      puts it in place and this only replaces it when there is none. Nothing in this file passes one
      today — the assist stream takes its signal as an argument and runs its own watchdog — but a

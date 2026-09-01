@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, api } from './client'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError, api, setPrivateNetworkConfirmed } from './client'
 
 /**
  * A server that accepts the connection and then says nothing — the state a phone is in when it has
@@ -19,9 +19,69 @@ function stubSilentFetch() {
   return calls
 }
 
+beforeEach(() => {
+  // These tests are about the deadline, not the identity boundary, so the boundary is opened for
+  // them. Left closed they never reach `fetch` at all — which is the boundary working, and would
+  // make every deadline assertion pass for the wrong reason.
+  setPrivateNetworkConfirmed(true)
+})
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
+  // Closed again between tests: the default state of a fresh panel is unconfirmed, and a test that
+  // leaked it open would hide exactly the regression this exists to catch.
+  setPrivateNetworkConfirmed(false)
+})
+
+/**
+ * No private request may start before the server has said who is signed in.
+ *
+ * The reconnect regression Hermes asked for. The failure it guards against is not a call that
+ * returns the wrong data — it is a call that *starts* while the panel is device-only or
+ * mid-transition, and lands after the cookie has been replaced.
+ */
+describe('the identity boundary', () => {
+  it('refuses a private call before confirmation, without reaching the network', () => {
+    setPrivateNetworkConfirmed(false)
+    const calls = stubSilentFetch()
+
+    return api.getUpcoming(7).then(
+      () => { throw new Error('the call should have been refused') },
+      (err) => {
+        expect(err).toBeInstanceOf(ApiError)
+        // Status 0, the same as a refused connection: every caller already handles that, so an
+        // unconfirmed panel degrades exactly as an unreachable one rather than needing eleven
+        // providers to learn a new failure mode.
+        expect((err as ApiError).status).toBe(0)
+        expect(calls).toHaveLength(0)
+      },
+    )
+  })
+
+  it('still allows the calls confirmation itself depends on', () => {
+    setPrivateNetworkConfirmed(false)
+    const calls = stubSilentFetch()
+
+    // Gating these would make the boundary unopenable: the picker draws before anybody signs in, and
+    // asking "who am I" is how the panel finds out it may open the boundary at all.
+    void api.getSession()
+    void api.listProfiles()
+
+    expect(calls).toHaveLength(2)
+  })
+
+  it('closes again when confirmation is lost', () => {
+    setPrivateNetworkConfirmed(true)
+    setPrivateNetworkConfirmed(false)
+    const calls = stubSilentFetch()
+
+    // A lock, a sign-out, an expired cookie or a profile switch all close it. Losing confirmation
+    // matters as much as gaining it — the whole finding was requests outliving their identity.
+    return api.getUpcoming(7).catch(() => {
+      expect(calls).toHaveLength(0)
+    })
+  })
 })
 
 describe('the request deadline', () => {

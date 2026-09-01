@@ -1,42 +1,43 @@
 import { describe, expect, it } from 'vitest'
-import { privateSessionKey } from './PrivateSession'
+import { privateSessionMode } from './PrivateSession'
 
 /**
- * The lock as an execution boundary rather than a rendering one (H2/H3 of the source review).
+ * The lock as an execution boundary rather than a rendering one, in the three states Hermes set out.
  *
- * These are four states the panel actually passes through, not four permutations of two booleans:
- * a cold boot before the session answers, a locked panel, an unlocked one, and the moment a
- * different member unlocks. The key is what React mounts the private subtree by, so "returns null"
- * means every provider under it is unmounted — no polling, no cache, nothing to leak — and "returns
- * a different number" means the subtree is discarded and rebuilt rather than handed on.
+ * These are states the panel actually passes through, not permutations of three booleans: a cold
+ * boot, a locked panel, a phone unlocked out of range, and a session the server has confirmed.
  */
-describe('privateSessionKey', () => {
-  it('refuses to run while locked, however confirmed the profile is', () => {
+describe('privateSessionMode', () => {
+  it('is locked while locked, however confirmed the profile is', () => {
     // The whole finding in one assertion: being drawn or not drawn was never the question.
-    expect(privateSessionKey(true, 1)).toBeNull()
+    expect(privateSessionMode(true, 1, false)).toBe('locked')
+    expect(privateSessionMode(true, 1, true)).toBe('locked')
   })
 
-  it('refuses to run before anybody is selected', () => {
-    // The cold-boot frame, before the session call answers. An unlocked panel with no identity has
-    // nothing it could legitimately fetch.
-    expect(privateSessionKey(false, null)).toBeNull()
-    expect(privateSessionKey(true, null)).toBeNull()
+  it('is locked before anybody is selected', () => {
+    // The cold-boot frame, before the session call answers.
+    expect(privateSessionMode(false, null, false)).toBe('locked')
   })
 
-  it('runs as the unlocked profile', () => {
-    expect(privateSessionKey(false, 1)).toBe(1)
+  /**
+   * <b>Device-only is not confirmed, and an unreachable server does not make it so.</b>
+   *
+   * The first version of this treated it as fully private because there was nothing to fetch.
+   * Hermes rejected that reasoning outright: connectivity returns while stale cookies and polling
+   * effects are still live, and that window is where an old identity's request lands under a new
+   * one's cookie. The capability here is the local encrypted Care vault, and nothing on the network.
+   */
+  it('is offlineCare when unlocked but unconfirmed', () => {
+    expect(privateSessionMode(false, 1, true)).toBe('offlineCare')
   })
 
-  it('changes key when the member changes, so the subtree is rebuilt not reused', () => {
-    // Not `toBeTruthy` on both: the point is that the values *differ*, which is what makes React
-    // discard the first member's providers instead of handing their contents to the second.
-    expect(privateSessionKey(false, 1)).not.toBe(privateSessionKey(false, 2))
+  it('is confirmed only when unlocked and the server has said who this is', () => {
+    expect(privateSessionMode(false, 1, false)).toBe('confirmed')
   })
 
-  it('goes null between two members rather than straight across', () => {
-    // A switch passes through the lock screen, so there is no frame in which the tree is mounted for
-    // one member while the session already says another. That gap is what the abort-and-remount
-    // ordering relies on.
-    expect(privateSessionKey(true, 2)).toBeNull()
+  it('passes through locked between two members rather than straight across', () => {
+    // A switch goes via the lock, so there is no frame in which the tree is confirmed for one member
+    // while the session already says another.
+    expect(privateSessionMode(true, 2, false)).toBe('locked')
   })
 })
