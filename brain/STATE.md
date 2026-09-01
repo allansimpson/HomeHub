@@ -503,25 +503,36 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
 
 ## Blocked
 
-- **The five High source findings are now written down** —
-  [`.hermes/2026-09-01-five-high-source-findings.md`](../.hermes/2026-09-01-five-high-source-findings.md).
-  Hermes recovered the original review artifact on 2026-09-01, rechecked it against `0a717fc`, and
-  **all five remain open**. H1 untrusted images reach a tool-capable agent · H2 demotion and deletion
-  do not revoke a cookie · H3 the browser lock is only a render gate for private providers · H4
-  production TLS omits SAN and chain validation · H5 the deprecated MCP key still carries every
-  method. Each has evidence, a severity rationale and a definition of done; Claude spot-checked four
-  of the five in current source before committing it.
-  **They had been carried through three production exceptions in eleven days as bare labels**, with
-  the actionable review never committed — which is why nobody could remediate them. Hermes owns that
-  handoff failure and says a fourth unnamed carry-forward would be process failure rather than
-  compliance. The gate (`DEPLOYMENT.md:46`) stands: they block every ordinary production candidate,
-  and a fresh full-source review of the changed candidate is expected after remediation.
-  **The Huckleberry deletion closed none of them**, and `ImageIngress` plus the `ce9ebcd` startup
-  hardening close neither H1 nor H4 — worth knowing, because both look at a glance as though they
-  should have.
-  **H1 additionally contradicts `DECISIONS.md:93-97`**, which claims the tool-less reader is the
-  default. It is not: `EventCaptureOptions` ships `Provider = "hermes"`, `Agent = "barnaby"`. That
-  entry has been asserting a safety property the build does not have.
+- **The five High source findings: written down, and all five remediated on the application side**
+  (2026-09-01) — [`.hermes/2026-09-01-five-high-source-findings.md`](../.hermes/2026-09-01-five-high-source-findings.md),
+  which carries each one's evidence, severity rationale, definition of done and current status.
+  Hermes recovered the original review artifact and rechecked it; Claude spot-checked four of the
+  five in current source before acting, and disagreed with part of one (see H1).
+  H1 the reader · H2 cookie revocation · H3 the lock as an execution boundary · H4 TLS identity ·
+  H5 the deprecated MCP key. Commits `e8ab192`, `f262205`, `a051fde`, `edf476c`, `379d9ed`, `a3f4af9`.
+  **Not cleared, and the remaining half is not Claude's.** The gate (`DEPLOYMENT.md:46`) stands until:
+  1. **Hermes rotates `Mcp:ApiKey` out of TEST and production.** The application refuses it now; it
+     cannot remove it from a server's environment.
+  2. **Three startup gates are exercised deliberately in TEST.** The panel will refuse to boot without
+     valid `Server:RequiredSans` and `Server:CaPath`, or with `Mcp:ApiKey` set. Intended, and better
+     met on purpose than at eight in the morning.
+  3. **A fresh full-source review of the changed candidate.** Hermes's own condition, and the diff is
+     substantial — three startup gates, a per-request auth change, and a restructured composition
+     root. Worth a second pair of eyes on `UNCONFIRMED_PATHS` in `api/client.ts`: four entries that
+     constitute the entire client-side identity boundary, and the kind of list that grows quietly.
+     `/profiles` is on it because the picker draws before sign-in, and it does return member names to
+     an unconfirmed caller.
+  **H2 signs the household out once** on first deploy — every cookie predating it carries no version
+  claim and is refused. Confirmed by Hermes as intended and preferable to honouring legacy cookies.
+  **Two things that look like they should have closed findings and did not**: the Huckleberry
+  deletion closed none of them, and `ImageIngress` plus the `ce9ebcd` startup hardening close neither
+  H1 nor H4.
+  **A correction that came out of H1 and outlives it.** `DECISIONS.md:93-97` claimed the tool-less
+  reader was the default; it was describing the isolated `ImageExtractor` path while naming the
+  `EventCapture` one, and `EventCaptureOptions` ships `Provider = "hermes"`, `Agent = "barnaby"`. The
+  decision record was asserting a safety property the build did not have. Production could never have
+  used that path — `Program.cs` refuses to start without the isolated reader — but nothing proved it,
+  which is why the finding read as open. Corrected in a dated entry rather than by rewriting history.
 - ~~Visual verification~~ — **cleared.** Shared Playwright at `/srv/dev/tools/playwright`; harness
   and usage in `ENVIRONMENT.md`.
 - **Huckleberry is gone, client and API** (2026-08-30, committed `9eed27e`, not deployed). Allan: *"there is no
