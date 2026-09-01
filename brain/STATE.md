@@ -349,11 +349,23 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
      picker. Sign-in and PIN 401s are excluded (a wrong PIN says nothing about the session), and it
      announces once per outage so a page-load storm is one event. Verified by expiring the cookie
      mid-session in the browser: the panel lands on the picker instead of rendering empty shelves.
-  2. The text sweep's candidates are still unverified by hand, and S3 cannot be rendered by either
-     sweep at all — it only draws after a photo upload, so its strings are checked in source. This is
-     the last unexamined corner. **Re-measured 2026-09-01 against the corrected design: 155 missing
-     chrome strings across 24 panels**, of which 33 are S3's structurally-unreachable set. The `~57`
-     this entry used to carry was against the superseded bundle and is not comparable.
+  2. **The text sweep is triaged (2026-09-01), and it was never 57 defects.** Re-measured against the
+     corrected design it is 154 candidates, and `triage.py` — now part of the harness — sorts them by
+     the three causes the README names, mechanically, by asking whether the wording exists in the
+     client source at all:
+     **20 absent · 78 in source but never driven into that state · 56 composed at runtime.**
+     Of the 20 absent, **15 are S3's invented grocery names** on the panel neither sweep can render,
+     and 4 are counts off the design's own fixtures (`4 OF 11`, `SPANISH 2`, `LEBANESE 1`).
+     **That leaves exactly one real candidate: `IN 14 MTH`**, the design's form for a long-dated
+     pantry row, appearing on P1 and P4. The build has no `MTH` anywhere. Not fixed, and deliberately
+     not fixed blind — how the section writes dates is a shared value, and this needs the same kind of
+     ruling `½ pot` got rather than a guess. (Its neighbour in the extract, `IN 2 D AGO`, is not a
+     phrase anybody wrote: it is the extractor merging two adjacent cells, and is not a target.)
+     **Two traps found while building the triage**, both of which produced confident wrong answers:
+     a design leaf like `YES · NO` is one string that the build renders as button/separator/button, so
+     grepping the source for the whole phrase calls a correct panel a content gap; and testing "is
+     every long word present" skips that phrase entirely, because nothing in it reaches four letters.
+     Split on the leaf's own separators first, and keep the word threshold at three.
   3. **Geometry, re-measured 2026-09-01: 41 → 32 → 23 → 20**, and only the last number means
      anything. Design is left of the arrow, build is right.
      **41 → 32**: the passes were measuring against bands and cut groups the design deleted on
