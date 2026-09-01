@@ -21,7 +21,7 @@ transient state while failing to commit the actionable review was not an adequat
 | Source-tree SHA-256 | `5e441552ec32e31345e0aa2a263eeb05506e88d55bc7fc296026d183eef88b9d` |
 | Original verdict | 0 Critical, **5 High**, 2 Medium |
 | Recheck commit | `0a717fca501ba50c8c4588f829a26c255463484a` |
-| Recheck result | **all five remain open** |
+| Recheck result | all five were open; **all five remediated 2026-09-01** — see each entry |
 
 The Huckleberry deletion of 2026-08-30 closes none of them — none belonged to that code.
 `ImageIngress` and the `ce9ebcd` startup hardening are real improvements and close neither H1 nor H4.
@@ -153,7 +153,27 @@ and permits old-identity requests to overlap cookie replacement.
 - Refresh/remount only after the new identity is server-confirmed and unlocked.
 - Deliberately suspended-request tests across lock, sign-out and profile switch.
 
-**Status at `0a717fc`: OPEN.** `main.tsx` and `CalendarProvider.tsx` are byte-identical.
+**Status: REMEDIATED 2026-09-01, with one exception to confirm.** `PrivateSession` is the single
+session-bound subtree Hermes asked for: it renders the lock screen itself and mounts everything
+private only when unlocked, keyed by the confirmed profile. All eleven named providers are inside it,
+plus `VoiceProvider` — which answers the Voice audit structurally rather than by inspection, since it
+is unmounted with the rest. `WriteQueueProvider` stays *above* it, per the drain-boundary
+requirement: queued offline writes must outlive a lock and a remount. `UpdateProvider` and
+`ConnectionProvider` stay outside as agreed.
+**Unmount rather than per-provider clearing, and a key rather than partitioning.** Eleven providers
+each remembering to stop and clear is eleven chances to forget, and the one that forgot would be
+invisible; a subtree that no longer exists cannot leak what it no longer has.
+**The exception, and it needs a ruling.** `deviceOnly` — unlocked but not server-confirmed — still
+mounts. Refusing it would delete the offline care log, which is a shipped feature built exactly for a
+phone out of range that proved its PIN against the device (`careVault`, `DECISIONS.md` 2026-08-25).
+It is safe for the reason it looks unsafe: with no reachable server there is nothing to fetch, and
+the write queue holds writes until the server confirms who is asking. **Hermes: confirm this reading,
+or say what should happen to offline care.**
+Verified in a browser at 540×1169: a locked panel draws the picker and makes **zero private API
+calls** over four seconds, where before every provider polled; a signed-in panel renders the
+dashboard normally; no page errors either way. `privateSession.test.ts` pins the gate rule itself,
+since the client suite renders nothing.
+Superseded detail: `main.tsx` and `CalendarProvider.tsx` were byte-identical.
 `SessionProvider` has stronger write-queue and care-vault transitions, but Calendar still has no
 lock/profile dependency or cache partitioning, and `App.tsx:170-173` still implements the lock as a
 rendering gate *below* the providers.

@@ -167,9 +167,20 @@ export function App() {
     })
   }, [location, displayed, navigationType])
 
-  // The Lock screen is a gate, not a routed page: it takes over whenever the active profile
-  // is locked (boot / idle) or the profile switcher (`/lock`) is open. On success it routes
-  // back to the dashboard.
+  /*
+   * The profile switcher, opened deliberately by somebody who is already unlocked.
+   *
+   * <b>`locked` is no longer this component's business, and the `||` that used to be here is why the
+   * lock was only ever a rendering decision.</b> Being drawn instead of the app is not the same as
+   * the app not running: every private provider sat above `App`, so a locked panel kept polling and
+   * kept its caches, and the finding this closes was that a newly unlocked profile could see the
+   * previous one's calendar. `PrivateSession` now unmounts this whole tree while locked, so `App`
+   * cannot be mounted *and* locked at the same time.
+   *
+   * Kept as a check anyway, and not as belt-and-braces: `locked` can turn true while this is mounted
+   * — an idle timeout — and this component renders for the frame between that and the unmount. Doing
+   * it this way means that frame draws the lock rather than the household's dashboard.
+   */
   const showLock = locked || location.pathname === '/lock'
 
   /*

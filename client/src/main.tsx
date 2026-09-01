@@ -31,6 +31,7 @@ import { registerServiceWorker } from './app/registerServiceWorker'
 import { App } from './app/App'
 import { UpdateProvider } from './app/UpdateProvider'
 import { ConnectionProvider } from './app/ConnectionProvider'
+import { PrivateSession } from './app/PrivateSession'
 import { SessionProvider } from './app/SessionProvider'
 import { SensorsProvider } from './app/SensorsProvider'
 import { WeatherProvider } from './app/WeatherProvider'
@@ -75,9 +76,15 @@ createRoot(document.getElementById('root')!).render(
       <UpdateProvider>
       <ConnectionProvider>
       <SessionProvider>
-        <SensorsProvider>
-          <WeatherProvider>
-            <WriteQueueProvider>
+        {/* Above the gate: queued offline writes have to outlive a lock and a profile remount, or a
+            member who wrote three feeds out of range and then locked the panel would lose them.
+            `SessionProvider` sets the queue's identity, so it drains for a confirmed profile only. */}
+        <WriteQueueProvider>
+        {/* Everything below is private and session-bound — see `PrivateSession`. Locking unmounts it
+            entire, which is what stops eleven providers polling rather than merely hiding them. */}
+        <PrivateSession>
+          <SensorsProvider>
+            <WeatherProvider>
               <CalendarProvider>
                 <TasksProvider>
                   <ClimateProvider>
@@ -112,9 +119,10 @@ createRoot(document.getElementById('root')!).render(
                   </ClimateProvider>
                 </TasksProvider>
               </CalendarProvider>
-            </WriteQueueProvider>
-          </WeatherProvider>
-        </SensorsProvider>
+            </WeatherProvider>
+          </SensorsProvider>
+        </PrivateSession>
+        </WriteQueueProvider>
       </SessionProvider>
       </ConnectionProvider>
       </UpdateProvider>
