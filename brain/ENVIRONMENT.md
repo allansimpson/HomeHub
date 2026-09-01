@@ -102,6 +102,16 @@ The client build writes into `src/HomeHub.Api/wwwroot` — the API serves the SP
   renders a blank page whose only symptom is a MIME-type error.
 - **Design bundles are gitignored.** `design_handoff_*/` is an input, re-pullable, and the stale
   copy is the dangerous one. Do not commit them.
+- **The sweep harness is gitignored too, and that has teeth.** `artifacts/` is ignored wholesale, so
+  `artifacts/handoff-sweep/` exists only on this machine — a fix to the *measuring instrument* cannot
+  be committed and is one `rm -rf artifacts` from gone. On 2026-09-01 both extractors were changed to
+  **overlay the two design bundles, newest wins**: `design_handoff_kitchen_lists` supersedes the 16
+  panel files it ships, and the remaining 4 still come from `design_handoff_kitchen`. Before that they
+  read the base bundle alone, so both passes were measuring the current build against the full-bleed
+  band and the nested cut groups that the design deleted on 2026-08-31 — every band or cut finding
+  from before that date is an artefact of the harness, not a defect in the build. If the sweeps are
+  ever restored from a backup or rebuilt, check this first; the symptom is confident findings telling
+  you to reinstate something `DECISIONS.md` says to remove.
 
 ## Reference counts
 

@@ -343,10 +343,19 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
      picker. Sign-in and PIN 401s are excluded (a wrong PIN says nothing about the session), and it
      announces once per outage so a page-load storm is one event. Verified by expiring the cookie
      mid-session in the browser: the panel lands on the picker instead of rendering empty shelves.
-  2. The text sweep's ~57 "present in source but not reached" candidates are still unverified by
-     hand, and S3 cannot be rendered by either sweep at all — it only draws after a photo upload, so
-     its strings are checked in source. This is the last unexamined corner.
-  3. 41 geometry findings remain (was 156). Worked through one at a time on 2026-08-23. Fixed in
+  2. The text sweep's candidates are still unverified by hand, and S3 cannot be rendered by either
+     sweep at all — it only draws after a photo upload, so its strings are checked in source. This is
+     the last unexamined corner. **Re-measured 2026-09-01 against the corrected design: 155 missing
+     chrome strings across 24 panels**, of which 33 are S3's structurally-unreachable set. The `~57`
+     this entry used to carry was against the superseded bundle and is not comparable.
+  3. **Re-measured 2026-09-01: 32 geometry mismatches, not the 41 recorded below** — and the 41 was
+     never a comparable figure, because the passes were measuring the build against bands and cut
+     groups the design itself deleted on 2026-08-31. The count below is kept for its record of what
+     was fixed and how, not as a live number. Nothing has been fixed from the new 32 yet; the three
+     `size 24 → 22` destination titles in it are the recorded 22px ruling rather than defects, and
+     several look like the matcher hitting a different element with the same words, which is the
+     failure mode this file already warns about twice. Design is left of the arrow, build is right.
+  4. 41 geometry findings remained as of 2026-08-23 (was 156). Worked through one at a time. Fixed in
      that pass: the aisle-order panel end to end (position column 16px serif → 12px mono, the two
      hand-built rows, the blast-radius blurb, `this shop only` in verdigris); the decision card's
      alternatives at 12px against the drawn 10 and its kind line's tracking; the receipt's
