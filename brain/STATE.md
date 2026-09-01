@@ -30,6 +30,23 @@ describe what is *built*.
 
 ## Waiting to ship
 
+> **FROZEN AS A CANDIDATE — 2026-09-01, at Geist's instruction.** The candidate is **the commit
+> bearing this note**, which is the last commit Claude will make until the review returns. Its
+> identifiers are in the handover below; they cannot be written *into* the commit that carries them,
+> because doing so would change it.
+>
+> **No further application changes.** Geist has the deployment half: set and verify
+> `Server:RequiredSans` and `Server:CaPath`, remove and rotate `Mcp:ApiKey` while confirming named
+> credentials, deliberately exercise the fail-closed startup behaviour in TEST, and independently
+> review the exact candidate. **Any changed bytes after that review begins invalidate the candidate
+> and require a fresh gate** — so if something is found, it restarts the gate rather than amending
+> this.
+>
+> Accepted by Geist as a candidate handoff, **not** as an independent verdict. The five findings are
+> remediated in Claude's judgement and Claude's tests; that is a claim awaiting review, not a
+> clearance.
+
+
 Nothing deploys on push. Claude hands a verified code state to Geist; Geist snapshots and promotes it
 through the process in `DEPLOYMENT.md`. `scripts/deploy.sh` is not the active route.
 
