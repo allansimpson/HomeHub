@@ -5,6 +5,23 @@
  */
 
 /* ---------- App layout ---------- */
+
+/*
+ * The private-session wrapper, which exists to be remounted and not to be seen.
+ *
+ * <b>It has to carry the height, because it is in the way of it.</b> `PrivateSession` keys the whole
+ * app on the active profile so a switch discards the tree; that puts a plain `div` between `#root`
+ * and `.app-root`, and a plain `div` is content-height. `.app-root`'s `height: 100%` then resolved
+ * against *that* rather than against the screen, so the app stopped being full-height and the bottom
+ * nav — the last flex item in a column that had shrunk to its content — floated up to wherever the
+ * content happened to end, with the screen's background below it.
+ *
+ * Visible only on screens whose content is short, which is why it survived a browser pass: a full
+ * Kitchen list reaches the bottom on its own and looks correct.
+ */
+.ml-private {
+  height: 100%;
+}
 .app-root {
   height: 100%;
   display: flex;

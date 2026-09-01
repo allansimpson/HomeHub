@@ -17,7 +17,7 @@ because it exists in DEV.
 | Branch | `main` |
 | `HEAD` / `origin/main` | two commits ahead of `dc7d026`, unpushed — see In flight |
 | Working tree | Clean. The recipe-import paths Geist saw uncommitted here are now committed, along with the identity-boundary fix; neither is in release `20260901T211217Z-e8c282873295` |
-| Verified at `39ceedb` | `./scripts/check.sh all` green: typecheck, lint, **48 client test files**, **1156 backend tests**. Both commits were additionally verified in a browser at 540×1169 — `probe-session-boundary.mjs` for the boundary, `render-chat-recipe.mjs` for the chat capture. The client suite renders nothing, and both of this session's defects were visible only rendered, which now makes five |
+| Verified at `HEAD` | `./scripts/check.sh all` green: typecheck, lint, **48 client test files**, **1156 backend tests**. Both commits were additionally verified in a browser at 540×1169 — `probe-session-boundary.mjs` for the boundary, `render-chat-recipe.mjs` for the chat capture. The client suite renders nothing, and both of this session's defects were visible only rendered, which now makes five |
 | Coordination state | `.git/index` restored to `simpson:geist-dev` (UID 1000/GID 989), mode 0660, after the promotion workflow exposed and corrected its direct-gitdir ownership defect. |
 
 ## Deployed
@@ -67,6 +67,19 @@ cookie predating it carries no security-version claim and is refused.
 TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded one-release exception; its original manifest remains TEST-only.
 
 ## In flight
+
+- **The bottom nav is at the bottom again** (2026-09-01, committed, not deployed). Reported by Allan
+  off a screenshot; measured, and real on every screen whose content is short.
+  `PrivateSession` keys the whole app on the active profile so a switch discards the tree
+  (`edf476c`, H3), which puts a plain `div.ml-private` between `#root` and `.app-root` — and that
+  div had **no CSS rule at all**. `.app-root`'s `height: 100%` resolved against a content-height
+  parent, so the app stopped being full-height: at 540×1169 the Assist inbox was 443px tall and the
+  nav floated 726px up the screen with the background below it. It is invisible wherever the content
+  reaches the bottom on its own, which is why a full Kitchen list looked right and this survived a
+  browser pass. One rule, `.ml-private { height: 100% }`, restores the chain.
+  `render-chat-recipe.mjs` now audits it — nav bottom against viewport bottom, on every shot — and
+  the audit reports the fault when the rule is removed. Same commit batch as the identity boundary
+  below, and also live in TEST.
 
 - **The client-side identity boundary is opened on every path that establishes identity** (2026-09-01,
   committed, not deployed). Found in a browser while verifying the chat capture below; fixed at
