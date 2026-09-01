@@ -17,7 +17,7 @@ because it exists in DEV.
 | Branch | `main` |
 | `HEAD` / `origin/main` | two commits ahead of `dc7d026`, unpushed — see In flight |
 | Working tree | Clean. The recipe-import paths Geist saw uncommitted here are now committed, along with the identity-boundary fix; neither is in release `20260901T211217Z-e8c282873295` |
-| Verified at `0527f3f` | `./scripts/check.sh all` green: typecheck, lint, **47 client test files**, **1145 backend tests**. The security work was additionally verified in a browser at 540×1169 — the client suite renders nothing, and three of this session's defects were only visible rendered |
+| Verified at `39ceedb` | `./scripts/check.sh all` green: typecheck, lint, **48 client test files**, **1156 backend tests**. Both commits were additionally verified in a browser at 540×1169 — `probe-session-boundary.mjs` for the boundary, `render-chat-recipe.mjs` for the chat capture. The client suite renders nothing, and both of this session's defects were visible only rendered, which now makes five |
 | Coordination state | `.git/index` restored to `simpson:geist-dev` (UID 1000/GID 989), mode 0660, after the promotion workflow exposed and corrected its direct-gitdir ownership defect. |
 
 ## Deployed
