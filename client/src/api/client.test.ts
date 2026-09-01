@@ -126,3 +126,51 @@ describe('the request deadline', () => {
     await expect(pending).rejects.toMatchObject({ name: 'ApiError', status: 0 })
   })
 })
+
+
+/**
+ * The reconnect regression: a panel coming back from device-only starts no private request until the
+ * server has said who is asking.
+ *
+ * <b>Written as a sequence rather than as states, because the defect was a sequence.</b> Asserting
+ * "refused while unconfirmed" and "allowed once confirmed" separately would both pass against a
+ * build that opened the boundary a moment early — and a moment early is the entire finding: the
+ * window where a request begun under the old identity lands under the new one's cookie.
+ */
+describe('coming back from device-only', () => {
+  it('starts nothing private until identity is confirmed, then starts everything', async () => {
+    setPrivateNetworkConfirmed(false)
+    const calls = stubSilentFetch()
+
+    // Out of range and unlocked against the device. The panel believes it knows who this is; nothing
+    // has agreed with it.
+    await Promise.allSettled([api.getUpcoming(7), api.getPantry(), api.getTasks()])
+    expect(calls.map((c) => c.url)).toHaveLength(0)
+
+    // The connection returns. Only the calls confirmation itself needs may run — and they are what
+    // opens the boundary, so gating them would make it unopenable.
+    void api.getSession()
+    expect(calls).toHaveLength(1)
+
+    // The server has answered and `SessionProvider` has agreed the identity and its security version.
+    setPrivateNetworkConfirmed(true)
+    void api.getUpcoming(7)
+    expect(calls).toHaveLength(2)
+  })
+
+  it('shuts again the moment confirmation is withdrawn, mid-flight or not', async () => {
+    setPrivateNetworkConfirmed(true)
+    const calls = stubSilentFetch()
+
+    void api.getUpcoming(7)
+    expect(calls).toHaveLength(1)
+
+    // A lock, a sign-out, an expired cookie, or a confirmation that came back as somebody else. The
+    // call already in flight is somebody else's problem — a response nobody is mounted to receive —
+    // but no *new* one may start.
+    setPrivateNetworkConfirmed(false)
+    await Promise.allSettled([api.getUpcoming(7), api.getPantry()])
+
+    expect(calls).toHaveLength(1)
+  })
+})

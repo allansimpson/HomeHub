@@ -184,6 +184,19 @@ open. A batch cannot express that dependency.
 Verified in a browser at 540×1169: a device-only panel with every API call aborted makes **zero**
 private requests over four seconds and raises no page errors; a confirmed panel renders the dashboard.
 
+**Both regressions Hermes asked for are written.**
+*Reconnect* (`api/client.test.ts`): a sequence, not a pair of states — device-only starts nothing
+private, only the confirming calls may run, private calls begin only after confirmation, and the
+boundary shuts again the moment confirmation is withdrawn. Written as a sequence deliberately:
+asserting "refused while unconfirmed" and "allowed once confirmed" separately would both pass against
+a build that opened the boundary a moment early, and a moment early is the entire finding.
+*Offline Care* (`screens/care/careSurvival.test.ts`): entries **and a running timer** survive a lock,
+a restart and a delayed reconnection; a second member on the same panel sees nothing of the first;
+the first member's unsynced night is still theirs afterwards rather than merged into whoever used the
+panel next; a wrong key reads nothing and does not destroy the blob, so a confirmation that comes back
+as somebody else closes the view while the data stays owner-bound for authenticated recovery; and only
+a sign-out erases.
+
 Superseded first attempt: `PrivateSession` is the single
 session-bound subtree Hermes asked for: it renders the lock screen itself and mounts everything
 private only when unlocked, keyed by the confirmed profile. All eleven named providers are inside it,
