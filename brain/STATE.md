@@ -3,16 +3,22 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-08-31T20:15Z by Claude and Geist. Deployment facts were live-verified by Geist; code
+_Updated: 2026-08-31T21:05Z by Claude and Geist. Deployment facts were live-verified by Geist; code
 work-in-flight notes remain Claude's._
+
+**Everything previously marked "working tree only" is now committed as `9eed27e` and pushed.** It is
+still unshipped — nothing deploys on push, so the household has none of it until Geist promotes a
+build. The notes below are unchanged apart from that status; they describe what is built, not what is
+running.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` / `origin/main` | `a66e80a` / `a66e80a` (0 ahead, 0 behind) |
-| Working tree at verification | Dirty: 136 changed/untracked paths after deployment; nothing staged by Geist |
+| `HEAD` / `origin/main` | `9eed27e` / `9eed27e` (0 ahead, 0 behind) |
+| Working tree at verification | Clean. The 151 paths that had accumulated were committed as `9eed27e` at Allan's direction — one commit rather than eight, deliberately |
+| Verified at that commit | `./scripts/check.sh all` green: typecheck, lint, 872 client tests across 45 files, 1121 backend tests, and the production build. No visual verification was run — the client suite renders nothing |
 | Coordination state | `.git/index` restored to `simpson:geist-dev` (UID 1000/GID 989), mode 0660, after the promotion workflow exposed and corrected its direct-gitdir ownership defect. |
 
 ## Deployed
@@ -28,12 +34,16 @@ work-in-flight notes remain Claude's._
 Nothing deploys on push. Claude hands a verified code state to Geist; Geist snapshots and promotes it
 through the process in `DEPLOYMENT.md`. `scripts/deploy.sh` is not the active route.
 
+**`9eed27e` is the state being handed over**, and it is the first one that is a commit rather than a
+dirty tree — eight pieces of work, listed under In flight below. The production gate still stands:
+the five High source findings under Blocked have not been touched, so this is a TEST candidate.
+
 TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded one-release exception; its original manifest remains TEST-only.
 
 ## In flight
 
-- **The Kitchen's section bands are dividers, and the Pantry shows one shelf** (2026-08-31, working
-  tree only). Built from `design_handoff_kitchen_lists/`, which Allan supplied as a zip and which
+- **The Kitchen's section bands are dividers, and the Pantry shows one shelf** (2026-08-31, committed `9eed27e`,
+  not deployed). Built from `design_handoff_kitchen_lists/`, which Allan supplied as a zip and which
   says in its own README that it supersedes the divider and Pantry-list portions of
   `design_handoff_kitchen`. Everything else in that package still stands.
   **Three changes, and the second is the one with reach.**
@@ -67,8 +77,8 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   sheet and run-a-check before it. Note also that `capture-summary.json` in that directory is a
   stale artefact from 2026-08-20; the harness writes `captures/results.json`, and reading the wrong
   one cost me a false "4 routes still have cuts".
-- **The pump's START SESSION is verdigris, and that departs from the handoff** (2026-08-31, working
-  tree only). Asked for by Allan against a screenshot of the design project — "increase visibility"
+- **The pump's START SESSION is verdigris, and that departs from the handoff** (2026-08-31, committed `9eed27e`,
+  not deployed). Asked for by Allan against a screenshot of the design project — "increase visibility"
   — so this is a **deliberate change to a signed-off spec at his direction**, in the same class as
   the weather alert's §1 departure, not a correction of a build that had drifted.
   The build was exactly right before: `design_handoff_baby/README.md` draws 1px `#5c5342` on
@@ -94,13 +104,13 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   `12-pump`, `12-pump-disabled`, `13-sleep`, all new): computed colours read back rather than token
   names, since a token that resolves to nothing fails silently and looks exactly like a rule that
   never applied. Nothing overflows the 960px panel.
-- **`client.test.ts` did not typecheck** (2026-08-31, working tree only). `readRecipePhoto` was
+- **`client.test.ts` did not typecheck** (2026-08-31, committed `9eed27e`, not deployed). `readRecipePhoto` was
   called with `contentType` where `ReadKitchenPhotoRequest` declares `mediaType`, so `tsc -b` failed
   while `vitest` passed — the stubbed fetch never reads the field. One word. Worth noting only
   because it means the client build was red for as long as the deadline work above has been sitting
   here, and the test suite could not tell anyone.
 - **A request that is never answered no longer disables the screen that sent it** (2026-08-31,
-  working tree only). Reported by Allan against the pump: leave a session running, go away, come
+  committed `9eed27e`, not deployed). Reported by Allan against the pump: leave a session running, go away, come
   back, and SWITCH NOW, PAUSE, FINISH and CANCEL are all dimmed and dead. His screenshot has the
   OFFLINE banner up and `The care log is unreachable right now.` above the log, which is the
   situation rather than a coincidence.
@@ -128,7 +138,7 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   asking a question, and a deadline is reported as `offline` rather than `cancelled` — both retain
   the op, but only one of them is what happened.
   Pinned by `src/api/client.test.ts` (new) and a case in `writeQueue.test.ts`.
-- **The pump's boundary buzz now fires from anywhere in the app** (2026-08-30, working tree only).
+- **The pump's boundary buzz now fires from anywhere in the app** (2026-08-30, committed `9eed27e`, not deployed).
   Reported by Allan as not working *again*; unlike 2026-08-19 this was a real defect and not a
   stale deploy — see `INCIDENTS.md`. `PumpAlert` was mounted inside the Baby tab, so leaving the tab
   unmounted it and the switch passed in silence. It is mounted in `App` now, beside `MicLiveBanner`,
@@ -138,7 +148,7 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   `pumpPhases.test.ts`.
   **Not deployed, so the household will still feel nothing until this ships.** The panel is on
   `a66e80a+ · 2026-08-24`, which contains the bug.
-- **The Baby row layout takes the time back into its own column** (2026-08-29, working tree only).
+- **The Baby row layout takes the time back into its own column** (2026-08-29, committed `9eed27e`, not deployed).
   From `design_handoff_baby/`, which Allan supplied as a zip and which the package itself says
   replaces `design_handoff_care_logging/`.
   **This reverses a decision recorded in the code, deliberately and with the reason changed.** The
@@ -164,7 +174,7 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   edges down one page, `BREAST / FORMULA` wrapped and broke the contents grid into one tall row and
   one short one, and the review line said "breast formula" without the slash.
   **The rest of that package is not done** — see the note under Blocked.
-- **The weather alert banner now opens the NWS statement** (2026-08-28, working tree only, not in
+- **The weather alert banner now opens the NWS statement** (2026-08-28, committed `9eed27e`, not in
   any release). Built from `design_handoff_weather_alert/ALERT_SHEET.md`, which Allan supplied as a
   zip — it was not in the Claude Design project, and `DesignSync` cannot see handoffs that live in
   an ordinary claude.ai project, so the folder in the repo is the only copy.
@@ -184,7 +194,7 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   tags ran to the next tag rather than to their own blank line, and the banner printed the event
   name twice once the title stopped being parsed out of the message.
 - **The care log now works from a cold start with no server** (2026-08-25, present in current TEST
-  release `20260825T100412Z-fddb49d37ebf` and still in the working tree). Previously the offline story only held inside a tab that was already open: an
+  release `20260825T100412Z-fddb49d37ebf` and also in `9eed27e`). Previously the offline story only held inside a tab that was already open: an
   offline boot locked, purged the care cache and left a keypad that could not be answered, because
   the PIN is checked by `SignIn` and the hash never leaves the server. Now the cache is sealed
   per profile (`screens/care/careVault.ts`) instead of purged, and the PIN is provable against the
@@ -409,7 +419,7 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   later production candidate until fixed; the normal Critical/High gate remains in force.
 - ~~Visual verification~~ — **cleared.** Shared Playwright at `/srv/dev/tools/playwright`; harness
   and usage in `ENVIRONMENT.md`.
-- **Huckleberry is gone, client and API** (2026-08-30, working tree only). Allan: *"there is no
+- **Huckleberry is gone, client and API** (2026-08-30, committed `9eed27e`, not deployed). Allan: *"there is no
   Huckleberry anymore, it was slowly phased out in favour of the in-built systems which are now in
   place"* — so the handoff's "Huckleberry is removed" was describing reality, and the code was the
   last thing still claiming otherwise.
