@@ -503,9 +503,25 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
 
 ## Blocked
 
-- **Next production candidate** — release `20260822T151435Z-6d49a68ad72a` entered production under
-  Allan's one-time exception with five known High source findings. They remain application remediation debt and block every
-  later production candidate until fixed; the normal Critical/High gate remains in force.
+- **The five High source findings are now written down** —
+  [`.hermes/2026-09-01-five-high-source-findings.md`](../.hermes/2026-09-01-five-high-source-findings.md).
+  Hermes recovered the original review artifact on 2026-09-01, rechecked it against `0a717fc`, and
+  **all five remain open**. H1 untrusted images reach a tool-capable agent · H2 demotion and deletion
+  do not revoke a cookie · H3 the browser lock is only a render gate for private providers · H4
+  production TLS omits SAN and chain validation · H5 the deprecated MCP key still carries every
+  method. Each has evidence, a severity rationale and a definition of done; Claude spot-checked four
+  of the five in current source before committing it.
+  **They had been carried through three production exceptions in eleven days as bare labels**, with
+  the actionable review never committed — which is why nobody could remediate them. Hermes owns that
+  handoff failure and says a fourth unnamed carry-forward would be process failure rather than
+  compliance. The gate (`DEPLOYMENT.md:46`) stands: they block every ordinary production candidate,
+  and a fresh full-source review of the changed candidate is expected after remediation.
+  **The Huckleberry deletion closed none of them**, and `ImageIngress` plus the `ce9ebcd` startup
+  hardening close neither H1 nor H4 — worth knowing, because both look at a glance as though they
+  should have.
+  **H1 additionally contradicts `DECISIONS.md:93-97`**, which claims the tool-less reader is the
+  default. It is not: `EventCaptureOptions` ships `Provider = "hermes"`, `Agent = "barnaby"`. That
+  entry has been asserting a safety property the build does not have.
 - ~~Visual verification~~ — **cleared.** Shared Playwright at `/srv/dev/tools/playwright`; harness
   and usage in `ENVIRONMENT.md`.
 - **Huckleberry is gone, client and API** (2026-08-30, committed `9eed27e`, not deployed). Allan: *"there is no
