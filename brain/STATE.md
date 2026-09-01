@@ -3,30 +3,30 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-01 by Claude. Deployment facts below were live-verified by Geist on 2026-08-31 and
-are unchanged; the code notes are Claude's._
+_Updated: 2026-09-01 by Claude and Geist. Deployment facts below were live-verified by Geist after
+the TEST promotion; the code notes are Claude's._
 
-**Nothing here is running yet.** Everything below is committed and pushed and none of it is deployed —
-nothing deploys on push, so the household has none of it until Geist promotes a build. These notes
-describe what is *built*.
+The frozen security-remediation candidate now runs in TEST. Production remains on the prior release.
+Code described under In flight may be newer than the promoted snapshot and is not deployed merely
+because it exists in DEV.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` / `origin/main` | `0527f3f` / `0527f3f` (0 ahead, 0 behind) |
-| Working tree | Clean |
+| `HEAD` / `origin/main` | two commits ahead of `dc7d026`, unpushed — see In flight |
+| Working tree | Clean. The recipe-import paths Geist saw uncommitted here are now committed, along with the identity-boundary fix; neither is in release `20260901T211217Z-e8c282873295` |
 | Verified at `0527f3f` | `./scripts/check.sh all` green: typecheck, lint, **47 client test files**, **1145 backend tests**. The security work was additionally verified in a browser at 540×1169 — the client suite renders nothing, and three of this session's defects were only visible rendered |
 | Coordination state | `.git/index` restored to `simpson:geist-dev` (UID 1000/GID 989), mode 0660, after the promotion workflow exposed and corrected its direct-gitdir ownership defect. |
 
 ## Deployed
 
-| Environment | Live state at 2026-08-31T11:38Z |
+| Environment | Live state at 2026-09-01T21:12Z |
 |---|---|
-| TEST | Release `20260831T105206Z-09cfd47e8477`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle `index-D3pqF7Ee.js`; live bundle/service worker match artifact |
-| Production / panel | Same exact release and artifact bytes as TEST; active and healthy; trusted HTTPS and deep health 200; DB `ok`; pending migrations `0`; bundle/service worker match artifact; MCP/TLS/loopback gates passed; gateway restarted and stable |
-| Gap | TEST and production now run the same immutable bytes. This production use was Allan's one-release application-security exception; the ordinary gate remains in force for the next release. |
+| TEST | Release `20260901T211217Z-e8c282873295`; artifact SHA-256 `7fea956e298c9da5ed44abf88693dba41a6f56d0e32941fc42cca9d09d94ba96`; active; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `dc7d026+ · 2026-09-01 21:12Z`; bundle `index-LvC2OuZQ.js`; live bundle and service worker exactly match the artifact |
+| Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260827205336_AddWeatherAlertProduct`; bundle `index-D3pqF7Ee.js` |
+| Gap | TEST has the candidate and production does not. TEST's legacy MCP key is absent, its named Barnaby credential is present, its SAN/CA configuration is valid, and the missing-SAN, missing-CA, and legacy-key startup refusals all passed deliberately. Production rotation and the fresh exact-candidate source review remain before an ordinary production promotion. |
 
 ## Waiting to ship
 
@@ -34,6 +34,10 @@ describe what is *built*.
 > bearing this note**, which is the last commit Claude will make until the review returns. Its
 > identifiers are in the handover below; they cannot be written *into* the commit that carries them,
 > because doing so would change it.
+>
+> **Superseded in part, 2026-09-01:** Allan lifted this for two changes after a browser pass found
+> the identity boundary never opening on the candidate — see In flight. The candidate `dc7d026` is
+> unchanged and still reviewable; what follows it is on `main` behind it.
 >
 > **No further application changes.** Geist has the deployment half: set and verify
 > `Server:RequiredSans` and `Server:CaPath`, remove and rotate `Mcp:ApiKey` while confirming named
@@ -63,6 +67,65 @@ cookie predating it carries no security-version claim and is refused.
 TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded one-release exception; its original manifest remains TEST-only.
 
 ## In flight
+
+- **The client-side identity boundary is opened on every path that establishes identity** (2026-09-01,
+  committed, not deployed). Found in a browser while verifying the chat capture below; fixed at
+  Allan's instruction, which lifted the candidate freeze for it.
+  **What was wrong.** `privateNetworkConfirmed` in `api/client.ts` refuses every private call before
+  the fetch until the server has said who is asking. Exactly one thing opened it —
+  `SessionProvider.refresh()` — and neither of the two paths that actually establish identity went
+  through it: a cold boot with a valid cookie, and a sign-in at the picker. Its only other caller was
+  the device-only recovery effect, which is dead on both paths because `deviceOnly` starts `false`.
+  So the panel refused its own data and, because that refusal is deliberately shaped as
+  `ApiError(0)`, drew offline states over a server that was answering. The boot batch had the same
+  ordering mistake `refresh` documents and had been fixed for: `/settings` was fetched *in* the
+  confirming batch, so it was refused on every boot.
+  **The fix.** One `confirmIdentity(isLocked, profileId)` that all four paths route through — boot,
+  refresh, sign-in, and the lock that closes it — with both arguments passed rather than read from a
+  closure, since a stale `locked` is the other way this goes wrong and it goes wrong open. Boot now
+  confirms first and reads settings second. The offline `deviceOnly` branch deliberately does not
+  open it: that path admits somebody against the device, and nothing has confirmed them to the house.
+  **Instrument.** `artifacts/probe-session-boundary.mjs` (new) drives three cases in a browser —
+  cookie boot, signed-out boot, sign-in at the picker — and asserts private calls flow in the first
+  and third and not the second. It **fails 2 of 3 on `dc7d026`** and passes on this. Nothing in
+  either suite can see this class of defect, which is why it is a browser instrument and not a test.
+  **TEST is still running the broken build** (`20260901T211217Z-e8c282873295`, carrying `379d9ed`).
+  Worth confirming there against a real session before the next promotion.
+
+- **A recipe can be saved out of a Barnaby chat** (2026-09-01, **uncommitted**, in the working tree
+  only — this is the change Geist's Source row calls "five concurrent recipe-import paths"). Asked
+  for by Allan: chats are used to create or adapt recipes from outside sources, and the transcript
+  was the one place a recipe could be and not be saveable.
+  **The panel answers it, not the agent.** "Save this recipe" is intercepted client-side
+  (`asksToSaveARecipe`) and never sent — Barnaby holds no recipe tool, so a turn would cost ~7,200
+  tokens to produce a sentence about a recipe he cannot file. Same trade the photo-only path makes.
+  **No model reads the conversation.** `ConversationRecipeReader` flattens each message out of
+  markdown (`MarkdownToText`, new, the `HtmlToText` job one format along) and hands it to
+  `PastedRecipeImporter` — the same parser as the paste box, so a chat recipe scales and matches the
+  pantry like every other one. `POST /recipes/read-conversation` reads and writes nothing; a yes
+  posts the same message to `POST /recipes/import/text`, so the offer and the write are two parses
+  of one block.
+  **A name the folder already holds becomes a question, not a duplicate**: the offer asks whether
+  this is a variation, and `RecipePasteInput.ForkOf` links it while keeping its own method — a chat
+  changes the method as readily as the amounts, which is why `/fork` was not reused.
+  `import/text` now flattens markdown **unconditionally**, which is the one change with reach
+  outside this feature: a pasted `## Ingredients` used to read as an unsectioned list with no
+  method.
+  Design and decisions: `homehub-docs/docs/chat-recipe-capture.md` (new), sibling to
+  `event-capture.md`.
+  **Verified.** `./scripts/check.sh all` green — typecheck, lint, 48 client test files, 1156 backend
+  tests (11 new, `ChatRecipeTests`, booting the real app). **And in a browser**, at 540×1169:
+  `artifacts/render-chat-recipe.mjs` (new, gitignored like the rest of `artifacts/`) drives the whole
+  errand against a stubbed API — types the instruction, takes the offer, saves the variation — and
+  reports what actually left the panel. It was two requests, `read-conversation` and `import/text`:
+  **no assist turn was sent**, which is the claim the whole design rests on. Shots in
+  `artifacts/chat-recipe-shots/`.
+  That pass found one thing the suites could not: a variation keeps its parent's name, so the receipt
+  read "Chicken Katsu Curry, a variation of Chicken Katsu Curry" — the panel saying one thing twice
+  in the exact case the offer exists for. Fixed, with a test.
+  It also found the identity-boundary defect above, which is what the harness first ran into: before
+  that fix the panel could not get past sign-in at all.
+  **Held off `main` deliberately**: the candidate is frozen, so nothing here is committed.
 
 - **The Kitchen's section bands are dividers, and the Pantry shows one shelf** (2026-08-31, committed `9eed27e`,
   not deployed). Built from `design_handoff_kitchen_lists/`, which Allan supplied as a zip and which

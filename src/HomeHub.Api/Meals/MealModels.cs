@@ -317,7 +317,63 @@ public record RecipePasteInput(
     /// </summary>
     string? Title = null,
     /// <summary>The cuisine chip, which the parser has no way to read off a block of text.</summary>
-    IReadOnlyList<string>? Tags = null);
+    IReadOnlyList<string>? Tags = null,
+    /// <summary>
+    /// The recipe this one is a variation of, or null for a recipe in its own right (MEALS_FORK §5).
+    /// </summary>
+    /// <remarks>
+    /// <b>Set by the chat capture, and only there.</b> A recipe read out of a conversation is very
+    /// often the household's own recipe with something changed in it, and saving that as an
+    /// unrelated second entry with the same name is how a folder becomes two folders. Linking it
+    /// records what actually happened: a variation of the one they already had.
+    /// <para>
+    /// Unlike <c>POST /{id}/fork</c>, the body here <i>is</i> the recipe — ingredients, method and
+    /// all — because a chat changes the method as readily as the amounts. The parent supplies only
+    /// what the block could not say for itself: where it came from, its cuisine, its photograph.
+    /// </para>
+    /// </remarks>
+    int? ForkOf = null);
+
+/// <summary>
+/// A chat, newest message first, offered to the recipe parser.
+/// </summary>
+/// <remarks>
+/// The panel sends the text rather than a conversation id on purpose: a household can have
+/// transcript storage off, and the turn somebody is pointing at may be seconds old and not stored
+/// yet. What is on their screen is the thing they mean.
+/// </remarks>
+public record RecipeConversationInput(IReadOnlyList<string>? Messages);
+
+/// <summary>
+/// What a chat was holding. <b>Nothing has been saved.</b>
+/// </summary>
+/// <remarks>
+/// Counts rather than the lines themselves: this answers "is there a recipe here, and is it worth
+/// offering" — the recipe is already on screen in the transcript, and repeating it underneath would
+/// be the panel reading the conversation back to the people who just had it.
+/// </remarks>
+public record RecipeConversationReadingDto(
+    /// <summary>True when there is something worth offering to save.</summary>
+    bool Found,
+    /// <summary>Which message it was read out of, as an index into what was sent. Null when none was.</summary>
+    int? Message,
+    /// <summary>`Complete`, `Partial` or `Empty`.</summary>
+    string Confidence,
+    string? Title,
+    int? Servings,
+    int IngredientCount,
+    int StepCount,
+    /// <summary>The address the recipe names as its own source, when it carries one.</summary>
+    string? SourceUrl,
+    /// <summary>A link in the conversation to try instead, when nothing parsed. Never fetched here.</summary>
+    string? Link,
+    /// <summary>A recipe already in the folder under this name, so the offer can say so.</summary>
+    RecipeMatchDto? Existing,
+    /// <summary>What is missing, or why there is nothing — in the words the panel repeats.</summary>
+    string? Reason);
+
+/// <summary>A recipe the folder already holds under the name that was just read.</summary>
+public record RecipeMatchDto(int Id, string Title);
 
 /// <summary>
 /// Set (or clear) the one thing the folder groups by.

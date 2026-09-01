@@ -54,6 +54,8 @@ import type {
   RecipeInput,
   RecipeImportInput,
   RecipePasteInput,
+  RecipeConversationInput,
+  RecipeConversationReadingDto,
   ForkRecipeInput,
   RecipeImportResponse,
   RecipeTagCountDto,
@@ -918,6 +920,16 @@ export const api = {
     request<RecipeReadingDto>('/recipes/read-photo', { method: 'POST', ...json(input) }, SLOW_CALL_MS),
   importRecipeText: (input: RecipePasteInput) =>
     request<RecipeImportResponse>('/recipes/import/text', { method: 'POST', ...json(input) }, SLOW_CALL_MS),
+  /**
+   * Read a recipe out of a chat. Returns what is there; saves nothing.
+   *
+   * Newest message first. The save is `importRecipeText` with the message the reading names, so a
+   * recipe out of a conversation goes through the same parser as a paste, a photograph and a page —
+   * and therefore scales, matches the pantry and merges the same way.
+   */
+  readConversationRecipe: (input: RecipeConversationInput) =>
+    request<RecipeConversationReadingDto>(
+      '/recipes/read-conversation', { method: 'POST', ...json(input) }, SLOW_CALL_MS),
   /** URL of a recipe's cached hero image. Served from disk, never from wwwroot. */
   recipeImageUrl: (id: number) => `/api/recipes/${id}/image`,
   // Fork: the original is never touched. The body carries only the name and the edited amounts —

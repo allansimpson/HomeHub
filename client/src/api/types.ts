@@ -1499,6 +1499,64 @@ export interface RecipePasteInput {
   title?: string | null
   /** The cuisine chip — the parser has no way to read that off a block of text. */
   tags?: string[] | null
+  /**
+   * The recipe this one is a variation of, or absent for a recipe in its own right.
+   *
+   * Sent by the chat capture, and only there. A recipe read out of a conversation is very often the
+   * household's own with something changed in it, and saving that as an unrelated second entry
+   * under the same name is how one folder becomes two. Unlike `forkRecipe`, the body here *is* the
+   * recipe — a chat changes the method as readily as the amounts — and the parent supplies only
+   * what the text could not say for itself: source, cuisine, photograph.
+   */
+  forkOf?: number | null
+}
+
+/**
+ * A chat, newest message first, handed over to be read for a recipe.
+ *
+ * The text rather than a conversation id, deliberately: a household can have transcript storage
+ * off, and the turn somebody is pointing at may be seconds old and not stored yet. What is on their
+ * screen is what they mean.
+ */
+export interface RecipeConversationInput {
+  messages: string[]
+}
+
+/** A recipe the folder already holds under the name that was just read. */
+export interface RecipeMatchDto {
+  id: number
+  title: string
+}
+
+/**
+ * What a chat was holding. **Nothing has been saved.**
+ *
+ * Counts rather than the lines themselves: this answers "is there a recipe here, and is it worth
+ * offering". The recipe is already on screen in the transcript, and repeating it underneath would
+ * be the panel reading the conversation back to the people who just had it.
+ */
+export interface RecipeConversationReadingDto {
+  found: boolean
+  /**
+   * Which message it was read out of, as an index into what was sent. Null when none was.
+   *
+   * The panel sends that same message back to `importRecipeText` on a yes, so the reading and the
+   * write are two parses of one block and cannot disagree about what it said.
+   */
+  message: number | null
+  confidence: ImportConfidenceName
+  title: string | null
+  servings: number | null
+  ingredientCount: number
+  stepCount: number
+  /** The address the recipe names as its own source, when it carries one. */
+  sourceUrl: string | null
+  /** A link in the conversation to try instead, when nothing parsed. Never fetched by the reading. */
+  link: string | null
+  /** A recipe already in the folder under this name, so the offer can ask which this is. */
+  existing: RecipeMatchDto | null
+  /** What is missing, or why there is nothing — in the words the panel repeats. */
+  reason: string | null
 }
 
 export interface RecipeImportResponse {

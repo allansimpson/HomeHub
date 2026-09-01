@@ -18,6 +18,9 @@ import { RenameChat } from './RenameChat'
 import { useStreamedTurn } from './useStreamedTurn'
 import { PhotoCapture } from './PhotoCapture'
 import { usePhotoCapture } from './usePhotoCapture'
+import { RecipeCapture } from './RecipeCapture'
+import { useRecipeCapture } from './useRecipeCapture'
+import { asksToSaveARecipe, transcriptFor } from './recipeCapture'
 import { WaitingWord } from './WaitingWord'
 import type { PendingTurn } from './useStreamedTurn'
 import { useScrollEdge } from './useScrollEdge'
@@ -53,6 +56,10 @@ export function ChatScreen() {
   const { pending, live, run, cancel, settle, dismiss, retry } = useStreamedTurn(conversationId)
   const { ref: scrollRef, more, measure } = useScrollEdge<HTMLDivElement>()
   const { capture, begin, answer, discard, added, undo } = usePhotoCapture()
+  const {
+    capture: recipe, begin: beginRecipe, save: saveRecipe, tryLink, undo: undoRecipe,
+    dismiss: dismissRecipe,
+  } = useRecipeCapture()
   /** Filled by the composer while it is mounted — the way ANOTHER PHOTO reopens the ATTACH panel. */
   const attachControl = useRef<(() => void) | null>(null)
   /** Distinguishes successive photographs handed over without a question. Never shown. */
@@ -69,6 +76,34 @@ export function ChatScreen() {
   const takePhoto = useCallback((attachment: AttachmentDraft) => {
     begin(`photo:${++photoSeq.current}`, { ...attachment, text: null }, '')
   }, [begin])
+
+  /** Distinguishes successive save requests in one chat. Never shown. */
+  const recipeSeq = useRef(0)
+
+  /**
+   * A turn — unless the member was talking to the panel.
+   *
+   * <b>"Save this recipe" is an instruction to HomeHub, not a question for Barnaby.</b> He holds no
+   * recipe tool (the house tool list is deliberately short), so sending it to him costs a full turn
+   * and buys a sentence about a recipe he cannot file. The panel reads the conversation itself
+   * instead — with the same importer a paste goes through — and offers what it found.
+   *
+   * The test is narrow on purpose (`asksToSaveARecipe`): it wants a bare instruction and nothing
+   * else, so anything with a second thought in it — "save this recipe but double the garlic" — is
+   * a question and goes to the agent, exactly as it did before.
+   */
+  const send = useCallback(
+    (prompt: string, attached?: AttachmentDraft | null) => {
+      // An attachment is a turn whatever the words are: a photograph of a recipe is the Kitchen's
+      // add screen, not this, and there is no reading here that could look at it.
+      if (!attached && asksToSaveARecipe(prompt)) {
+        beginRecipe(`recipe:${++recipeSeq.current}`, prompt.trim(), transcriptFor(messages, pending))
+        return Promise.resolve(true)
+      }
+      return run(prompt, attached)
+    },
+    [run, beginRecipe, messages, pending],
+  )
 
   /**
    * A photograph attached to a turn is read for engagements — every one of them, whether or not
@@ -344,6 +379,19 @@ export function ChatScreen() {
           {/* The receipt, at the foot of the transcript where the last reply left it. */}
           <ItTouched messages={messages} />
 
+          {/* "Save this recipe": what the conversation turned out to be holding, the offer, and the
+              receipt. Answered by the panel rather than by the agent — see `send`. */}
+          {recipe && (
+            <RecipeCapture
+              capture={recipe}
+              agentName={agentName}
+              onSave={(forkOf) => void saveRecipe(forkOf)}
+              onTryLink={() => void tryLink()}
+              onDismiss={dismissRecipe}
+              onUndo={() => void undoRecipe()}
+            />
+          )}
+
           {/* What a photograph turned into: the reading, the offer, the receipt — or nothing at all,
               which is what a photo of the cat is supposed to produce. The confirm sheet it can open
               is fixed to the bottom of the viewport and escapes this box. */}
@@ -388,7 +436,7 @@ export function ChatScreen() {
       <AssistComposer
         agentName={agentName}
         conversationId={conversationId}
-        onStream={run}
+        onStream={send}
         // The square's third reading. Only when there is nothing written — with something to send,
         // sending is what the square does, and the queue is what makes that possible mid-reply.
         replying={live !== null}

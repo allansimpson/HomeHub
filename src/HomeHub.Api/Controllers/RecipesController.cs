@@ -76,6 +76,95 @@ public class RecipesController : ControllerBase
     }
 
     /// <summary>
+    /// Read a recipe out of a chat. Returns what is there; writes nothing, and stores nothing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why a chat is a capture path at all.</b> A household talks to the panel about recipes it
+    /// found somewhere else — pasting one in to have it halved, made dairy-free, or turned into
+    /// something that uses what is in the pantry. The recipe they end up with is then sitting in a
+    /// transcript, which is the one place in this app a recipe could be and not be saveable.
+    /// </para>
+    /// <para>
+    /// <b>The panel does this, not the agent.</b> There is no <c>add_recipe</c> house tool, and this
+    /// is deliberate: the agent's tool list is short on purpose (<see cref="Mcp.HouseTools"/>), and
+    /// a recipe is a large structured document to have a model re-type as tool arguments when the
+    /// text is already written down. Reading it here means the same parser, the same ingredient
+    /// scaling and the same pantry matching as every other route — and a household that is asked
+    /// before anything is written.
+    /// </para>
+    /// <para>
+    /// <b>Nothing is saved here.</b> The panel offers what came back, and a yes goes to
+    /// <c>POST /import/text</c> with the same message — so the reading and the write are two parses
+    /// of one block, and they cannot disagree about what it said.
+    /// </para>
+    /// </remarks>
+    [HttpPost("read-conversation")]
+    public async Task<ActionResult<RecipeConversationReadingDto>> ReadConversation(
+        RecipeConversationInput input, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        var messages = input.Messages ?? [];
+        if (messages.Count == 0) return BadRequest("There is nothing to read.");
+        // The same bound the paste box has, applied to the whole transcript. This endpoint is
+        // unauthenticated on the LAN like every other one (D6).
+        if (messages.Sum(m => m?.Length ?? 0) > 100_000)
+            return BadRequest("That is too much text to read as one recipe.");
+
+        var reading = ConversationRecipeReader.Read(messages);
+        if (reading.Recipe is not { } recipe)
+        {
+            return new RecipeConversationReadingDto(
+                false, null, nameof(ImportConfidence.Empty), null, null, 0, 0, null,
+                reading.Link, null, reading.Reason);
+        }
+
+        return new RecipeConversationReadingDto(
+            true,
+            reading.Message,
+            reading.Confidence.ToString(),
+            recipe.Title,
+            recipe.Servings,
+            recipe.Ingredients?.Count ?? 0,
+            recipe.Steps?.Count ?? 0,
+            recipe.SourceUrl,
+            reading.Link,
+            await ExistingAsync(recipe.Title, ct),
+            reading.Reason);
+    }
+
+    /// <summary>
+    /// A recipe the folder already holds under this name, or null.
+    /// </summary>
+    /// <remarks>
+    /// <b>What turns a duplicate into a variation.</b> A chat that adapted the household's own
+    /// chicken katsu produces a reading called "Chicken Katsu Curry", and saving that as an
+    /// unrelated second entry is how one folder becomes two. Naming the match lets the offer ask
+    /// which of the two things this is, which is a question only the household can answer.
+    /// <para>
+    /// Exact name, case aside — nothing fuzzy. A near-match offered as the parent would put a
+    /// variation link on the wrong recipe, and a wrong link is worse than no link: it is provenance,
+    /// and provenance is believed.
+    /// </para>
+    /// Archived recipes count. One that was put away is still the recipe this is a variation of.
+    /// </remarks>
+    private async Task<RecipeMatchDto?> ExistingAsync(string title, CancellationToken ct)
+    {
+        var wanted = title.Trim().ToLowerInvariant();
+        if (wanted.Length == 0) return null;
+        // ToLower() rather than StringComparison: this is translated to SQL, and it is the one form
+        // both SQL Server and the in-memory provider the tests use agree on. See List().
+#pragma warning disable CA1304, CA1311, CA1862
+        var match = await _db.Recipes
+            .Where(r => r.Title.ToLower() == wanted)
+            .OrderBy(r => r.Id)
+            .Select(r => new RecipeMatchDto(r.Id, r.Title))
+            .FirstOrDefaultAsync(ct);
+#pragma warning restore CA1304, CA1311, CA1862
+        return match;
+    }
+
+    /// <summary>
     /// The folder list. Archived recipes are hidden unless asked for; <paramref name="tag"/> filters
     /// to one tag (case-insensitive), which is what the Chip filter row sends.
     /// </summary>
@@ -259,7 +348,7 @@ public class RecipesController : ControllerBase
             return new RecipeImportResponse(nameof(ImportConfidence.Empty), null, tooLong);
 
         return await PersistImportedAsync(
-            confidence, parsed, imageUrl, reason, RecipeImportMethod.JsonLd, this.CallerId(), ct);
+            confidence, parsed, imageUrl, reason, RecipeImportMethod.JsonLd, this.CallerId(), null, ct);
     }
 
     /// <summary>
@@ -288,7 +377,23 @@ public class RecipesController : ControllerBase
         if (input.SourceUrl is { } url && url.Trim().Length > MealFieldLimits.Url)
             return BadRequest($"That link is longer than {MealFieldLimits.Url} characters.");
 
-        var result = PastedRecipeImporter.Parse(input.Text, input.SourceUrl, input.Title);
+        // A variation has to have something to be a variation of. A parent that has since been
+        // deleted is a 404 rather than a silently unlinked save: the household asked for the link,
+        // and a recipe that quietly arrives without one is a second copy under the same name.
+        Recipe? parent = null;
+        if (input.ForkOf is { } parentId)
+        {
+            parent = await LoadAsync(parentId, ct);
+            if (parent is null) return NotFound();
+        }
+
+        // Markdown out of the way first. Text pasted from a message or a notes app carries `##` and
+        // `**` as often as not, and the parser matches its section headings whole — so `## Ingredients`
+        // is not the word `ingredients` to it, and the whole block reads as one unsectioned list.
+        // A block with no markers in it comes back unchanged, which is why this is unconditional
+        // rather than a flag the caller has to know to set (see MarkdownToText).
+        var text = MarkdownToText.Flatten(input.Text) ?? input.Text;
+        var result = PastedRecipeImporter.Parse(text, input.SourceUrl, input.Title);
 
         // Same contract as the URL path: a block that yielded nothing is a 200 with an explanation,
         // because the request was well-formed and the screen renders a specific state for it.
@@ -302,7 +407,7 @@ public class RecipesController : ControllerBase
         var parsed = input.Tags is { Count: > 0 } ? result.Recipe with { Tags = input.Tags } : result.Recipe;
 
         return await PersistImportedAsync(
-            result.Confidence, parsed, null, result.Reason, RecipeImportMethod.Pasted, this.CallerId(), ct);
+            result.Confidence, parsed, null, result.Reason, RecipeImportMethod.Pasted, this.CallerId(), parent, ct);
     }
 
     /// <summary>
@@ -320,6 +425,7 @@ public class RecipesController : ControllerBase
         string? reason,
         RecipeImportMethod method,
         int? profileId,
+        Recipe? parent,
         CancellationToken ct)
     {
         await _units.LoadAsync(ct);
@@ -342,6 +448,7 @@ public class RecipesController : ControllerBase
         recipe.ImageSourceUrl = imageUrl is null ? null : Truncate(imageUrl, MealFieldLimits.Url);
         recipe.ModifiedByProfileId = profileId;
         if (profileId is not null) recipe.ModifiedAtUtc = now;
+        Inherit(recipe, parent);
 
         _db.Recipes.Add(recipe);
         await _db.SaveChangesAsync(ct);
@@ -823,6 +930,43 @@ public class RecipesController : ControllerBase
         recipe.ForkedFrom is { } parentId
             ? await _db.Recipes.Where(r => r.Id == parentId).Select(r => r.Title).FirstOrDefaultAsync(ct)
             : null;
+
+    /// <summary>
+    /// Fill an imported recipe's gaps from the recipe it is a variation of, and record the link.
+    /// </summary>
+    /// <remarks>
+    /// <b>Gaps only.</b> Everything the block actually said stands — a chat that changed the method
+    /// changed the method, which is the difference between this and <c>POST /{id}/fork</c>, where
+    /// the parent's steps are copied verbatim because a fork is about amounts. What a block cannot
+    /// say for itself is where the recipe came from, what cuisine the household files it under, and
+    /// what it looks like, so those come across.
+    /// <para>
+    /// The photograph is shared rather than re-downloaded: cache filenames are content hashes, and
+    /// <see cref="Delete"/> already declines to remove a file another recipe still points at.
+    /// </para>
+    /// </remarks>
+    private static void Inherit(Recipe recipe, Recipe? parent)
+    {
+        if (parent is null) return;
+
+        recipe.ForkedFrom = parent.Id;
+        recipe.SourceUrl ??= parent.SourceUrl;
+        recipe.SourceName ??= parent.SourceName;
+        recipe.ImagePath ??= parent.ImagePath;
+        recipe.ImageSourceUrl ??= parent.ImageSourceUrl;
+        recipe.Description ??= parent.Description;
+        recipe.YieldText ??= parent.YieldText;
+        recipe.PrepNote ??= parent.PrepNote;
+        recipe.LeadMinutes ??= parent.LeadMinutes;
+
+        // All or nothing, never merged: tags are a set the household curates, and a variation that
+        // came back with its own cuisine has already answered the only question this could ask.
+        if (recipe.Tags.Count > 0) return;
+        foreach (var tag in parent.Tags.Select(t => t.Tag))
+        {
+            recipe.Tags.Add(new RecipeTag { Tag = tag });
+        }
+    }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 

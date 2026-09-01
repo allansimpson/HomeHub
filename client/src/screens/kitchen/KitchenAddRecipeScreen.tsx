@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { AttachmentRefused, readAttachment } from '../assist/attachments'
@@ -27,14 +27,24 @@ export function KitchenAddRecipeScreen() {
   const navigate = useNavigate()
   const picker = useRef<HTMLInputElement>(null)
 
+  /**
+   * Words handed over from somewhere else — the chat, when it could not read a recipe out of what
+   * was said.
+   *
+   * <b>The box opens with them already in it.</b> The alternative is telling somebody the panel
+   * could not read their conversation and then asking them to go back and copy it out themselves,
+   * which is the panel handing back the work it has just failed at.
+   */
+  const handoff = (useLocation().state as { text?: string } | null)?.text?.trim()
+
   const [reading, setReading] = useState<RecipeReadingDto | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [stage, setStage] = useState<'idle' | 'reading' | 'read'>('idle')
   const [trouble, setTrouble] = useState<string | null>(null)
 
-  const [from, setFrom] = useState<StartFrom | null>(null)
+  const [from, setFrom] = useState<StartFrom | null>(handoff ? 'paste' : null)
   const [link, setLink] = useState('')
-  const [text, setText] = useState('')
+  const [text, setText] = useState(handoff ?? '')
   const [title, setTitle] = useState('')
   const [busy, setBusy] = useState(false)
 
