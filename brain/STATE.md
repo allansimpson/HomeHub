@@ -6,27 +6,27 @@ keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 _Updated: 2026-09-01 by Claude and Geist. Deployment facts below were live-verified by Geist after
 the TEST promotion; the code notes are Claude's._
 
-The frozen security-remediation candidate now runs in TEST. Production remains on the prior release.
-Code described under In flight may be newer than the promoted snapshot and is not deployed merely
-because it exists in DEV.
+Current DEV through `c14717c` now runs in TEST. Production remains on the prior release. The detailed
+In flight notes predate this latest promotion; tracked application work described there through that
+commit is now in TEST even where an older parenthetical still says “not deployed.”
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` / `origin/main` | two commits ahead of `dc7d026`, unpushed — see In flight |
-| Working tree | Clean. The recipe-import paths Geist saw uncommitted here are now committed, along with the identity-boundary fix; neither is in release `20260901T211217Z-e8c282873295` |
+| `HEAD` / `origin/main` | `c14717c` / `dc7d026` (4 ahead, 0 behind) |
+| Working tree | Application tree clean; only Geist's deployment-record update is uncommitted |
 | Verified at `HEAD` | `./scripts/check.sh all` green: typecheck, lint, **48 client test files**, **1156 backend tests**. Both commits were additionally verified in a browser at 540×1169 — `probe-session-boundary.mjs` for the boundary, `render-chat-recipe.mjs` for the chat capture. The client suite renders nothing, and both of this session's defects were visible only rendered, which now makes five |
 | Coordination state | `.git/index` restored to `simpson:geist-dev` (UID 1000/GID 989), mode 0660, after the promotion workflow exposed and corrected its direct-gitdir ownership defect. |
 
 ## Deployed
 
-| Environment | Live state at 2026-09-01T21:12Z |
+| Environment | Live state at 2026-09-01T22:15Z |
 |---|---|
-| TEST | Release `20260901T211217Z-e8c282873295`; artifact SHA-256 `7fea956e298c9da5ed44abf88693dba41a6f56d0e32941fc42cca9d09d94ba96`; active; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `dc7d026+ · 2026-09-01 21:12Z`; bundle `index-LvC2OuZQ.js`; live bundle and service worker exactly match the artifact |
+| TEST | Release `20260901T221511Z-52b1222e8e04`; artifact SHA-256 `e6e11090036dfc2bc68ddfd5b82dcc2d3183a998de2ef80e48a27c2a96cd819f`; active; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `c14717c+ · 2026-09-01 22:15Z`; bundle `index-Bl4dmmRv.js`; live bundle and service worker exactly match the artifact |
 | Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260827205336_AddWeatherAlertProduct`; bundle `index-D3pqF7Ee.js` |
-| Gap | TEST has the candidate and production does not. TEST's legacy MCP key is absent, its named Barnaby credential is present, its SAN/CA configuration is valid, and the missing-SAN, missing-CA, and legacy-key startup refusals all passed deliberately. Production rotation and the fresh exact-candidate source review remain before an ordinary production promotion. |
+| Gap | TEST has current DEV and production does not. TEST's legacy MCP key is absent, its named Barnaby credential is present, its SAN/CA configuration is valid, and the missing-SAN, missing-CA, and legacy-key startup refusals passed deliberately on the preceding candidate with the same gate code. Production rotation and a fresh exact-candidate source review remain before an ordinary production promotion. |
 
 ## Waiting to ship
 
@@ -67,6 +67,21 @@ cookie predating it carries no security-version claim and is refused.
 TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded one-release exception; its original manifest remains TEST-only.
 
 ## In flight
+
+- **The last tab survives a close and reopen, on every device** (2026-09-01, committed, not
+  deployed). Asked for by Allan. The mechanism already existed and already persisted — `lastTab.ts`
+  writes to `localStorage` and rewrites the URL before the router mounts — but `tabToRestore`
+  refused above 820px, so only a phone came back to its tab. Measured before the change: phone
+  restored, tablet and panel both opened on the dashboard.
+  **Recency replaced the screen-size rule**, at Allan's choice from three options. The exclusion was
+  protecting something real — a panel rebooted overnight should show the house, not whatever tab was
+  open at 3am — but that is a claim about *time*, and equally true of a phone picked up the next
+  morning. So every device restores, and only within four hours of the app last being used; the
+  stamp is rewritten on every tab change, so the window measures the gap and not the session.
+  Stored shape went from a bare path to `{path, atMs}` under the same key. A value from the older
+  build cannot be dated, so it is ignored and overwritten on the next tab change: the household
+  loses one restore, once. Verified in a browser at 430/900/2160px — restores after 20 minutes,
+  opens on the dashboard after nine hours, and the legacy value self-heals.
 
 - **The bottom nav is at the bottom again** (2026-09-01, committed, not deployed). Reported by Allan
   off a screenshot; measured, and real on every screen whose content is short.
