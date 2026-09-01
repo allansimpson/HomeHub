@@ -341,7 +341,31 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   what `ENVIRONMENT.md` has documented since 2026-08-28, when `AddWeatherAlertProduct` was added by
   precisely that route. The two files have contradicted each other since, and this one was believed.
   Verified 2026-09-01: `dotnet ef migrations list --no-build` with a throwaway string enumerates all
-  seven migrations. The work is unblocked and unstarted; nothing about it needs Hermes or a password.
+  seven migrations. Nothing about it needs Hermes or a password.
+
+  **Then, on inspection, the rest of the entry was wrong too. Three separate ways.**
+
+  1. **`CUPBOARD · MIDDLE SHELF` is not work to do — the standing rule already refuses it.**
+     `PANTRY_DATA_CONTRACT` §1 enumerates the item's fields and there is **no shelf among them**:
+     `location` is the three-value enum the code already implements. The sub-shelf exists only in the
+     `.dc.html` drawing. `DECISIONS.md` 2026-08-20 — *the locked specs outrank the screenshots* — is
+     exactly this case, and `PantryEnums.cs` already carries the reasoning: per-bin precision is "a
+     level of precision nobody maintains past week two". So this stays unbuilt **by decision**, not by
+     omission, and should stop being listed as a blocked feature.
+  2. **`MOVE IT` is already built.** `KitchenItemSheet` reveals the three locations inline and
+     PATCHes; the endpoint has existed all along. This entry has been describing shipped code.
+  3. **The schema change it names is not the one the work needs.** `PantryItem.Shelf` is refused by
+     (1), and `PantryEvent.Location` does not exist under that name. What the drawing's `since 3 Aug`
+     and `Usually kept here · 4 of the last 4` actually require is a **`PantryEventKind.Moved = 12`**
+     — no migration at all, the enum is stored as an int and its own comment invites new members — and
+     **one nullable `PantryEvent.ResultingLocation` column**, which is the only migration involved.
+
+  **What is genuinely left**, and it is smaller than this entry has implied: the Kitchen item sheet
+  has no `WHERE IT LIVES` section. It puts the location in the drill-in header instead, with a
+  written rationale (a context label, since the sheet is reached from several places). The section
+  the handoff draws needs the move history above to say `since` and `n of the last m`. Note the
+  section *does* exist on the older phone screen `screens/pantry/ItemSheet.tsx`, which is why a grep
+  for the wording finds it and the sweep does not.
 - **Still open after the 2026-08-23 sweeps, in priority order.** Nothing below is unknown; each is
   a decision or a dependency rather than a miss.
   1. **A dead session now locks.** Closed: any 401 from a data call fires `SESSION_LOST_EVENT` from
