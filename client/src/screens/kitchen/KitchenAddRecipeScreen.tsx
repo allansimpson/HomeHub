@@ -182,24 +182,24 @@ export function KitchenAddRecipeScreen() {
           <div className="ml-kitchen__errandrow">
             <button
               type="button"
-              className={'ml-kitchen__errandalt' + (from === 'link' ? ' ml-kitchen__chip--on' : '')}
+              className={'ml-kitchen__errandalt ml-kitchen__errandalt--source' + (from === 'link' ? ' ml-kitchen__chip--on' : '')}
               onClick={() => setFrom('link')}
             >
-              A LINK
+              A link
             </button>
             <button
               type="button"
-              className={'ml-kitchen__errandalt' + (from === 'type' ? ' ml-kitchen__chip--on' : '')}
+              className={'ml-kitchen__errandalt ml-kitchen__errandalt--source' + (from === 'type' ? ' ml-kitchen__chip--on' : '')}
               onClick={() => setFrom('type')}
             >
-              TYPING IT IN
+              Typing it in
             </button>
             <button
               type="button"
-              className={'ml-kitchen__errandalt' + (from === 'paste' ? ' ml-kitchen__chip--on' : '')}
+              className={'ml-kitchen__errandalt ml-kitchen__errandalt--source' + (from === 'paste' ? ' ml-kitchen__chip--on' : '')}
               onClick={() => setFrom('paste')}
             >
-              PASTING TEXT
+              Pasting text
             </button>
           </div>
 

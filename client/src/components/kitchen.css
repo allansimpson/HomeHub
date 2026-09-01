@@ -1584,6 +1584,26 @@
   cursor: pointer;
   min-height: 2.75rem;
 }
+/*
+ * R3's three source chips, which the handoff does not draw as alt actions at all.
+ *
+ * `Or start from` offers `A link` / `Typing it in` / `Pasting text` at 16px weight 300 in **sentence
+ * case** — a row of choices, read as words. The shared `errandalt` is the section's quiet secondary
+ * action: 11px, 0.14em, shouted in caps. Borrowing it here made three phrases read as three tiny
+ * buttons, which is the opposite of the emphasis the panel wants at the point where somebody is
+ * choosing how to enter a recipe.
+ *
+ * <b>A modifier rather than a change to the shared value.</b> `errandalt` has 28 uses across 15
+ * screens, and the last attempt to retune it globally — dropping it to 10px — fixed four geometry
+ * findings and broke thirteen. The distribution is the thing to check before touching a shared size,
+ * and here the distribution says R3 is the exception, not the rule.
+ */
+.ml-kitchen__errandalt--source {
+  font-size: 1rem; /* 16px */
+  font-weight: 300;
+  letter-spacing: normal;
+}
+
 .ml-kitchen__errandalt:disabled,
 .ml-kitchen__shop:disabled {
   color: var(--text-disabled);

@@ -348,13 +348,23 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
      the last unexamined corner. **Re-measured 2026-09-01 against the corrected design: 155 missing
      chrome strings across 24 panels**, of which 33 are S3's structurally-unreachable set. The `~57`
      this entry used to carry was against the superseded bundle and is not comparable.
-  3. **Re-measured 2026-09-01: 32 geometry mismatches, not the 41 recorded below** — and the 41 was
-     never a comparable figure, because the passes were measuring the build against bands and cut
-     groups the design itself deleted on 2026-08-31. The count below is kept for its record of what
-     was fixed and how, not as a live number. Nothing has been fixed from the new 32 yet; the three
-     `size 24 → 22` destination titles in it are the recorded 22px ruling rather than defects, and
-     several look like the matcher hitting a different element with the same words, which is the
-     failure mode this file already warns about twice. Design is left of the arrow, build is right.
+  3. **Geometry, re-measured 2026-09-01: 41 → 32 → 23 → 20**, and only the last number means
+     anything. Design is left of the arrow, build is right.
+     **41 → 32**: the passes were measuring against bands and cut groups the design deleted on
+     2026-08-31. Fixed by overlaying the two bundles (`ENVIRONMENT.md`).
+     **32 → 23**: nine of those were the matcher comparing a *data* string to whatever element shared
+     its words — the design's 28px serif `Chicken Piccata` card heading against a 16px waiting row on
+     the same screen, while `.ml-kitchen__dish` (34px serif, the actual counterpart) went unchecked.
+     This pass now identifies data per panel from the API responses it served and skips it, counted
+     and named rather than dropped quietly. **The obvious implementation of that filter is wrong**:
+     regexing `sweep-fixtures.js` for quoted literals desynchronises on the first apostrophe in a
+     comment, and it silently caught `Plain flour` while silently missing `Chicken Piccata`.
+     **23 → 20**: R3's three source chips fixed, below.
+     Of the remaining 20, **six are known non-defects**: three `size 24 → 22` destination titles are
+     the recorded 22px ruling, and three button labels resolving to `rgb(95, 88, 75)` are
+     `--text-disabled` — the fixtures never put those screens in a state that enables the button.
+     Four more are bare digits and are almost certainly ambiguous matches. That leaves roughly ten
+     worth looking at, none yet examined.
   4. 41 geometry findings remained as of 2026-08-23 (was 156). Worked through one at a time. Fixed in
      that pass: the aisle-order panel end to end (position column 16px serif → 12px mono, the two
      hand-built rows, the blast-radius blurb, `this shop only` in verdigris); the decision card's
@@ -372,8 +382,16 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
      exists before styling it.
   4. Of the 41 left: the estimated-row conflict (spec beats drawing), the 22/24 title and 11/12
      primary-button rulings, disabled-state artefacts, and repeated short strings the matcher
-     declines to guess at. `A link` / `Typing it in` / `Pasting text` on R3 are a **content** gap —
-     those rows do not exist — not a size one.
+     declines to guess at.
+     **`A link` / `Typing it in` / `Pasting text` on R3 were recorded here as a content gap — "those
+     rows do not exist". They did exist**, as `A LINK` / `TYPING IT IN` / `PASTING TEXT`, which is why
+     the matcher found them and reported a size: it compares case-insensitively, so a row shouted in
+     caps looks present to it and absent to a grep for the drawn words. Fixed 2026-09-01. The handoff
+     draws them 16px weight 300 in sentence case — a row of choices, read as words — and the build
+     was borrowing `errandalt`, the section's 11px/0.14em quiet secondary action, which made three
+     phrases read as three tiny buttons at the point where somebody is choosing how to enter a
+     recipe. Done as a `--source` modifier, not a change to `errandalt`: it has 28 uses across 15
+     screens, and the last attempt to retune it globally fixed four findings and broke thirteen.
   5. Superseded — was: 78 geometry findings remain. The largest class is 4, and the two adjudicated groups are inside
      it: estimated rows, where `PANTRY_SHELVES` §1 and the drawing contradict each other and the
      spec wins, and the 22/24 title ruling above.
