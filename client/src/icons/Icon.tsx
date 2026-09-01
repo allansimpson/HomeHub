@@ -50,6 +50,8 @@ export type IconId =
   | 'ico-image'
   | 'ico-camera'
   | 'ico-file'
+  /** The Pantry's P4 sheet, and nowhere else — a torn-foot receipt, distinct from `ico-file`. */
+  | 'ico-receipt'
   | 'ico-back'
   | 'ico-add'
   | 'ico-minus'

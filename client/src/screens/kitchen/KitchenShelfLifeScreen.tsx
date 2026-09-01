@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea, Stepper } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea, Stepper } from '../../components'
 import { api } from '../../api/client'
 import type { ShelfLifeDto } from '../../api/types'
 
 /** The three bands, in the order S1 lists them. */
 const STATES: { key: ShelfLifeDto['state']; label: string }[] = [
-  { key: 'Fresh', label: 'FRESH' },
-  { key: 'Chilled', label: 'CHILLED' },
-  { key: 'Opened', label: 'ONCE OPENED' },
+  { key: 'Fresh', label: 'Fresh' },
+  { key: 'Chilled', label: 'Chilled' },
+  { key: 'Opened', label: 'Once opened' },
 ]
 
 /**
@@ -52,10 +52,10 @@ export function KitchenShelfLifeScreen() {
   return (
     <ScreenShell
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="How long things last"
-          onBack={() => navigate('/kitchen/pantry')}
-          backLabel="BACK"
+          onExit={() => navigate('/kitchen/pantry')}
+          exit="BACK"
         />
       }
     >
@@ -72,13 +72,10 @@ export function KitchenShelfLifeScreen() {
 
           return (
             <div key={key}>
-              <div className="ml-band">
-                <span className="ml-band__label">{label}</span>
-                <span className="ml-band__meta">{band.length}</span>
-              </div>
+              <KitchenDivider label={label} count={band.length} gap={false} />
               {/* 69px rows — two 44px steppers set the height, and the group's cut derives from
                   that rather than from a shelf row. */}
-              <CutGroup rows={4} rowHeight={69} className="ml-band-shade">
+              <div>
                 {band.map((row) => (
                   <div key={row.id} className="ml-row ml-kitchen__shelfliferow">
                     <span className="ml-kitchen__shelflifename">{row.foodKind}</span>
@@ -106,7 +103,7 @@ export function KitchenShelfLifeScreen() {
                     />
                   </div>
                 ))}
-              </CutGroup>
+              </div>
             </div>
           )
         })}

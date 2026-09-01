@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  CARE_MEDICINES, SINCE_ROWS, TIMED_TYPES, careWindowStart, clockLabel, countWord, dayLabel,
-  detailLabel, elapsedLabel, entriesLabel, kindLabel,
+  CARE_HISTORY_DAYS, CARE_MEDICINES, SINCE_ROWS, TIMED_TYPES, careWindowFor, careWindowLabel,
+  careWindowStart, clockLabel, countWord, dayLabel,
+  detailLabel, elapsedLabel, entriesLabel, holdsToStop, kindLabel,
   matchesSince, otherSide, sinceDetail,
   reviewSentence, tileCaption, valueLabel, windowTotals,
 } from './care'
@@ -17,7 +18,8 @@ import type { CareEntryDto, CareEntryInput } from '../api/types'
 
 const entry = (over: Partial<CareEntryDto> = {}): CareEntryDto => ({
   id: 1, childKey: 'conrad', type: 'Bottle', atUtc: new Date().toISOString(),
-  amount: 3.5, unit: 'oz', durationMinutes: null, kind: 'breast_milk', side: null,
+  amount: 3.5, unit: 'oz', offered: null, left: null,
+  durationMinutes: null, kind: 'breast_milk', side: null,
   peeAmount: null, pooAmount: null, color: null, consistency: null, diaperRash: null,
   pounds: null, ounces: null, heightInches: null, headInches: null, notes: null,
   source: 'Panel', edited: false, clientKey: null, version: 1, ...over,
@@ -156,6 +158,19 @@ describe('detailLabel', () => {
     expect(kindLabel(null)).toBeNull()
   })
 
+  /*
+   * The sixth bottle content (`design_handoff_baby/README.md` §7).
+   *
+   * The slash is the label and no amount of underscore-stripping produces it — `Breast formula`
+   * reads as a brand of formula rather than as a bottle that was some of each, which is the whole
+   * distinction the value was added to record.
+   */
+  it('says breast / formula for the mixed bottle', () => {
+    expect(kindLabel('breast_formula')).toBe('Breast / formula')
+    expect(detailLabel(entry({ amount: 4, unit: 'oz', kind: 'breast_formula' })))
+      .toBe('4 oz breast / formula')
+  })
+
   it('keeps the amount first on the types that have one', () => {
     expect(detailLabel(entry({ amount: 3.5, unit: 'oz', kind: 'breast_milk' }))).toBe('3.5 oz breast milk')
   })
@@ -243,7 +258,7 @@ describe('windowTotals', () => {
       entry({ type: 'Bottle', amount: 4, atUtc: atTime(11) }),
     ])
     const bottle = rows.find((r) => r.type === 'Bottle')
-    expect(bottle).toMatchObject({ detail: '2 bottles · last 11:00 AM', value: '7.5', unit: 'oz' })
+    expect(bottle).toMatchObject({ detail: '2 bottles', time: 'Last 11:00 AM', value: '7.5', unit: 'oz' })
   })
 
   /* The upstream bug again, at the totals level: three unmeasured sessions counted as `0 oz` would
@@ -258,16 +273,59 @@ describe('windowTotals', () => {
       detail: '3 sessions · 2 with no amount',
       value: '11.5',
       unit: 'oz',
+      mark: null,
+    })
+  })
+
+  /*
+   * The rule, not a zero and not an em dash.
+   *
+   * Two sessions happened and neither was weighed. `0 oz` is the upstream bug this notation was
+   * built to refuse — it states a measurement nobody took — and an em dash reads as "no data" when
+   * the count beside it says otherwise.
+   */
+  it('marks a total that exists but was never measured', () => {
+    const rows = windowTotals([
+      entry({ type: 'Pump', amount: null, durationMinutes: null, atUtc: atTime(10) }),
+      entry({ type: 'Pump', amount: null, durationMinutes: null, atUtc: atTime(13) }),
+    ])
+    expect(rows.find((r) => r.type === 'Pump')).toMatchObject({
+      detail: '2 sessions · 2 with no amount', mark: 'rule', unit: null,
     })
   })
 
   /* Every row is always present. An absence is a fact, and one that disappears cannot be read. */
-  it('keeps an empty type as a dimmed zero rather than dropping the row', () => {
+  it('keeps an empty type as a dimmed ring rather than dropping the row', () => {
     const rows = windowTotals([entry({ type: 'Bottle', amount: 3, atUtc: atTime(9) })])
     expect(rows).toHaveLength(6)
+    /* A ring rather than a `0`: "nothing recorded" and "nothing happened" are different claims, and
+       only the first is one the panel is entitled to make. */
     expect(rows.find((r) => r.type === 'Diaper')).toEqual({
-      type: 'Diaper', detail: 'None in this window', value: '0', unit: null, dim: true,
+      type: 'Diaper', detail: 'None in this window', time: null, value: '', unit: null,
+      mark: 'ring', dim: true,
     })
+  })
+
+  /*
+   * The time is its own column now, so it must not also be trailing the detail line
+   * (`design_handoff_baby/README.md` §"List row"). Rendering it twice is the failure this guards.
+   */
+  it('puts the last-entry time in its own field, not on the end of the detail', () => {
+    const rows = windowTotals([
+      entry({ type: 'Bottle', amount: 3, atUtc: atTime(9) }),
+      entry({ type: 'Medicine', amount: null, atUtc: atTime(8, 20) }),
+    ])
+    expect(rows.find((r) => r.type === 'Bottle')).toMatchObject({
+      detail: '1 bottle', time: 'Last 9:00 AM',
+    })
+    expect(rows.find((r) => r.type === 'Medicine')?.time).toBe('8:20 AM')
+    for (const row of rows) expect(row.detail).not.toMatch(/\d:\d\d/)
+  })
+
+  /* Rows the design gives a count and a duration and nothing else — no empty 88px gap. */
+  it('gives nursing no time column at all', () => {
+    const rows = windowTotals([entry({ type: 'Nursing', durationMinutes: 17, atUtc: atTime(9) })])
+    expect(rows.find((r) => r.type === 'Nursing')?.time).toBeNull()
   })
 
   /*
@@ -286,7 +344,7 @@ describe('windowTotals', () => {
       entry({ type: 'Sleep', amount: null, durationMinutes: 42.4, atUtc: atTime(13) }),
     ])
     expect(rows.find((r) => r.type === 'Sleep')).toMatchObject({
-      detail: '2 sleeps · last 1:00 PM', value: '137', unit: 'M',
+      detail: '2 sleeps', time: 'Last 1:00 PM', value: '137', unit: 'M',
     })
   })
 
@@ -430,5 +488,97 @@ describe('clockLabel', () => {
     expect(clockLabel(new Date(2026, 7, 13, 21, 9))).toBe('9:09 PM')
     expect(clockLabel(new Date(2026, 7, 13, 0, 5))).toBe('12:05 AM')
     expect(clockLabel(new Date(2026, 7, 13, 12, 0))).toBe('12:00 PM')
+  })
+})
+
+/**
+ * Walking TODAY back a day at a time.
+ *
+ * The page counts a 6 AM → 6 AM window, so "a day back" is that window moved by one — not midnight
+ * to midnight, and not twenty-four hours subtracted off a timestamp. Both of those would put the
+ * 1:25 AM feed on the wrong side of a boundary, which is the exact mistake the window exists to
+ * avoid making in the first place.
+ */
+describe('careWindowFor', () => {
+  /* Day zero has to be the window TODAY already counts, or the page would change what it reports
+     the instant this was wired in. */
+  it('is the current window at no days back', () => {
+    const now = new Date(2026, 7, 13, 21, 9)
+    expect(careWindowFor(0, now).from).toEqual(careWindowStart(now))
+  })
+
+  it('moves the whole window back a day at a time', () => {
+    const now = new Date(2026, 7, 13, 21, 9)
+    expect(careWindowFor(1, now).from).toEqual(new Date(2026, 7, 12, 6, 0, 0, 0))
+    expect(careWindowFor(3, now).from).toEqual(new Date(2026, 7, 10, 6, 0, 0, 0))
+  })
+
+  /* The small hours still belong to the window that opened at 6 AM yesterday — see
+     `careWindowStart` — and stepping back from there steps back from *that*, not from today. */
+  it('counts back from the window in force, not from the calendar day', () => {
+    const now = new Date(2026, 7, 13, 1, 25)
+    expect(careWindowFor(0, now).from).toEqual(new Date(2026, 7, 12, 6, 0, 0, 0))
+    expect(careWindowFor(1, now).from).toEqual(new Date(2026, 7, 11, 6, 0, 0, 0))
+  })
+
+  it('closes exactly one day after it opens', () => {
+    const { from, to } = careWindowFor(2, new Date(2026, 7, 13, 21, 9))
+    expect(to).toEqual(new Date(2026, 7, 12, 6, 0, 0, 0))
+    expect(from.getHours()).toBe(6)
+    expect(to.getHours()).toBe(6)
+  })
+})
+
+/**
+ * What each of those windows is called.
+ *
+ * The window in force at 2 AM opened yesterday, and the page has always called it TODAY, because
+ * that is what somebody standing at the panel at 2 AM means. So the name comes from the day being
+ * counted against rather than the day the window opened on.
+ */
+describe('careWindowLabel', () => {
+  it('names the first two days in words', () => {
+    const now = new Date(2026, 7, 13, 21, 9)
+    expect(careWindowLabel(0, now)).toBe('Today')
+    expect(careWindowLabel(1, now)).toBe('Yesterday')
+  })
+
+  /* Still TODAY at 2 AM, though the window it counts opened the day before. */
+  it('still says today in the small hours', () => {
+    expect(careWindowLabel(0, new Date(2026, 7, 13, 1, 25))).toBe('Today')
+  })
+
+  /* Past yesterday a day has no short name, so it gets its own — the same date the LOG page's
+     headings use, rather than "2 days ago", which is arithmetic the reader has to undo. */
+  it('gives every day after that its own date', () => {
+    const now = new Date(2026, 7, 13, 21, 9)
+    const twoBack = careWindowLabel(2, now)
+    expect(twoBack).not.toBe('Yesterday')
+    expect(twoBack).toBe(dayLabel(new Date(2026, 7, 11).toISOString(), now.getTime()))
+  })
+
+  /* The far end of the walk is still a real day rather than a blank. */
+  it('names the oldest day the read reaches', () => {
+    const now = new Date(2026, 7, 13, 21, 9)
+    expect(careWindowLabel(CARE_HISTORY_DAYS, now))
+      .toBe(dayLabel(new Date(2026, 7, 6).toISOString(), now.getTime()))
+  })
+})
+
+describe('holding to stop a session', () => {
+  it('guards the pump, because a pump session cannot be typed back in', () => {
+    // Its value is the length the panel measured and the amount asked for after. Throw the timer
+    // away and there is nothing to re-enter from memory.
+    expect(holdsToStop('Pump')).toBe(true)
+  })
+
+  it('leaves the other timed sessions on a plain tap', () => {
+    // Each of these is re-enterable by hand — you know roughly when it started — so the tap is
+    // still cheaper than the guard.
+    for (const type of TIMED_TYPES.filter((t) => t !== 'Pump')) {
+      expect(holdsToStop(type)).toBe(false)
+    }
+    // Guard against the list being the only thing that changes: every timed type is covered above.
+    expect(TIMED_TYPES).toContain('Pump')
   })
 })

@@ -1,25 +1,33 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { DrillInHeader, ScreenShell, ScrollArea, Stepper } from '../../components'
+import {
+  KitchenDrillInHeader, KitchenQuickRow, ScreenShell, ScrollArea, SectionLabel, Stepper,
+} from '../../components'
 import { api } from '../../api/client'
-import { ageLabel } from '../../app/pantryDomain'
-import { calendarDaysUntil, openLabel } from '../../app/kitchenDomain'
+import {
+  LOCATIONS, countHow, eventWho, eventWords, packLabel, pluralUnit, usageAmount,
+} from '../../app/pantryDomain'
+import { openLabel } from '../../app/kitchenDomain'
 import { longWeekday } from '../../app/mealsDomain'
-import type { ItemClaimDto, PantryEventDto, PantryItemDto } from '../../api/types'
+import type {
+  ItemUsageDto, PantryEventDto, PantryItemDto, PantryLocationName,
+} from '../../api/types'
 
 /**
  * The item sheet (PANTRY_SHELVES §2, panel P2).
  *
- * **`WHAT'S HAPPENED TO IT` is the point of the sheet.** Each event names the date, what changed,
- * and *who and how* — `Aiden · scan`, `Eleanor · check`, `cooked`. A wrong number is then traceable
- * rather than arguable, which is the difference between a pantry the household corrects and one it
- * stops believing.
+ * **`WHAT'S HAPPENED TO IT` is the point of the sheet**, and it leads the page for that reason. Each
+ * event names the date, what changed, and *who and how* — `Aiden · scan`, `Eleanor · check`,
+ * `cooked`. A wrong number is then traceable rather than arguable, which is the difference between a
+ * pantry the household corrects and one it stops believing.
  *
- * **`USED BY` says when the thing is spoken for.** A night holding a claim reads `claimed for
- * Saturday` in amber — the item knowing it is reserved is what stops the same tin being counted
- * twice across two screens (KITCHEN_LOOP_ADDENDUM §1).
+ * **`USED BY` says what the thing is for**, and where a night has spoken for it, that too: a claim
+ * reads `claimed for Saturday` in amber, which is what stops the same tin being counted twice across
+ * two screens (KITCHEN_LOOP_ADDENDUM §1).
  *
- * Opening is one tap, never inferred, and **never changes a quantity** (§4).
+ * **The actions sit at the foot**, under everything they act on. `MARK OPENED` was above the history
+ * once, which put the one control that changes nothing in front of the block the sheet exists to
+ * show. Opening is one tap, never inferred, and **never changes a quantity** (§4).
  */
 export function KitchenItemSheet() {
   const navigate = useNavigate()
@@ -28,7 +36,9 @@ export function KitchenItemSheet() {
 
   const [item, setItem] = useState<PantryItemDto | null>(null)
   const [events, setEvents] = useState<PantryEventDto[]>([])
-  const [claims, setClaims] = useState<ItemClaimDto[]>([])
+  const [usage, setUsage] = useState<ItemUsageDto[]>([])
+  /** Whether `MOVE IT` has been asked and the three shelves are showing. */
+  const [moving, setMoving] = useState(false)
   /** How many events to fetch. Five to start; the link asks for the rest. */
   const [take, setAll] = useState(5)
 
@@ -38,15 +48,15 @@ export function KitchenItemSheet() {
       .then((p) => setItem(p.items.find((i) => i.id === itemId) ?? null))
       .catch(() => {})
     void api.getPantryEvents(itemId, take).then(setEvents).catch(() => {})
-    void api.getItemClaims(itemId).then(setClaims).catch(() => {})
+    void api.getItemUsage(itemId).then(setUsage).catch(() => {})
   }, [itemId, take])
 
   useEffect(load, [load])
 
   if (!item) {
     return (
-      <ScreenShell header={<DrillInHeader title="" onBack={() => navigate(-1)} />}>
-        <div />
+      <ScreenShell header={<KitchenDrillInHeader exit="BACK" onExit={() => navigate(-1)} />}>
+        <div className="ml-kitchen__emptyshelf">That thing is not on the shelves.</div>
       </ScreenShell>
     )
   }
@@ -58,33 +68,44 @@ export function KitchenItemSheet() {
     load()
   }
 
-  /** Nudge the count by one, through the same PATCH every other correction uses. */
-  const nudge = async (by: number) => {
-    const next = Math.max(0, (item.quantity ?? 0) + by)
+  /** The PATCH every correction on this sheet goes through, with one field varied. */
+  const patch = async (changes: Partial<PantryItemDto>) => {
     await api.updatePantryItem(item.id, {
       name: item.name,
       location: item.location,
       tracking: item.tracking,
-      quantity: next,
+      quantity: item.quantity,
       unit: item.unit,
       estimateState: item.estimateState,
       packSize: item.packSize,
       packUnit: item.packUnit,
+      ...changes,
     }, item.version)
     load()
+  }
+
+  /** Nudge the count by one — the one quantity change that needs no check (§2). */
+  const nudge = (by: number) => patch({ quantity: Math.max(0, (item.quantity ?? 0) + by) })
+
+  /** Moving changes the shelf and nothing else. It is not a count, and never touches one. */
+  const moveTo = async (where: PantryLocationName) => {
+    setMoving(false)
+    await patch({ location: where })
   }
 
   return (
     <ScreenShell
       header={
-        <DrillInHeader
-          // The shelf it is on, with the item's own name as the page heading below — the sheet is
-          // reached from several places, so naming the shelf tells you something the row did not.
-          title={item.location.toUpperCase()}
-          onBack={() => navigate(-1)}
-          backLabel="BACK"
+        <KitchenDrillInHeader
+          exit="BACK"
+          onExit={() => navigate(-1)}
+          // The shelf it is on, as a context label rather than a title — the sheet is reached from
+          // several places, so naming the shelf tells you something the row you tapped did not. The
+          // item's own name is the page heading below, where it has room to be one.
+          label={item.location}
         />
       }
+      dock={<KitchenQuickRow active="Pantry" />}
     >
       <ScrollArea>
         <div className="ml-kitchen__sheetname">{item.name}</div>
@@ -95,9 +116,9 @@ export function KitchenItemSheet() {
         {/* Facts, not fields (§2). Editing happens behind EDIT — a sheet of inputs invites a
             correction nobody asked for, and these are mostly read rather than changed. */}
         <div className="ml-kitchen__facts">
-          <Fact label="ONE IS" value={packLabel(item)} />
-          <Fact label="GOOD UNTIL" value={item.goodUntil ?? 'no date'} />
-          <Fact label="OPENED" value={opened?.replace('OPEN ', '').toLowerCase() ?? 'not yet'} />
+          <Fact label="ONE IS" value={packLabel(item) ?? 'no pack size'} quiet={packLabel(item) == null} />
+          <Fact label="GOOD UNTIL" value={item.goodUntil ?? 'no date'} quiet={!item.goodUntil} />
+          <Fact label="OPENED" value={opened?.replace('OPEN ', '').toLowerCase() ?? 'not yet'} quiet={!opened} />
         </div>
 
         {/*
@@ -113,11 +134,9 @@ export function KitchenItemSheet() {
               <span className="ml-kitchen__factlabel">ON THE SHELF</span>
               <span className="ml-kitchen__countnum serif">
                 {item.quantity ?? 0}
-                <span className="ml-kitchen__countunit">{item.unit ?? ''}</span>
+                <span className="ml-kitchen__countunit">{pluralUnit(item.quantity, item.unit)}</span>
               </span>
-              <span className="ml-kitchen__counthow">
-                {ageLabel(item.lastSeenAtUtc).toLowerCase()} · counted, not guessed
-              </span>
+              <span className="ml-kitchen__counthow">{countHow(item)}</span>
             </div>
             <Stepper direction="minus" label="One fewer" disabled={(item.quantity ?? 0) <= 0}
               onStep={() => void nudge(-1)} />
@@ -125,53 +144,19 @@ export function KitchenItemSheet() {
           </div>
         )}
 
-        {/*
-          Marking opened is one tap and moves no stock. A deduction that empties a counted item does
-          not open anything either — the two facts are independent (§4).
-        */}
-        <button type="button" className="ml-kitchen__errandalt" onClick={toggleOpened}>
-          {opened ? 'MARK FINISHED' : 'MARK OPENED'}
-        </button>
-
-        {/* ---- What it is spoken for ---- */}
-        {claims.length > 0 && (
-          <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">USED BY</span>
-              <span className="ml-band__meta">{claims.length}</span>
-            </div>
-            <div className="ml-band-shade">
-              {claims.map((claim) => (
-                <div key={claim.planEntryId} className="ml-row ml-kitchen__claimrow">
-                  <span className="ml-row__value">{claim.dishName ?? 'A planned night'}</span>
-                  <span className="ml-kitchen__claimfor">
-                    claimed for {longWeekday(claim.date)}
-                    {claim.quantity != null && ` · ${claim.quantity}`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
         {/* ---- The history: date, what changed, and who and how ---- */}
-        <div className="ml-band">
-          <span className="ml-band__label">WHAT'S HAPPENED TO IT</span>
-          <span className="ml-band__meta">{events.length}</span>
-        </div>
-        <div className="ml-band-shade">
+        <SectionLabel label="WHAT'S HAPPENED TO IT" />
+        <div className="ml-kitchen__sheetlist">
           {events.length === 0 ? (
             <div className="ml-kitchen__emptyshelf">Nothing recorded yet.</div>
           ) : (
             events.map((event) => (
-              <div key={event.id} className={`ml-row ml-kitchen__eventrow${event.undone ? ' ml-kitchen__eventrow--undone' : ''}`}>
+              <div key={event.id} className={`ml-kitchen__eventrow${event.undone ? ' ml-kitchen__eventrow--undone' : ''}`}>
                 {/* Dated on the left, so the column reads as a history rather than a list. */}
                 <span className="ml-kitchen__eventwhen">{eventDay(event.atUtc)}</span>
                 <span className="ml-kitchen__eventwhat">{eventWords(event)}</span>
                 {/* Who and how. Without it a wrong number is arguable rather than traceable. */}
-                <span className="ml-kitchen__eventwho">
-                  {[event.byName, event.kind.toLowerCase()].filter(Boolean).join(' · ')}
-                </span>
+                <span className="ml-kitchen__eventwho">{eventWho(event)}</span>
               </div>
             ))
           )}
@@ -185,33 +170,106 @@ export function KitchenItemSheet() {
           {events.length >= 5 && (
             <button
               type="button"
-              className="ml-row ml-kitchen__drillin"
+              className="ml-kitchen__eventrow ml-kitchen__sheetmore"
               onClick={() => setAll((n) => n + 40)}
             >
-              <span className="ml-row__value">
-                Everything, back to {backTo(events)}
-              </span>
+              <span className="ml-kitchen__eventwhat">Everything, back to {backTo(events)}</span>
               <span className="ml-kitchen__chev">›</span>
             </button>
           )}
         </div>
+
+        {/* ---- What it cooks, and what is already spoken for ---- */}
+        {usage.length > 0 && (
+          <>
+            <div className="ml-kitchen__sheetdivide" />
+            <SectionLabel label="USED BY" />
+            <div className="ml-kitchen__sheetlist">
+              {usage.map((used) => (
+                <button
+                  key={used.recipeId}
+                  type="button"
+                  className="ml-kitchen__usedrow"
+                  onClick={() => navigate(`/kitchen/recipes/${used.recipeId}`)}
+                >
+                  <span className="ml-kitchen__usedname">{used.title}</span>
+                  {used.claimedForDate ? (
+                    /* Amber, because being spoken for is actionable: it is the difference between
+                       "there are three" and "there are three and Saturday is having one". */
+                    <span className="ml-kitchen__claimfor">
+                      claimed for {longWeekday(used.claimedForDate)}
+                    </span>
+                  ) : (
+                    <span className="ml-kitchen__usedamount">{usageAmount(used) ?? ''}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/*
+          The actions, at the foot, under everything they act on (§2).
+
+          Marking opened is one tap and moves no stock. A deduction that empties a counted item does
+          not open anything either — the two facts are independent (§4).
+
+          `EDIT` is drawn as a third peer in the handoff and is not here: there is no edit surface for
+          a pantry row yet, and a button that opens nothing is worse than a footer with two things in
+          it. `ADD_TO_PANTRY.md` is still the only screen that writes these fields by hand.
+        */}
+        <div className="ml-kitchen__sheetactions">
+          <button type="button" className="ml-kitchen__errandalt" onClick={toggleOpened}>
+            {opened ? 'MARK FINISHED' : 'MARK OPENED'}
+          </button>
+          <button
+            type="button"
+            className="ml-kitchen__errandalt"
+            aria-expanded={moving}
+            onClick={() => setMoving((was) => !was)}
+          >
+            MOVE IT
+          </button>
+        </div>
+
+        {/*
+          Moving is three shelves, so it is three buttons rather than a screen.
+
+          A drill-in for a choice between Cupboard, Fridge and Freezer would cost two taps and a page
+          transition to do what fits under the control that asked for it — and the shelf it is on
+          already names itself in the header, so the household can see the answer change.
+        */}
+        {moving && (
+          <div className="ml-kitchen__sheetactions ml-kitchen__sheetactions--choice">
+            {LOCATIONS.map((where) => (
+              <button
+                key={where}
+                type="button"
+                className="ml-kitchen__errandalt"
+                disabled={where === item.location}
+                onClick={() => void moveTo(where)}
+              >
+                {where.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
       </ScrollArea>
     </ScreenShell>
   )
 }
 
-/** `Added by scan · barcode 0 41331 12604 7`, or as much of it as the row actually knows. */
+/**
+ * `Added by scan · barcode 0 41331 12604 7`, or as much of it as the row actually knows.
+ *
+ * **How it got here, not who touched it last.** This line used to say `Last touched by Aiden`, which
+ * is a fact the history below states with a date beside it — and states better. What the history
+ * cannot say once it has scrolled past five rows is where the row came from at all, and that is what
+ * decides how much a number is worth: a barcode counted a pack, and a typed row is somebody's memory.
+ */
 function provenance(item: PantryItemDto): string {
-  const who = item.lastSeenByName ? `Last touched by ${item.lastSeenByName}` : 'Added at the panel'
-  return item.catalogueRef ? `${who} · barcode ${item.catalogueRef}` : who
-}
-
-/** What one of them is — the pack size where there is one, the unit where there is not. */
-function packLabel(item: PantryItemDto): string {
-  if (item.packSize != null && item.packSize > 0) {
-    return `${item.packSize} ${item.packUnit ?? ''}`.trim()
-  }
-  return item.unit ?? 'one'
+  const how = item.catalogueRef ? 'Added by scan' : 'Added at the panel'
+  return item.catalogueRef ? `${how} · barcode ${item.catalogueRef}` : how
 }
 
 /** How far back the history actually goes, so the link is worth pressing. */
@@ -219,39 +277,37 @@ function backTo(events: PantryEventDto[]): string {
   const oldest = events[events.length - 1]
   if (!oldest) return 'the beginning'
   const at = new Date(oldest.atUtc)
-  return `${MONTHS[at.getMonth()]} ${at.getFullYear()}`
+  // The month in full, and no year unless it is a different one. "back to March" is how somebody
+  // says it; "back to MAR 2026" is how a log file says it.
+  const month = MONTHS_LONG[at.getMonth()]
+  return at.getFullYear() === new Date().getFullYear() ? month : `${month} ${at.getFullYear()}`
 }
 
 /** `TODAY` / `11 AUG` — the history's left column. */
 function eventDay(atUtc: string): string {
   const at = new Date(atUtc)
-  if (calendarDaysUntil(at, new Date()) === 0) return 'TODAY'
+  const now = new Date()
+  const sameDay = at.getFullYear() === now.getFullYear()
+    && at.getMonth() === now.getMonth()
+    && at.getDate() === now.getDate()
+  if (sameDay) return 'TODAY'
   return `${at.getDate()} ${MONTHS[at.getMonth()]}`
 }
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 
-function Fact({ label, value }: { label: string; value: string }) {
+const MONTHS_LONG = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+function Fact({ label, value, quiet }: { label: string; value: string; quiet?: boolean }) {
   return (
     <div className="ml-kitchen__fact">
       <span className="ml-kitchen__factlabel">{label}</span>
-      <span className="ml-kitchen__factvalue">{value}</span>
+      <span className={'ml-kitchen__factvalue' + (quiet ? ' ml-kitchen__factvalue--quiet' : '')}>
+        {value}
+      </span>
     </div>
   )
 }
-
-/**
- * One line of history, said as a change rather than as a field name.
- *
- * "had 6, now 4" reads; "Deducted −2" needs decoding. The ledger stores both numbers precisely so
- * the sheet can put the before beside the after.
- */
-function eventWords(event: PantryEventDto): string {
-  if (event.resultingState) return `now ${event.resultingState.toLowerCase()}`
-  if (event.delta == null || event.resultingQuantity == null) return 'changed'
-
-  const before = event.resultingQuantity - event.delta
-  return `${trim(before)} → ${trim(event.resultingQuantity)}`
-}
-
-const trim = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, ''))

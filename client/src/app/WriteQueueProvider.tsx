@@ -79,7 +79,7 @@ function fireSync() {
 
 export function WriteQueueProvider({ children }: { children: ReactNode }) {
   const { online } = useConnection()
-  const { activeProfileId, locked } = useSession()
+  const { activeProfileId, locked, deviceOnly } = useSession()
   const [pending, setPending] = useState<QueuedOp[]>(() => store.read())
   const [dropped, setDropped] = useState<DroppedOp[]>(() => store.readDropped())
   const replaying = useRef(false)
@@ -152,7 +152,10 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
   )
 
   const replay = useCallback(async () => {
-    if (replaying.current || locked || activeProfileId == null) return
+    // A device-proved session has no confirmed identity yet, so every op would come back 401 and
+    // `replayQueue` would stop at the first one. Waiting costs nothing: the effect below runs again
+    // the moment SessionProvider hears back from `getSession`.
+    if (replaying.current || locked || deviceOnly || activeProfileId == null) return
     replaying.current = true
     try {
       const result = await replayQueue(store, activeProfileId)
@@ -161,13 +164,21 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
     } finally {
       replaying.current = false
     }
-  }, [locked, activeProfileId, sync])
+  }, [locked, deviceOnly, activeProfileId, sync])
 
-  // Replay whenever the connection is up and this profile has queued work.
+  /*
+   * Replay whenever the connection is up and this profile has queued work.
+   *
+   * <b>`deviceOnly` is in here because the connection coming back is not the last event.</b> An
+   * unlock made with no server leaves the identity unconfirmed, and the queue cannot send under
+   * one; the network returning fires this effect while that is still true, and without a second
+   * firing the entries written offline sat in the queue indefinitely — durable, correct, and never
+   * sent. The confirmation is what clears `deviceOnly`, so it is what this waits for.
+   */
   useEffect(() => {
-    if (online && !locked && owned.some((op) => !op.conflict)) void replay()
+    if (online && !locked && !deviceOnly && owned.some((op) => !op.conflict)) void replay()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, locked, activeProfileId])
+  }, [online, locked, deviceOnly, activeProfileId])
 
   const resolveConflict = useCallback(async (opId: string, choice: 'keep-mine' | 'discard') => {
     const target = store.read().find((op) => op.id === opId)

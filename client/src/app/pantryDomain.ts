@@ -10,9 +10,12 @@
 import type {
   EstimateStateName,
   GroceryLineDto,
+  ItemUsageDto,
   MealSlotName,
   MealWeekDto,
   MirrorStatusDto,
+  PantryEventDto,
+  PantryEventKindName,
   PantryItemDto,
   PantryLocationName,
   StockCheckLineDto,
@@ -88,13 +91,18 @@ export function amountLabel(item: PantryItemDto): string {
   const quantity = item.quantity ?? 0
   if (quantity <= 0) return 'none'
   if (item.packSize && item.packSize > 0) {
-    const pack = item.packUnit ? `${trimNumber(item.packSize)} ${item.packUnit}` : trimNumber(item.packSize)
+    // The pack's own unit agrees with the pack size, not with how many packs there are: `3 oz ×5`.
+    const pack = item.packUnit
+      ? `${trimNumber(item.packSize)} ${pluralUnit(item.packSize, item.packUnit)}`
+      : trimNumber(item.packSize)
     // Rounded for the eye only. Cooking four ounces out of 3 oz pots genuinely leaves 3.667 of them,
     // and the stored number keeps every digit — but a shelf list is read at a glance from across a
     // room, and `×3.7` is the same fact in a form somebody can act on.
     return `${pack} ×${trimNumber(Math.round(quantity * 10) / 10)}`
   }
-  return item.unit ? `${trimNumber(quantity)} ${item.unit}` : trimNumber(quantity)
+  return item.unit
+    ? `${trimNumber(quantity)} ${pluralUnit(quantity, item.unit)}`
+    : trimNumber(quantity)
 }
 
 /**
@@ -328,13 +336,13 @@ export function grocerySections(lines: GroceryLineDto[]): GrocerySection[] {
   return [
     {
       key: 'meals',
-      label: "FOR THIS WEEK'S MEALS",
+      label: 'For the week',
       // LowStock lines sit here too: both are the panel's own suggestions rather than someone's
       // note, and a third section for "because you're running out" would split one idea in two.
       lines: open.filter((l) => l.sourceKind !== 'Hand'),
     },
-    { key: 'hand', label: 'ADDED BY HAND', lines: open.filter((l) => l.sourceKind === 'Hand') },
-    { key: 'done', label: 'GOT IT', lines: lines.filter((l) => l.checkedAtUtc) },
+    { key: 'hand', label: 'Asked for', lines: open.filter((l) => l.sourceKind === 'Hand') },
+    { key: 'done', label: 'Got', lines: lines.filter((l) => l.checkedAtUtc) },
   ]
 }
 
@@ -439,4 +447,195 @@ export function estimateWord(state: EstimateStateName | string | null): string {
     case 'Plenty': return 'plenty'
     default: return '—'
   }
+}
+
+/**
+ * `4 cans`, `200 g`, `1 can` — the unit, agreed with the number in front of it.
+ *
+ * **The pantry stores canonical singulars.** `UnitRegistry` folds `cans` to `can` on the way in, so
+ * every quantity in the section rendered `4 can` and `2 carton` until this existed. The registry is
+ * right to store one spelling; agreement is a display question, and this is where it is answered.
+ *
+ * **Symbols never take an `s`.** `200 gs` is not a thing anybody writes, and the set of unit symbols
+ * is small, closed and known — everything outside it is an ordinary English noun, including the
+ * household's own words (`block`, `carton`, `pot`, `portion`), which is exactly the set the seeded
+ * `Countable` table does *not* cover and why that table could not be used here.
+ *
+ * Not a bare `+ 's'`: `box`, `bunch` and `loaf` are common enough on a shelf to be worth getting
+ * right, and getting them wrong is the thing that makes a panel look machine-written.
+ */
+export function pluralUnit(quantity: number | null | undefined, unit: string | null): string {
+  const one = (unit ?? '').trim()
+  if (one === '' || SYMBOL_UNITS.has(one.toLowerCase())) return one
+  if (quantity != null && Math.abs(quantity) === 1) return one
+  // Already plural: older rows and hand-typed units still hold `tins`, and a rule that is not
+  // idempotent turns them into `tinses` the first time anybody looks at them.
+  if (/s$/i.test(one)) return one
+  if (/[xz]$|ch$|sh$/i.test(one)) return `${one}es`
+  if (/[^aeiou]y$/i.test(one)) return `${one.slice(0, -1)}ies`
+  if (/fe$/i.test(one)) return `${one.slice(0, -2)}ves`
+  if (/f$/i.test(one)) return `${one.slice(0, -1)}ves`
+  return `${one}s`
+}
+
+/**
+ * Unit symbols, which are abbreviations rather than words and so never inflect.
+ *
+ * Closed by nature: a household can type a new *word* for a container, but it cannot invent a new
+ * abbreviation for a gram. Kept lowercase and matched case-insensitively, since `mL` and `L` earn
+ * their capitals for legibility rather than meaning.
+ */
+const SYMBOL_UNITS = new Set([
+  'g', 'kg', 'mg', 'ml', 'l', 'oz', 'lb', 'lbs', 'fl oz', 'tsp', 'tbsp', 'cup', 'cups',
+  'pt', 'qt', 'gal', 'cm', 'mm', 'in', 'ea', 'each',
+])
+
+/* ---------- The item sheet (PANTRY_SHELVES §2) ---------- */
+
+/**
+ * The `ONE IS` cell — what one package of this is.
+ *
+ * **A pack size or nothing.** `ADD_TO_PANTRY` §3 makes size optional and says what blank means:
+ * "the item counts in whole units". So a loose row has no answer to this question, and the cell used
+ * to fall back to the item's own unit — which rendered `ONE IS · g` on anything measured by weight.
+ * "One is g" is not a fact; 454 g of caramel sauce is not 454 of anything you can pick up.
+ *
+ * The absence is stated in the same quiet register as its two neighbours (`no date`, `not yet`),
+ * because an optional fact nobody supplied is a normal state for this strip rather than a fault.
+ */
+export function packLabel(item: PantryItemDto): string | null {
+  if (item.packSize == null || item.packSize <= 0) return null
+  return `${trimNumber(item.packSize)} ${item.packUnit ?? ''}`.trim()
+}
+
+/**
+ * `seen today · counted, not guessed` — how the number on the shelf is known.
+ *
+ * The age is **prose, not the shelf list's caps token**. It used to render `ageLabel` lowercased,
+ * which put `seen 2 wk` in the middle of a sentence: `SEEN 2 WK` is a column heading and reads as
+ * one wherever it goes. Same fix as the check card's belief line, and for the same reason — this
+ * clause is an argument about how much to trust the number above it, so it has to be readable as
+ * a sentence.
+ */
+export function countHow(item: PantryItemDto, now: Date = new Date()): string {
+  const seen = item.lastSeenAtUtc ? `seen ${relativeWords(item.lastSeenAtUtc, now)}` : 'never seen'
+  const how = item.tracking === 'Estimated' ? 'estimated, not counted' : 'counted, not guessed'
+  return `${seen} · ${how}`
+}
+
+/**
+ * One line of the item sheet's history, said the way the household would say it.
+ *
+ * `Four added`, `One used`, `Counted at 1`, `Opened` — not `+4`, `−1`, `Corrected`. The section's
+ * whole claim is that a wrong number is *traceable rather than arguable*, and an argument is won by
+ * a sentence somebody can read, not by a field name and a signed integer. `Deducted −2` needs
+ * decoding before it can be disagreed with; "Two used" can be disagreed with immediately.
+ *
+ * The kind is what picks the verb, and the delta only supplies the number — which is why an event
+ * whose kind the panel does not recognise still says something true (`Changed to 4`) rather than
+ * inventing a verb for it.
+ */
+export function eventWords(event: PantryEventDto): string {
+  if (event.resultingState) return `Now ${estimateWord(event.resultingState)}`
+
+  const delta = event.delta
+  const count = delta == null ? null : Math.abs(delta)
+  // Whole numbers get the word, because the history is prose. A fractional pack — genuinely 3.67
+  // pots left after a recipe — has no word and keeps its digits.
+  const said = count == null ? null
+    : Number.isInteger(count) && count <= 10 ? capitalise(numberWord(count))
+    : trimNumber(count)
+
+  switch (event.kind) {
+    case 'MarkedOpened': return 'Opened'
+    case 'MarkedFinished': return 'Finished'
+    case 'MarkedLow': return 'Marked low'
+    case 'MarkedOut': return 'Marked out'
+    case 'Undone': return 'Undone'
+    case 'Corrected':
+      // A correction *sets* the number rather than moving it, so the count is the point and the
+      // delta is an artefact of what it happened to be before.
+      return event.resultingQuantity == null
+        ? 'Corrected' : `Counted at ${trimNumber(event.resultingQuantity)}`
+    default:
+      if (said == null || delta == null || delta === 0) {
+        return event.resultingQuantity == null
+          ? 'Changed' : `Changed to ${trimNumber(event.resultingQuantity)}`
+      }
+      // `One used — Piccata`. What it was used *for* is the question "one used" provokes, and the
+      // ledger has always known the answer; only additions leave it off, because what a delivery
+      // was for is the delivery, which the right-hand cell already names.
+      if (delta < 0) {
+        return event.sourceLabel ? `${said} used — ${event.sourceLabel}` : `${said} used`
+      }
+      return `${said} added`
+  }
+}
+
+/**
+ * The right-hand cell of a history row — `Aiden · scan`, `Eleanor · check`, `cooked`.
+ *
+ * **Who and how, and the `how` is never dropped.** A name alone says a person touched it; the
+ * method is what says whether to trust the number — a scan counted a barcode, a check means somebody
+ * stood at the cupboard, and a deduction means nobody looked at all. An event with no profile still
+ * carries its method, which is why an import reads `Tesco order` rather than blank.
+ */
+export function eventWho(event: PantryEventDto): string {
+  // A delivery names its vendor rather than the word "delivery" — `Tesco order` says both what
+  // happened and which one, where the generic word says neither. Only imports do this: a dish name
+  // belongs on the left, beside the amount it took.
+  if (event.kind === 'Imported' && event.sourceLabel) return `${event.sourceLabel} order`
+  return [event.byName, eventHow(event.kind)].filter(Boolean).join(' · ')
+}
+
+/** The method word — deliberately the household's, not the enum's. */
+function eventHow(kind: PantryEventKindName): string | null {
+  switch (kind) {
+    case 'Scanned': return 'scan'
+    case 'Imported': return 'delivery'
+    case 'TypedIn': return 'typed in'
+    case 'CheckedOff': return 'shopping'
+    case 'Deducted': return 'cooked'
+    case 'Produced': return 'leftovers'
+    case 'Corrected': return 'check'
+    case 'MarkedOpened':
+    case 'MarkedFinished': return null
+    case 'MarkedLow':
+    case 'MarkedOut': return 'said so'
+    case 'Undone': return 'undone'
+    default: return null
+  }
+}
+
+/**
+ * `1 can`, `30 oz · 3 cans` — what a recipe asks for on a `USED BY` row.
+ *
+ * The recipe's own amount leads, because that is the number somebody will read off the page while
+ * cooking. The pack equivalent follows only when the units genuinely convert; where they do not,
+ * the row stops after `30 oz` rather than guessing, which is the same refusal the stock check makes
+ * about the same pair of units.
+ */
+export function usageAmount(usage: ItemUsageDto): string | null {
+  const asked = usage.quantity == null ? null
+    : [trimNumber(usage.quantity), usage.unit].filter(Boolean).join(' ')
+
+  const packs = usage.packs == null || usage.packUnit == null ? null
+    : `${trimNumber(usage.packs)} ${pluralUnit(usage.packs, usage.packUnit)}`
+
+  // Only worth saying twice when it says something different. A line asking for "1 can" of an item
+  // counted in cans would otherwise render `1 can · 1 cans` — the same fact, differing only in the
+  // plural, which is why the units are compared rather than the finished strings.
+  const speaksInPacks = sameUnit(usage.unit, usage.packUnit)
+  if (asked && packs && !speaksInPacks) return `${asked} · ${packs}`
+  return asked ?? packs
+}
+
+/** `can` and `cans` are one unit. Nothing cleverer — this only ever compares a pair of words. */
+function sameUnit(a: string | null, b: string | null): boolean {
+  const bare = (u: string | null) => (u ?? '').trim().toLowerCase().replace(/s$/, '')
+  return bare(a) !== '' && bare(a) === bare(b)
+}
+
+function capitalise(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1)
 }

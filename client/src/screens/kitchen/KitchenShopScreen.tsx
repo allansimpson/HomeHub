@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, OfflineChip, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, OfflineChip, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { useConnection } from '../../app/ConnectionProvider'
 import { provenanceLine } from '../../app/pantryDomain'
@@ -98,10 +98,10 @@ export function KitchenShopScreen() {
     <ScreenShell
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="Shopping"
-          onBack={() => navigate('/kitchen/list')}
-          backLabel="PAUSE"
+          onExit={() => navigate('/kitchen/list')}
+          exit="PAUSE"
           status={`${rows.length - ticked.size} LEFT`}
         />
       }
@@ -118,7 +118,7 @@ export function KitchenShopScreen() {
 
         {/* Chips, not modes. `EVERYTHING` leads; `NEEDED SOON` carries the same brass bar the
             urgent rows do, so the filter and the marker are visibly the same idea. */}
-        <div className="ml-kitchen__chips ml-cut" data-hscroll>
+        <div className="ml-kitchen__chips" data-hscroll>
           <button
             type="button"
             className={`ml-kitchen__chip${soonOnly ? '' : ' ml-kitchen__chip--on'}`}
@@ -137,13 +137,10 @@ export function KitchenShopScreen() {
 
         {grouped.map(([aisle, lines]) => (
           <div key={aisle}>
-            <div className="ml-band">
-              <span className="ml-band__label">{aisle.toUpperCase()}</span>
-              <span className="ml-band__meta">{lines.length}</span>
-            </div>
+            <KitchenDivider label={aisle} count={lines.length} gap={false} />
             {/* 63px rows here — the shop's are the biggest in the section, tapped one-handed while
                 walking — so the aisle's cut is derived from that and not from a list row. */}
-            <CutGroup rows={4} rowHeight={63} className="ml-band-shade">
+            <div>
               {lines.map((line) => (
                 <ShopRow
                   key={line.id}
@@ -152,7 +149,7 @@ export function KitchenShopScreen() {
                   onTick={() => tick(line)}
                 />
               ))}
-            </CutGroup>
+            </div>
           </div>
         ))}
 

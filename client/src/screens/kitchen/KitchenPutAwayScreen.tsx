@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea, Stepper } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea, Stepper } from '../../components'
 import { api } from '../../api/client'
 import { DecisionCard } from './DecisionCard'
 import {
@@ -144,12 +144,12 @@ export function KitchenPutAwayScreen() {
     <ScreenShell
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="What came home"
-          onBack={() => navigate('/kitchen/list')}
+          onExit={() => navigate('/kitchen/list')}
           // `LATER`, not `CANCEL`. Leaving abandons nothing — the shopping stays ticked and this
           // panel is still here when somebody comes back to it.
-          backLabel="LATER"
+          exit="LATER"
         />
       }
     >
@@ -160,11 +160,8 @@ export function KitchenPutAwayScreen() {
 
         {landings.length > 0 && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">STRAIGHT TO THEIR SHELVES</span>
-              <span className="ml-band__meta">{landings.length}</span>
-            </div>
-            <CutGroup rows={4} rowHeight={42} className="ml-band-shade">
+            <KitchenDivider label="Straight to their shelves" count={landings.length} gap={false} />
+            <div>
               {/* No interaction on these rows at all. Anything the app is sure of should cost the
                   household nothing to accept. */}
               {landings.map((landing) => (
@@ -174,17 +171,14 @@ export function KitchenPutAwayScreen() {
                   <span className="ml-kitchen__awaywhere">{landing.location.toLowerCase()}</span>
                 </div>
               ))}
-            </CutGroup>
+            </div>
           </>
         )}
 
         {questions.length > 0 && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">THESE NEED A DECISION</span>
-              <span className="ml-band__meta">{questions.length - answered}</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="These need a decision" count={questions.length - answered} amber />
+            <div>
               {questions.map((q) => {
                 const chosen = answers.get(q.line.id)
                 const pick = (how: Settlement) =>
@@ -234,11 +228,8 @@ export function KitchenPutAwayScreen() {
         {/* Fresh things only, pre-filled, and headed OPTIONAL because it is. */}
         {landings.some((l) => l.fresh) && (
           <>
-            <div className="ml-band ml-band--quiet">
-              <span className="ml-band__label">FRESH · WORTH A DATE</span>
-              <span className="ml-band__meta">OPTIONAL</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="Fresh · worth a date" count="OPTIONAL" />
+            <div>
               {landings.filter((l) => l.fresh).map((landing) => (
                 <div key={landing.line.id} className="ml-row ml-kitchen__daterow">
                   <span className="ml-kitchen__shelfname">{landing.line.text}</span>

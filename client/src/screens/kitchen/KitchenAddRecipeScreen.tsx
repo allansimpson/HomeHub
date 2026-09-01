@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { AttachmentRefused, readAttachment } from '../assist/attachments'
 import type { ReadLineDto, RecipeReadingDto } from '../../api/types'
@@ -99,10 +99,10 @@ export function KitchenAddRecipeScreen() {
     <ScreenShell
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="Add a recipe"
-          onBack={() => navigate('/kitchen/recipes')}
-          backLabel="CANCEL"
+          onExit={() => navigate('/kitchen/recipes')}
+          exit="CANCEL"
         />
       }
     >
@@ -148,11 +148,8 @@ export function KitchenAddRecipeScreen() {
 
         {readable && reading && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">READ FROM THE PHOTO</span>
-              <span className="ml-band__meta">EDITABLE</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="Read from the photo" count="EDITABLE" amber gap={false} />
+            <div>
               <div className="ml-kitchen__field">
                 <span className="ml-kitchen__fieldlabel">NAME</span>
                 <input
@@ -171,19 +168,17 @@ export function KitchenAddRecipeScreen() {
                   panel. */}
               {/* 40px parsed lines — the shortest rows in the section, and the group cuts on
                   their own height (RECIPES §6). */}
-              <CutGroup rows={5} rowHeight={40}>
+              <div>
                 {[...reading.ingredients, ...reading.steps].map((line, i) => (
                   <ParsedLine key={`${i}-${line.rawText}`} line={line} />
                 ))}
-              </CutGroup>
+              </div>
             </div>
           </>
         )}
 
-        <div className="ml-band ml-band--quiet">
-          <span className="ml-band__label">OR START FROM</span>
-        </div>
-        <div className="ml-band-shade">
+        <KitchenDivider label="Or start from" />
+        <div>
           <div className="ml-kitchen__errandrow">
             <button
               type="button"

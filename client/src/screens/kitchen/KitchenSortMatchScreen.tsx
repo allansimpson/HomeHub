@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
-import { DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { ageLabel, amountLabel } from '../../app/pantryDomain'
 import type { PantryItemDto } from '../../api/types'
@@ -67,29 +67,24 @@ export function KitchenSortMatchScreen() {
       // wander off into halfway through.
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="Sorting one line"
-          onBack={() => navigate('/kitchen/matching')}
+          onExit={() => navigate('/kitchen/matching')}
           // `LATER`, not `CANCEL`. The line stays unsorted and the queue is still there — nothing
           // has been abandoned, which is a different promise from the one CANCEL makes.
-          backLabel="LATER"
+          exit="LATER"
         />
       }
     >
       <ScrollArea>
         <div className="ml-kitchen__askedfor">
-          <span className="ml-band__meta">THE RECIPE ASKS FOR</span>
+          <span className="ml-kitchen__askedlabel">THE RECIPE ASKS FOR</span>
           <span className="ml-kitchen__askedname">{ingredient}</span>
         </div>
 
-        <div className="ml-band">
-          <span className="ml-band__label">IS IT ONE OF THESE?</span>
-          <span className="ml-band__meta">
-            {candidates == null ? '' : `${candidates.length} LIKELY`}
-          </span>
-        </div>
+        <KitchenDivider label="Is it one of these?" count={candidates == null ? undefined : `${candidates.length} LIKELY`} gap={false} />
 
-        <div className="ml-band-shade">
+        <div>
           {candidates != null && candidates.length === 0 ? (
             // Nothing on the shelves resembles it, which is itself an answer: it gets bought
             // rather than matched.
@@ -161,10 +156,8 @@ export function KitchenSortMatchScreen() {
           </div>
         </div>
 
-        <div className="ml-band ml-band--quiet">
-          <span className="ml-band__label">WHAT SAYING YES DOES</span>
-        </div>
-        <div className="ml-band-shade">
+        <KitchenDivider label="What saying yes does" />
+        <div>
           <div className="ml-kitchen__emptyshelf">
             Every recipe wanting {ingredient} resolves from now on, and so does any future delivery
             line like it. Household-wide, and reversible from the item sheet.

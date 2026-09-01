@@ -1,6 +1,5 @@
 namespace HomeHub.Tests;
 
-using HomeHub.Api.Baby;
 using HomeHub.Api.Calendar;
 using HomeHub.Api.Cats;
 using HomeHub.Api.Climate;
@@ -177,27 +176,14 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
             services.AddScoped<UnitRegistry>();
             // Care logging is DB-gated in the app for the same reason as the calendar: the panel
             // serves its shell without a database, and a store that demanded one would take the
-            // whole thing down rather than the one tab that needs it. The import takes a null Home
-            // Assistant client deliberately — these tests have none, and an import with nothing
-            // upstream to read reports zero rather than failing to construct.
+            // whole thing down rather than the one tab that needs it.
             services.AddScoped<HomeHub.Api.Care.CareLogService>();
-            services.AddScoped(sp => new HomeHub.Api.Care.CareImportService(
-                sp.GetRequiredService<HomeHubDbContext>(),
-                null,
-                sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<HomeHub.Api.Baby.HuckleberryOptions>>(),
-                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<HomeHub.Api.Care.CareImportService>>()));
             if (EventExtractor is { } extractor)
                 services.AddSingleton(extractor);
             if (KitchenPhotoReader is { } kitchenReader)
                 services.AddSingleton(kitchenReader);
             services.AddScoped<HomeHub.Api.Assist.AgentAccess>();
             services.AddScoped<HomeHub.Api.Assist.LineageAudit>();
-            // Same reasoning as the AI keys below: a developer with HomeAssistant configured in
-            // user-secrets would otherwise have these tests resolve the real HA-backed provider and
-            // hit their live instance. Force the not-connected provider so behaviour is
-            // machine-independent. (Huckleberry itself is covered by HuckleberryProviderTests
-            // against a stubbed HA.)
-            services.AddScoped<IHuckleberryProvider, NotConnectedHuckleberryProvider>();
             // Same reasoning, with sharper teeth: the litter-box seam has a *write* side. On a machine
             // with HomeAssistant in user-secrets, a test touching the cycle endpoint would send a real
             // reset to a real litter box. Pin both halves to the not-connected implementations; the

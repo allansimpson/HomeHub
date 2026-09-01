@@ -5,6 +5,38 @@ root cause and the guard, not the narrative.
 
 ---
 
+## 2026-08-30 · Pump haptics, the second time — a real defect, and the alert was mounted inside a screen
+
+**What happened.** Reported again as "vibration on pump switch and ending is not working". The
+2026-08-19 entry below was a stale deploy; this one was not.
+
+**Root cause.** `PumpAlert` was mounted inside `CareLogView` — the Baby tab. Leaving the tab
+unmounted it, so the boundary passed in silence for anyone who had navigated away. The panel idles
+on the Dashboard, so that was most of the time. The mount's own comment argued for its position
+against the running *panel* being closed, which it does survive; nobody had asked what happens when
+the *tab* is left. A haptic exists for the moment nobody is looking at a screen, so the one place it
+cannot live is inside one.
+
+**How it presented.** Intermittent rather than dead — it fires perfectly while the Baby tab is open,
+which is exactly when somebody is watching the countdown and least needs it.
+
+**Why no test caught it.** `pumpPhases.test.ts` covers the decision — which moment is due, when, and
+what pattern — and passes. The defect was in the *wiring*, and the client has no component-test
+setup at all: all 797 tests are pure functions. This class of bug is invisible to that suite.
+
+**Fixed by** lifting the alert to `App`, beside `MicLiveBanner`, which is mounted globally for the
+same reason. `BabyProvider` carries the running session; it already polls the care log for the
+Dashboard's figures. Exactly one mount, or the pattern replays.
+
+**Guard.** `artifacts/homehub-browser-verification/probe-pump-haptics.js` stubs `navigator.vibrate`
+and drives a real session across both boundaries, including the case that failed: arm on the Baby
+tab, navigate to the Dashboard, cross the boundary there. Before the fix that case recorded zero
+calls; after it, one. **A pure-function test cannot replace it** — if the alert moves again, run
+that probe.
+
+**Still true after the fix:** it only alerts while the app is open. A backgrounded PWA runs no
+timers, and that needs push notifications rather than a different mount.
+
 ## 2026-08-20 · 89 files became root-owned and both builds died
 
 **What happened.** Between 22:00 and 22:05, 89 files across `client/src`, `src/HomeHub.Api` and
@@ -15,14 +47,15 @@ root cause and the guard, not the narrative.
 `MSB4025: The project file could not be loaded. Access to the path ... is denied`. Both builds were
 dead for roughly seven hours, so no build could ship and the panel stayed on the 17 Aug release.
 
-**Root cause.** Not established. Something ran as `root` inside the working tree — most likely a
-build or script under `sudo`. **Worth pinning down: if it was the deploy script, running it again
-reproduces this immediately after a fix.**
+**Root cause.** The isolated promotion snapshot used a `.git` pointer to the shared repository. Its
+Vite build stamp ran `git status` as root, which refreshed and atomically replaced the shared
+`.git/index` as root. This was reproduced during the 2026-08-21 21:04Z TEST promotion.
 
 **Fixed by** `sudo chown -R simpson:geist-dev /srv/dev/homehub` (Allan, 2026-08-21).
 
-**Guard.** Never run a build or script as `root` inside `/srv/dev/homehub` — see `OWNERSHIP.md`. If
-a build fails claiming a file is *missing* that plainly exists, check ownership before anything else.
+**Guard.** Never run a build or script as `root` inside `/srv/dev/homehub` — see `OWNERSHIP.md`.
+Promotion snapshots use isolated refs/indexes with an object-store alternates pointer, never a direct
+`.git` pointer to shared DEV. If a build claims an existing file is missing, check ownership first.
 
 ## 2026-08-20 · The client suite reported green while 61 tests did not run
 

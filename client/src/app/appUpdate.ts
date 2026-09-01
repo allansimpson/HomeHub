@@ -81,6 +81,32 @@ export function outcomeOf(handoff: UpdateHandoff | null, currentBuild: string, n
   return { status, version: handoff.expect, from: handoff.from, at: handoff.at }
 }
 
+/**
+ * Whether a worker sitting in `waiting` is actually offering anything.
+ *
+ * <b>A page can already be running the build its own service worker is waiting to install.</b>
+ * Navigations are network-first (`sw.js`), so a reload after a deploy is served the *new* shell
+ * straight from the server while the *old* worker is still the one controlling the page — and the
+ * new worker, having installed behind it, sits in `waiting`. At that moment `__BUILD__` and the
+ * waiting worker's build are the same string, and the panel is looking at an update it is already
+ * running.
+ *
+ * Offered anyway, that is a plate the household cannot get rid of by doing what it asks: APPLY NOW
+ * writes a handoff whose `from` is the build already loaded, hands over, reloads onto the same
+ * build — and `outcomeOf` above, comparing the two, correctly reports that nothing changed. The
+ * household sees the new panel, with its new features plainly there, being told the update failed.
+ * Which is the report this exists to answer.
+ *
+ * <b>An unanswered `VERSION` is not a refusal.</b> `askVersion` gives up after three seconds and
+ * resolves null, and a waiting worker that could not be reached is still much more likely to be a
+ * genuine new build than not. Offered without a name, which is what the plate already says when it
+ * has none.
+ */
+export function worthOffering(offered: string | null, running: string): boolean {
+  if (offered === null) return true
+  return offered !== running
+}
+
 /** The subset of `Storage` this needs, so the rules above can be tested without a browser. */
 export interface HandoffStore {
   getItem(key: string): string | null

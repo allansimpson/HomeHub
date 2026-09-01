@@ -150,8 +150,25 @@ public sealed partial class NwsWeatherProvider : IWeatherProvider
                     Id: f.Id ?? p.Event ?? Guid.NewGuid().ToString(),
                     Event: p.Event ?? "Weather Alert",
                     Severity: MapSeverity(p.Severity),
+                    // Still bounded: this is the banner's one-line detail, and the banner has one
+                    // line. The full product now travels in Description, uncapped, which is what
+                    // ALERT_SHEET.md was after when it said to stop truncating.
                     Message: Truncate(detail, 280),
-                    ExpiresUtc: p.Expires?.UtcDateTime);
+                    ExpiresUtc: p.Expires?.UtcDateTime,
+                    Description: Blank(p.Description),
+                    Instruction: Blank(p.Instruction),
+                    AreaDesc: Blank(p.AreaDesc),
+                    SenderName: Blank(p.SenderName),
+                    SentUtc: p.Sent?.UtcDateTime,
+                    OnsetUtc: p.Onset?.UtcDateTime,
+                    EffectiveUtc: p.Effective?.UtcDateTime,
+                    EndsUtc: p.Ends?.UtcDateTime,
+                    Urgency: Blank(p.Urgency),
+                    Certainty: Blank(p.Certainty),
+                    // CAP's own severity word, kept verbatim for the SEVERITY row. AlertSeverity
+                    // collapses Extreme and Severe into one banner treatment; the sheet should
+                    // still be able to say which of the two NWS actually issued.
+                    SeverityText: Blank(p.Severity));
             })
             .ToList();
     }
@@ -178,6 +195,9 @@ public sealed partial class NwsWeatherProvider : IWeatherProvider
     private static string Coord(double c) => c.ToString("0.####", CultureInfo.InvariantCulture);
 
     private static string Truncate(string s, int max) => s.Length <= max ? s : s[..max];
+
+    /// <summary>Whitespace-only CAP fields are absent fields — NWS emits both. Null so the sheet omits the row.</summary>
+    private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
 
     [GeneratedRegex(@"\d+")]
     private static partial Regex DigitsRegex();
@@ -210,5 +230,13 @@ public sealed partial class NwsWeatherProvider : IWeatherProvider
         string? Headline,
         string? Description,
         DateTimeOffset? Expires,
-        DateTimeOffset? Onset);
+        DateTimeOffset? Onset,
+        string? Instruction,
+        string? AreaDesc,
+        string? SenderName,
+        DateTimeOffset? Sent,
+        DateTimeOffset? Effective,
+        DateTimeOffset? Ends,
+        string? Urgency,
+        string? Certainty);
 }

@@ -30,6 +30,14 @@ namespace HomeHub.Api.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AreaDesc")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Certainty")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<DateTime?>("ClearedAtUtc")
                         .HasColumnType("datetime2");
 
@@ -38,16 +46,47 @@ namespace HomeHub.Api.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("nvarchar(256)");
 
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("EndsUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Event")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
                     b.Property<DateTime?>("ExpiresAtUtc")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("Instruction")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<DateTime?>("OnsetUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ProductId")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<string>("SenderName")
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<DateTime?>("SentUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("Severity")
                         .HasColumnType("int");
+
+                    b.Property<string>("SeverityText")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.Property<string>("Source")
                         .IsRequired()
@@ -61,6 +100,10 @@ namespace HomeHub.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Urgency")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
 
                     b.HasKey("Id");
 
@@ -557,9 +600,15 @@ namespace HomeHub.Api.Migrations
                         .HasMaxLength(120)
                         .HasColumnType("nvarchar(120)");
 
+                    b.Property<double?>("Left")
+                        .HasColumnType("float");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<double?>("Offered")
+                        .HasColumnType("float");
 
                     b.Property<double?>("Ounces")
                         .HasColumnType("float");

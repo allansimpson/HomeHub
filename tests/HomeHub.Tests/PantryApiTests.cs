@@ -783,4 +783,210 @@ public class PantryApiTests
         await client.PostAsJsonAsync($"/api/pantry/imports/{import!.Id}/apply", new ApplyImportInput(1));
         Assert.Empty((await ListAsync(client))!.PendingImports);
     }
+
+    // ---- The item sheet (PANTRY_SHELVES §2) ----
+
+    /// <summary>
+    /// <c>USED BY</c> lists the recipes that cook this item, with what each asks for — and restates
+    /// the amount in the item's own packs only where the units genuinely convert.
+    /// </summary>
+    /// <remarks>
+    /// The refusal is the point, and it is the same one the stock check makes: an item counted in
+    /// 12 oz cans has no honest answer for a line asking for two tablespoons, so the row says
+    /// <c>2 tbsp</c> and stops rather than inventing a number of tins.
+    /// </remarks>
+    [Fact]
+    public async Task Used_by_names_the_recipes_and_converts_only_what_converts()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var res = await client.PostAsJsonAsync("/api/pantry", new PantryItemInput(
+            "Tomato sauce", "Cupboard", "Counted", 4, "cans", null, 1, PackSize: 12, PackUnit: "oz"));
+        var item = (await res.Content.ReadFromJsonAsync<PantryItemDto>())!;
+
+        await client.PostAsJsonAsync("/api/recipes", new RecipeInput(
+            "Dal with spinach", Servings: 4,
+            Ingredients: [new RecipeIngredientInput("30 oz tomato sauce", 30, "oz", "tomato sauce")]));
+        await client.PostAsJsonAsync("/api/recipes", new RecipeInput(
+            "Chicken Piccata", Servings: 4,
+            Ingredients: [new RecipeIngredientInput("2 tbsp tomato sauce", 2, "tbsp", "tomato sauce")]));
+        await client.PostAsJsonAsync("/api/recipes", new RecipeInput(
+            "Something else", Servings: 4,
+            Ingredients: [new RecipeIngredientInput("2 onions", 2, "ea", "onions")]));
+
+        var usage = (await client.GetFromJsonAsync<List<ItemUsageDto>>($"/api/pantry/{item.Id}/used-by"))!;
+
+        // Alphabetical, and only the two that name it.
+        Assert.Equal(["Chicken Piccata", "Dal with spinach"], usage.Select(u => u.Title));
+
+        var dal = usage.Single(u => u.Title == "Dal with spinach");
+        Assert.Equal(30m, dal.Quantity);
+        Assert.Equal("oz", dal.Unit);
+        Assert.Equal(2.5m, dal.Packs);
+        // The unit registry stores the canonical singular, so this is `can` and not `cans` — the
+        // pantry renders the plural nowhere, on this screen or any other. See the note in UnitSeed.
+        Assert.Equal("can", dal.PackUnit);
+
+        // Tablespoons of tomato sauce against 12 oz cans: no conversion, so no pack count.
+        var piccata = usage.Single(u => u.Title == "Chicken Piccata");
+        Assert.Equal(2m, piccata.Quantity);
+        Assert.Null(piccata.Packs);
+    }
+
+    /// <summary>
+    /// A recipe naming the item on two lines is one row, carrying the larger amount.
+    /// </summary>
+    /// <remarks>
+    /// Two rows would read as two dishes on a list whose whole job is naming dishes, and summing
+    /// them is wrong as often as it is right — "1 can, drained" and "1 can, with juice" is one can.
+    /// </remarks>
+    [Fact]
+    public async Task A_recipe_naming_it_twice_appears_once()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var item = await AddAsync(client, "Tomato sauce", quantity: 4, unit: "cans");
+
+        await client.PostAsJsonAsync("/api/recipes", new RecipeInput(
+            "Ragù", Servings: 4,
+            Ingredients: [
+                new RecipeIngredientInput("1 can tomato sauce, drained", 1, "can", "tomato sauce"),
+                new RecipeIngredientInput("2 cans tomato sauce", 2, "can", "tomato sauce"),
+            ]));
+
+        var usage = await client.GetFromJsonAsync<List<ItemUsageDto>>($"/api/pantry/{item.Id}/used-by");
+
+        var row = Assert.Single(usage!);
+        Assert.Equal(2m, row.Quantity);
+    }
+
+    /// <summary>
+    /// A night holding this item makes its recipe say so — and does not reorder the list to do it.
+    /// </summary>
+    [Fact]
+    public async Task A_claimed_night_shows_on_its_recipe_without_promoting_it()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var item = await AddAsync(client, "Tomato sauce", quantity: 4, unit: "cans");
+
+        await client.PostAsJsonAsync("/api/recipes", new RecipeInput(
+            "Amatriciana", Servings: 4,
+            Ingredients: [new RecipeIngredientInput("1 can tomato sauce", 1, "can", "tomato sauce")]));
+        var claimed = await (await client.PostAsJsonAsync("/api/recipes", new RecipeInput(
+            "Ragù", Servings: 4,
+            Ingredients: [new RecipeIngredientInput("1 can tomato sauce", 1, "can", "tomato sauce")])))
+            .Content.ReadFromJsonAsync<RecipeDto>();
+
+        var date = DateOnly.FromDateTime(DateTime.Now).AddDays(2);
+        await client.PutAsJsonAsync("/api/meals/plan",
+            new MealPlanInput(date, MealSlot.Dinner, RecipeId: claimed!.Id));
+
+        var usage = (await client.GetFromJsonAsync<List<ItemUsageDto>>($"/api/pantry/{item.Id}/used-by"))!;
+
+        // Still alphabetical: the amber says it is spoken for, the ordering does not.
+        Assert.Equal(["Amatriciana", "Ragù"], usage.Select(u => u.Title));
+        Assert.Null(usage.Single(u => u.Title == "Amatriciana").ClaimedForDate);
+        Assert.Equal(date, usage.Single(u => u.Title == "Ragù").ClaimedForDate);
+    }
+
+    /// <summary>
+    /// A deduction's history row names the night it cooked, so "one used" answers its own question.
+    /// </summary>
+    [Fact]
+    public async Task The_history_names_what_a_deduction_was_for()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var item = await AddAsync(client, "Tomato sauce", quantity: 4, unit: "cans");
+
+        var recipe = await (await client.PostAsJsonAsync("/api/recipes", new RecipeInput(
+            "Chicken Piccata", Servings: 4,
+            Ingredients: [new RecipeIngredientInput("1 can tomato sauce", 1, "cans", "tomato sauce")])))
+            .Content.ReadFromJsonAsync<RecipeDto>();
+
+        var date = DateOnly.FromDateTime(DateTime.Now).AddDays(-1);
+        var entry = await (await client.PutAsJsonAsync("/api/meals/plan",
+            new MealPlanInput(date, MealSlot.Dinner, RecipeId: recipe!.Id)))
+            .Content.ReadFromJsonAsync<MealPlanEntryDto>();
+        await client.PutAsJsonAsync("/api/meals/plan/eaten", new MealEatenInput(date, MealSlot.Dinner, true));
+        await client.PostAsync($"/api/pantry/deduct?planEntryId={entry!.Id}", null);
+
+        var events = (await client.GetFromJsonAsync<List<PantryEventDto>>($"/api/pantry/{item.Id}/events"))!;
+
+        var deduction = events.Single(e => e.Kind == nameof(PantryEventKind.Deducted));
+        Assert.Equal("Chicken Piccata", deduction.SourceLabel);
+
+        // A hand entry has no cause worth naming — the person is already in ByName.
+        Assert.Null(events.Single(e => e.Kind == nameof(PantryEventKind.TypedIn)).SourceLabel);
+    }
+
+    /// <summary>
+    /// The add form's viewfinder identifies a barcode and <b>writes nothing</b> (ADD_TO_PANTRY §2).
+    /// </summary>
+    /// <remarks>
+    /// The distinction from <c>POST /scan</c> is the whole point: a camera decodes the same pack many
+    /// times a second, so a lookup with a side effect would file a ledger row per frame. "One scan
+    /// names the thing and fills its size; it never increments a count."
+    /// </remarks>
+    [Fact]
+    public async Task Looking_up_a_barcode_identifies_it_and_writes_nothing()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var res = await client.PostAsJsonAsync("/api/pantry", new PantryItemInput(
+            "Tomato sauce", "Cupboard", "Counted", 4, "can", null, 1,
+            PackSize: 12, PackUnit: "oz", Barcode: "041331126047"));
+        var item = (await res.Content.ReadFromJsonAsync<PantryItemDto>())!;
+        var before = (await client.GetFromJsonAsync<List<PantryEventDto>>($"/api/pantry/{item.Id}/events"))!.Count;
+
+        var found = await client.GetFromJsonAsync<BarcodeLookupDto>("/api/pantry/catalogue/041331126047");
+
+        Assert.True(found!.Known);
+        Assert.Equal("Tomato sauce", found.Name);
+        // **No pack size**, and that is the documented rule rather than a gap: only the scan path
+        // teaches it, "because the phone asked while somebody was holding it". A hand-add carries a
+        // size for that row and does not claim it for every future pack of the same code
+        // (see TeachCatalogueAsync). The viewfinder therefore fills a name and leaves the size blank
+        // for a code the household only ever typed.
+        Assert.Null(found.PackSize);
+
+        // Nothing moved and nothing was filed.
+        var after = (await client.GetFromJsonAsync<List<PantryEventDto>>($"/api/pantry/{item.Id}/events"))!.Count;
+        Assert.Equal(before, after);
+        var still = (await ListAsync(client))!.Items.Single(i => i.Id == item.Id);
+        Assert.Equal(4m, still.Quantity);
+    }
+
+    /// <summary>An unknown barcode is a first-class answer, not an error (DECISIONS PG4).</summary>
+    [Fact]
+    public async Task An_unknown_barcode_answers_rather_than_failing()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var found = await client.GetFromJsonAsync<BarcodeLookupDto>("/api/pantry/catalogue/041331126047");
+
+        Assert.False(found!.Known);
+        Assert.Null(found.Name);
+        // Normalised on the way through, so a later `NAME IT` teaches against the same 13 digits.
+        Assert.Equal(13, found.Barcode.Length);
+    }
+
+    /// <summary>Something that is not a grocery barcode is refused rather than looked up.</summary>
+    [Fact]
+    public async Task A_barcode_that_is_not_one_is_refused()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var res = await client.GetAsync("/api/pantry/catalogue/not-a-barcode");
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
 }

@@ -36,6 +36,16 @@ interface ScreenShellProps {
    * it, so where-you-are-in-the-app and where-you-are-in-this-section stay separate questions.
    */
   dock?: ReactNode
+  /**
+   * A screen's one primary action, pinned between the content and the dock — the Kitchen list's
+   * `SHOP · 14 THINGS`.
+   *
+   * Outside `content` for the same reason `dock` is (design_handoff_kitchen_lists §2): the body
+   * region is the only thing that scrolls, and an action bar living inside it is reachable only
+   * once you have scrolled past every row it is meant to act on. On the list that was the actual
+   * failure — the bar was being clipped off the foot of a long list.
+   */
+  action?: ReactNode
 }
 
 /**
@@ -54,6 +64,7 @@ export function ScreenShell({
   avatar = true,
   avatarBadge = true,
   dock,
+  action,
 }: ScreenShellProps) {
   const showAvatar = nav && avatar
   return (
@@ -68,6 +79,7 @@ export function ScreenShell({
         <div className={'ml-shell__content' + (fixedContent ? ' ml-shell__content--fixed' : '')}>
           {children}
         </div>
+        {action}
         {dock}
       </div>
       {nav && <BottomNav />}

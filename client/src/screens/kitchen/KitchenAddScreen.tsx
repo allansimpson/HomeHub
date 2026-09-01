@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea, UnitField } from '../../components'
+import { KitchenDrillInHeader, ScreenShell, ScrollArea, UnitField } from '../../components'
 import { api } from '../../api/client'
-import type { PantryLocationName } from '../../api/types'
+import { cameraExcuse, useBarcodeScanner } from '../../app/useBarcodeScanner'
+import type { BarcodeLookupDto, PantryLocationName } from '../../api/types'
 
 /** What has been added on this visit, newest first — the session list. */
 interface SessionLine {
@@ -42,6 +43,49 @@ export function KitchenAddScreen() {
   const [countUnit, setCountUnit] = useState('')
   const [location, setLocation] = useState<PantryLocationName>('Cupboard')
   const [goodUntil, setGoodUntil] = useState('')
+
+  /** The camera is off until asked for — see the viewfinder's own note. */
+  const [scanning, setScanning] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  /** What the last scan read, so the banner can say where these values came from. */
+  const [read, setRead] = useState<BarcodeLookupDto | null>(null)
+
+  /**
+   * Fill the form from a barcode. **Nothing is written** (ADD_TO_PANTRY §2).
+   *
+   * A scan identifies; the household still presses `ADD IT`. Fields already typed are left alone —
+   * somebody who named the thing before reaching for the pack should not have it overwritten by a
+   * catalogue that happens to disagree.
+   */
+  const fillFrom = useCallback(async (barcode: string, format: string | null) => {
+    const found = await api.lookupBarcode(barcode, format).catch(() => null)
+    if (!found) return
+    setRead(found)
+    const suggested = found.name ?? found.suggestion?.name ?? ''
+    if (suggested) setName((current) => current.trim() || suggested)
+    const size = found.packSize ?? found.suggestion?.packSize ?? null
+    if (size != null) setPackSize((current) => current.trim() || String(size))
+    const sizeUnit = found.packUnit ?? found.unit ?? found.suggestion?.unit ?? ''
+    if (sizeUnit) setPackUnit((current) => current.trim() || sizeUnit)
+    if (found.location) setLocation(found.location)
+    // Read once, then stop: one scan names one thing, and leaving the lens running invites the
+    // next pack to overwrite the answer somebody is still looking at.
+    setScanning(false)
+  }, [])
+
+  const camera = useBarcodeScanner(videoRef, fillFrom, { active: scanning, paused: read != null })
+
+  /** Take the scan back. Only what it filled — anything typed before it stays. */
+  const undoRead = () => {
+    if (!read) return
+    const scanned = read
+    setRead(null)
+    setName((v) => (v === (scanned.name ?? scanned.suggestion?.name) ? '' : v))
+    const size = scanned.packSize ?? scanned.suggestion?.packSize ?? null
+    setPackSize((v) => (size != null && v === String(size) ? '' : v))
+    const unit = scanned.packUnit ?? scanned.unit ?? scanned.suggestion?.unit ?? null
+    setPackUnit((v) => (unit != null && v === unit ? '' : v))
+  }
 
   const [session, setSession] = useState<SessionLine[]>([])
   const [guarding, setGuarding] = useState(false)
@@ -108,12 +152,12 @@ export function KitchenAddScreen() {
       // An errand: no quick row, no nav, no account badge. Two exits only.
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="Add to pantry"
-          onBack={cancel}
+          onExit={cancel}
           // Labelled, not an arrow. The two exits do different things — one abandons the session
           // and one commits it — so neither can be left to a glyph the household has to guess at.
-          backLabel="CANCEL"
+          exit="CANCEL"
           status={
             <span className="ml-kitchen__headeraction">
               <button type="button" disabled={busy} onClick={() => navigate('/kitchen/pantry')}>
@@ -130,13 +174,64 @@ export function KitchenAddScreen() {
           identification, not tallying: one scan names the thing and fills its size, and scanning the
           same pack twice is not how you say you have two.
         */}
-        <button type="button" className="ml-kitchen__viewfinder" onClick={() => { /* camera: M6 */ }}>
+        <button
+          type="button"
+          className={'ml-kitchen__viewfinder' + (camera === 'live' ? ' ml-kitchen__viewfinder--live' : '')}
+          // Tapping starts it; tapping again puts it away. The camera is never running on arrival —
+          // a page that turns the lens on because you opened it is a page nobody opens twice.
+          onClick={() => setScanning((on) => !on)}
+        >
+          {/* Always mounted: attaching the stream needs the element to exist already, and a video
+              that appears in the same frame as the stream shows a black flash first. */}
+          <video
+            ref={videoRef}
+            className="ml-kitchen__vfvideo"
+            muted
+            playsInline
+            aria-hidden="true"
+          />
           <span className="ml-kitchen__vfcorner ml-kitchen__vfcorner--tl" />
           <span className="ml-kitchen__vfcorner ml-kitchen__vfcorner--tr" />
           <span className="ml-kitchen__vfcorner ml-kitchen__vfcorner--bl" />
           <span className="ml-kitchen__vfcorner ml-kitchen__vfcorner--br" />
-          <span className="ml-kitchen__vflabel">TAP TO SCAN A BARCODE</span>
+          <span className="ml-kitchen__vflabel">
+            {camera === 'live' ? 'POINT IT AT A BARCODE'
+              : camera === 'starting' ? 'ASKING FOR THE CAMERA…'
+              : 'TAP TO SCAN A BARCODE'}
+          </span>
         </button>
+
+        {/*
+          Why the viewfinder is empty, when it is — one sentence per cause, each naming its own fix.
+          The form below still works: the camera is a shortcut, never the feature.
+        */}
+        {cameraExcuse(camera) && (
+          <div className="ml-kitchen__askwhy">{cameraExcuse(camera)}</div>
+        )}
+
+        {/*
+          What the scan read, and where it came from (§4).
+
+          Teal when the household already knew the pack, amber when nobody does — and the amber one
+          shows the raw digits as evidence, because "we don't know this one" about a code you cannot
+          see is not something anybody can act on.
+        */}
+        {read && (
+          <div className={'ml-kitchen__readfrom'
+            + (read.known ? '' : ' ml-kitchen__readfrom--unknown')}>
+            <span className="ml-kitchen__readlabel">
+              {read.known ? 'READ FROM A BARCODE' : "WE DON'T KNOW THIS ONE"}
+            </span>
+            <span className="ml-kitchen__readwhat">
+              {read.known
+                ? [read.name, read.packSize && `${read.packSize} ${read.packUnit ?? ''}`.trim()]
+                  .filter(Boolean).join(' · ')
+                : `${read.barcode} · name it and we'll remember it`}
+            </span>
+            {/* Undoing a scan clears only what the scan filled. Anything typed before it stays. */}
+            <button type="button" className="ml-kitchen__readundo" onClick={undoRead}>UNDO</button>
+          </div>
+        )}
 
         <Field label="WHAT IS IT">
           <input
@@ -205,25 +300,26 @@ export function KitchenAddScreen() {
         </Field>
 
         {/* ---- Everything added on this visit ---- */}
-        <div className="ml-band">
-          <span className="ml-band__label">THIS SESSION</span>
-          <span className="ml-band__meta">
-            {session.length} {session.length === 1 ? 'THING' : 'THINGS'}
+        <div className="ml-kitchen__homehead">
+          <span className="ml-kitchen__homelabel">THIS SESSION</span>
+          <span className="ml-kitchen__sessionmeta">
+            <span className="ml-kitchen__homemeta">
+              {session.length} {session.length === 1 ? 'THING' : 'THINGS'}
+            </span>
+            {session.length > 0 && (
+              <button type="button" className="ml-kitchen__undolast" disabled={busy} onClick={undoLast}>
+                UNDO LAST
+              </button>
+            )}
           </span>
-          {session.length > 0 && (
-            <button type="button" className="ml-kitchen__undolast" disabled={busy} onClick={undoLast}>
-              UNDO LAST
-            </button>
-          )}
         </div>
         {session.length === 0 ? (
-          <div className="ml-band-shade">
-            <div className="ml-kitchen__emptyshelf">Nothing added yet.</div>
-          </div>
+          <div className="ml-kitchen__emptyshelf">Nothing added yet.</div>
         ) : (
-          /* The session list is the undo — it has to keep growing and stay scrollable, because a
-             long unpack is exactly when somebody needs to check what they already scanned. */
-          <CutGroup rows={3} rowHeight={60} className="ml-band-shade">
+          /* The session list is the undo — it has to keep growing, and it now grows inside the
+             screen's one scroller rather than in a three-row window of its own
+             (design_handoff_kitchen_lists §2). */
+          <div>
             {session.map((line) => (
               <div key={line.id} className="ml-row ml-kitchen__waitingrow">
                 <span className="ml-kitchen__recipetext">
@@ -234,7 +330,7 @@ export function KitchenAddScreen() {
                 </span>
               </div>
             ))}
-          </CutGroup>
+          </div>
         )}
 
       </ScrollArea>

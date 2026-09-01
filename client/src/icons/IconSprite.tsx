@@ -197,6 +197,12 @@ export function IconSprite() {
         <circle cx="12" cy="13" r="3.6" />
       </symbol>
       {/* A FILE — a sheet with its corner turned. */}
+      {/* A till receipt: the torn foot is what tells it from `ico-file`, and the two rules are the
+          printed lines. Drawn from the Pantry P4 sheet, which is the only place it appears. */}
+      <symbol id="ico-receipt" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round">
+        <path d="M6.5 3.5h11v17l-2.8-1.6-2.7 1.6-2.7-1.6L6.5 20.5z" />
+        <path d="M9.5 8h5M9.5 11.5h5" />
+      </symbol>
       <symbol id="ico-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
         <path d="M5 3h9l5 5v13H5z" />
         <path d="M14 3v5h5" />

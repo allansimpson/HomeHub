@@ -58,12 +58,35 @@ public record WeatherSnapshotDto(
 }
 
 /// <summary>A weather alert as surfaced by a provider, before it enters the alert engine.</summary>
+/// <remarks>
+/// The trailing block is the CAP (Common Alerting Protocol) product as NWS publishes it, carried
+/// whole so the statement sheet can show what the banner only names — see
+/// <c>design_handoff_weather_alert/ALERT_SHEET.md</c> §4. Every one of them is optional because
+/// CAP says so: a Special Weather Statement routinely has no <see cref="Instruction"/>, and a
+/// non-NWS provider implementing this seam may supply none of them at all. The sheet omits whole
+/// sections rather than printing placeholders, so null here means "no row" downstream.
+/// </remarks>
+/// <param name="Message">
+/// The one-line banner detail — CAP <c>headline</c>, falling back to the description. Stays short
+/// on purpose: it is a banner line, not the product. <see cref="Description"/> holds the full text.
+/// </param>
 public record ProviderWeatherAlert(
     string Id,
     string Event,
     AlertSeverity Severity,
     string Message,
-    DateTime? ExpiresUtc);
+    DateTime? ExpiresUtc,
+    string? Description = null,
+    string? Instruction = null,
+    string? AreaDesc = null,
+    string? SenderName = null,
+    DateTime? SentUtc = null,
+    DateTime? OnsetUtc = null,
+    DateTime? EffectiveUtc = null,
+    DateTime? EndsUtc = null,
+    string? Urgency = null,
+    string? Certainty = null,
+    string? SeverityText = null);
 
 /// <summary>Everything a weather provider returns for one refresh: forecast data + active alerts.</summary>
 /// <param name="Place">

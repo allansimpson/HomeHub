@@ -20,6 +20,14 @@ interface DecisionCardProps {
   /** Right column heading — `IN THE PANTRY`, `CAME HOME`. */
   rightLabel: string
   rightValue: string
+  /**
+   * Why the panel cannot decide this one — the sentence under the two columns.
+   *
+   * The columns show *what* disagrees; this says *why it matters*, which is what the household is
+   * actually being asked to rule on ("the amount was never counted, so it may be wrong either
+   * way"). Without it the card asks a three-way question and supplies no grounds for answering it.
+   */
+  why?: string
   choices: DecisionChoice[]
   /** A stepper or field the chosen answer needs, e.g. how many bags a split makes. */
   extra?: ReactNode
@@ -41,7 +49,7 @@ interface DecisionCardProps {
  * neighbour implies there is something in it that isn't.
  */
 export function DecisionCard({
-  item, kind, leftLabel, leftValue, rightLabel, rightValue, choices, extra,
+  item, kind, leftLabel, leftValue, rightLabel, rightValue, why, choices, extra,
 }: DecisionCardProps) {
   return (
     <div className="ml-kitchen__card">
@@ -59,6 +67,8 @@ export function DecisionCard({
           <span className="ml-kitchen__cardvalue">{rightValue}</span>
         </div>
       </div>
+
+      {why && <div className="ml-kitchen__cardwhy">{why}</div>}
 
       {extra && <div className="ml-kitchen__cardextra">{extra}</div>}
 

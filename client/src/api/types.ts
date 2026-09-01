@@ -124,6 +124,45 @@ export interface ActiveAlertDto {
   message: string
   source: string
   startedAtUtc: string
+
+  /**
+   * The CAP product behind the banner — everything the one-line banner has no room for, shown by
+   * the statement sheet (`design_handoff_weather_alert/ALERT_SHEET.md` §2).
+   *
+   * **Optional, not merely nullable.** Two different things are absent here and both are ordinary.
+   * An alert that is only ever a banner line — every sensor threshold — sends these as null. And a
+   * panel running a newer bundle than the API it is talking to will not receive the keys at all,
+   * which on this project is a routine state rather than a fault: what is deployed and what is
+   * built move separately (`brain/STATE.md`). Typing them as present-but-null would make the second
+   * case a lie the compiler helps tell.
+   *
+   * `event` is the field to test: it is the sheet's title, so an alert without one has no sheet to
+   * open and its banner stays inert. The rest are independently absent because CAP makes them so —
+   * a Special Weather Statement routinely carries no `instruction`, and the sheet drops that whole
+   * section rather than printing a placeholder.
+   */
+  expiresAtUtc?: string | null
+  event?: string | null
+  /** CAP `description`, verbatim. NWS's hard line wraps survive the trip; the sheet reflows them. */
+  description?: string | null
+  /** CAP `instruction` — the call to action. Absent on most statements and advisories. */
+  instruction?: string | null
+  /** CAP `areaDesc` — counties, semicolon-separated at the source. */
+  areaDesc?: string | null
+  /** CAP `senderName`, e.g. `NWS Minneapolis MN`. */
+  senderName?: string | null
+  /** CAP `sent` — when the office issued it, which is not when the panel noticed. */
+  sentUtc?: string | null
+  /** CAP `onset ?? effective` — start of the IN EFFECT window. */
+  onsetUtc?: string | null
+  /** CAP `ends` — end of the IN EFFECT window, which can fall before `expiresAtUtc`. */
+  endsUtc?: string | null
+  urgency?: string | null
+  certainty?: string | null
+  /** CAP `severity` as NWS worded it — `severity` above collapses Extreme into Severe. */
+  severityText?: string | null
+  /** CAP `id`, for the provenance footer that lets somebody check the panel against weather.gov. */
+  productId?: string | null
 }
 
 export interface ThresholdDto {
@@ -896,122 +935,23 @@ export interface NotificationFeedDto {
   sources: Record<string, boolean>
 }
 
-// ---- Baby (Huckleberry) ----
+// ---- Litter (Litter-Robot via Home Assistant) ----
 
 /**
  * Five deliberately distinguishable states. "HA is down" and "the integration isn't there" need
  * different fixes and the panel says which; `NotConfigured` is not an error.
+ *
+ * Declared here rather than shared: this was `= BabyStatusName` until the Huckleberry integration
+ * was removed on 2026-08-30, which is a fair description of where it was first written but not of
+ * what it means. It is the health of a Home Assistant-backed integration, and the litter robot is
+ * the only one of those the panel still has.
  */
-export type BabyStatusName =
+export type CatStatusName =
   | 'NotConfigured'
   | 'Ok'
   | 'HomeAssistantUnreachable'
   | 'IntegrationMissing'
   | 'Stale'
-
-export interface BabyHealthDto {
-  status: BabyStatusName
-  detail: string | null
-  lastGoodUtc: string | null
-  configured: boolean
-}
-
-export interface BabyChildDto {
-  key: string
-  name: string
-  birthday: string | null
-}
-
-/** One read for the whole tab root. Every measurement is nullable — see the growth rows. */
-export interface BabyStateDto {
-  childKey: string
-  childName: string
-  sleepState: string
-  sleepStartedUtc: string | null
-  sleepPaused: boolean
-  lastSleepStartUtc: string | null
-  lastSleepMinutes: number | null
-  nursingRunning: boolean
-  nursingPaused: boolean
-  nursingStartedUtc: string | null
-  nursingSide: string | null
-  lastNursingUtc: string | null
-  lastNursingMinutes: number | null
-  lastNursingLeftMinutes: number | null
-  lastNursingRightMinutes: number | null
-  lastBottleUtc: string | null
-  bottleAmount: number | null
-  bottleUnit: string | null
-  bottleType: string | null
-  lastDiaperUtc: string | null
-  diaperType: string | null
-  growthMeasuredUtc: string | null
-  weight: number | null
-  weightUnit: string | null
-  height: number | null
-  headCircumference: number | null
-  lengthUnit: string | null
-  /** Feeds and diapers only — sleep is deliberately not in the counts line. */
-  feedsToday: number
-  diapersToday: number
-  fetchedUtc: string
-  stale: boolean
-}
-
-export interface BabyHistoryEventDto {
-  startUtc: string
-  endUtc: string | null
-  kind: string
-  summary: string
-  detail: string | null
-}
-
-export type BabyTimerKindName = 'sleep' | 'nursing'
-/** `cancel` saves no interval; `complete` writes to history. Not interchangeable. */
-export type BabyTimerActionName = 'start' | 'pause' | 'resume' | 'cancel' | 'complete' | 'switchside'
-export type NursingSideName = 'left' | 'right'
-
-export type DiaperKindName = 'pee' | 'poo' | 'both' | 'dry'
-export type DiaperAmountName = 'little' | 'medium' | 'big'
-export type PooColorName = 'yellow' | 'brown' | 'black' | 'green' | 'red' | 'gray'
-export type PooConsistencyName = 'solid' | 'loose' | 'runny' | 'mucousy' | 'hard' | 'pebbles' | 'diarrhea'
-export type BottleTypeName =
-  | 'formula'
-  | 'breast_milk'
-  | 'tube_feeding'
-  | 'cow_milk'
-  | 'goat_milk'
-  | 'soy_milk'
-  | 'other'
-
-/** Logs now — there is no retroactive path upstream, so no timestamp crosses this boundary. */
-export interface DiaperInput {
-  kind: DiaperKindName
-  peeAmount?: DiaperAmountName | null
-  pooAmount?: DiaperAmountName | null
-  color?: PooColorName | null
-  consistency?: PooConsistencyName | null
-  diaperRash?: boolean | null
-  notes?: string | null
-}
-
-export interface BottleInput {
-  amount: number
-  type: BottleTypeName
-  units: 'ml' | 'oz'
-}
-
-/** Weight as pounds + ounces, the way the household reads it; the API folds it to decimal pounds. */
-export interface GrowthInput {
-  pounds: number | null
-  ounces: number | null
-  heightInches: number | null
-  headInches: number | null
-}
-
-// ---- Litter (Litter-Robot via Home Assistant) ----
-
-export type CatStatusName = BabyStatusName
 
 export interface CatHealthDto {
   status: CatStatusName
@@ -1643,6 +1583,10 @@ export type EstimateStateName = 'Plenty' | 'Low' | 'None'
 export type PantryEventKindName =
   | 'Scanned' | 'Imported' | 'TypedIn' | 'CheckedOff'
   | 'Deducted' | 'Corrected' | 'MarkedLow' | 'MarkedOut' | 'Undone'
+  // Three kinds the server has written since the opened-window and leftovers work, and which this
+  // union did not name — so the item sheet's history fell through to a generic word on exactly the
+  // events it most needed to describe (`PantryEventKind`, values 9–11).
+  | 'Produced' | 'MarkedOpened' | 'MarkedFinished'
 
 /**
  * One thing on a shelf. **`lastSeenAtUtc` is never dropped by the UI** — PANTRY_BEHAVIOURS §9 makes
@@ -1762,6 +1706,13 @@ export interface PantryEventDto {
   atUtc: string
   byName: string | null
   undone: boolean
+  /**
+   * What caused it, named — the dish a deduction cooked, the vendor a delivery came from.
+   *
+   * `One used — Piccata`, `Tesco order`. Null wherever the event had no cause worth naming; a hand
+   * correction is caused by the person, who is already in `byName`.
+   */
+  sourceLabel: string | null
 }
 
 /** Scan one pack. Idempotent on `scanRunId` + `sequence`, so two phones on one delivery both add. */
@@ -2074,8 +2025,8 @@ export interface ImportLineInput {
 /**
  * The ten things a household logs, plus growth.
  *
- * Six of these exist nowhere else: the Huckleberry integration has no service to write them and no
- * sensor to read them, which is why HomeHub keeps its own log.
+ * Ten, where the integration this replaced could log four. That gap is why the panel keeps its own
+ * log at all — six of these had no service to write them and no sensor to read them.
  */
 export type CareEntryTypeName =
   | 'Bottle' | 'Nursing' | 'Pump' | 'Diaper' | 'Solids'
@@ -2090,12 +2041,26 @@ export interface CareEntryDto {
   /**
    * The measured value, or null when nothing was measured.
    *
-   * Null is not zero. A pump session with no amount is the ordinary case, and Huckleberry stores
-   * that as `0 oz` and reports it back as though somebody had weighed it. Here it renders as an
-   * em dash.
+   * Null is not zero. A pump session with no amount is the ordinary case; the integration this
+   * replaced stored that as `0 oz` and reported it back as though somebody had weighed it, which is
+   * the bug the distinction exists to refuse. Here it renders as an em dash.
    */
   amount: number | null
   unit: string | null
+  /**
+   * A bottle's two ends: what was poured, and what came back. Null on every other type.
+   *
+   * `amount` above stays the figure everything else reads — it is what was *taken*, and the totals,
+   * the log row and the last-fed line should not have to know that one type subtracts to get it.
+   * These are here so a correction can open on what was actually entered: before they were stored,
+   * reopening a feed put the consumed figure in `OFFERED` and left `REMAINING` empty, which reads
+   * as a bottle nobody drank from.
+   *
+   * <b>Null on a bottle logged before they existed.</b> Those rows genuinely never recorded the
+   * pair, and the sheet falls back to its old behaviour for them rather than inventing one.
+   */
+  offered: number | null
+  left: number | null
   durationMinutes: number | null
   kind: string | null
   side: string | null
@@ -2109,7 +2074,14 @@ export interface CareEntryDto {
   heightInches: number | null
   headInches: number | null
   notes: string | null
-  /** `Panel` or `HuckleberryImport` — the log says which, so an imported row is not passed off as typed. */
+  /**
+   * How the row got here. `Panel` for everything written now.
+   *
+   * <b>Rows imported before 2026-08-30 still read `HuckleberryImport`</b>, and deliberately so: the
+   * import is gone but the entries it produced are the household's history, and rewriting stored
+   * rows to claim somebody typed them would be falsifying the log to tidy up a value. Nothing
+   * branches on it — it is a free string, and reading an unfamiliar one costs nothing.
+   */
   source: string
   /** Corrected since it was written. The log marks it rather than quietly showing the new number. */
   edited: boolean
@@ -2188,12 +2160,11 @@ export interface CareEntryInput {
    * A bottle's two ends: what went in, and what came back.
    *
    * `amount` is what was *taken* — offered less left — because that is the figure that matters and
-   * the only one the upstream bottle service accepts. These two are the panel's own arithmetic.
+   * the only one the upstream bottle service accepts. These two are what it was worked out from.
    *
-   * <b>The server does not store them yet.</b> `CareEntry` has no columns for either, so they are
-   * dropped on write and cannot be read back; the panel therefore opens `OFFERED` on the last
-   * entry's *taken* amount rather than on what was actually offered. Sent regardless, so the day
-   * they are added the client needs no change.
+   * Stored since `AddBottleOfferedAndLeft`. They were sent for a while before that and silently
+   * dropped, which is why a correction used to open on the taken amount: it was the only figure
+   * that survived the round trip.
    */
   offered?: number | null
   left?: number | null
@@ -2212,14 +2183,6 @@ export interface CareEntryInput {
    * key returns the first row.
    */
   clientKey?: string | null
-}
-
-/** What one pull out of Huckleberry found. Safe to run repeatedly — each event writes once. */
-export interface CareImportResult {
-  read: number
-  imported: number
-  alreadyHad: number
-  skipped: number
 }
 
 // ---- The Kitchen loop (KITCHEN_LOOP_ADDENDUM, MATCHING_AND_ALIASES) ----
@@ -2307,6 +2270,45 @@ export interface CookabilityDto {
  * The row knowing it is claimed is what stops the household counting the same tin twice across two
  * screens: the shelf says three, and the sheet says one of them is Saturday's.
  */
+/**
+ * What a barcode turns out to be — identification only, writing nothing (ADD_TO_PANTRY §2).
+ *
+ * Distinct from `ScanResultDto`, which is the phone's tally path and moves stock. Scanning on the
+ * add form "names the thing and fills its size; it never increments a count".
+ */
+export interface BarcodeLookupDto {
+  /** The normalised 13-digit form, which a later `NAME IT` has to teach against. */
+  barcode: string
+  /** Whether the household or global catalogue already knows this pack. */
+  known: boolean
+  name: string | null
+  unit: string | null
+  packSize: number | null
+  packUnit: string | null
+  location: PantryLocationName | null
+  tracking: TrackingClassName | null
+  /** What an outside catalogue thinks it is. Pre-fills the form and teaches nothing. */
+  suggestion: ProductSuggestionDto | null
+}
+
+/**
+ * A recipe that cooks this item, with what it asks for (PANTRY_SHELVES §2, `USED BY`).
+ *
+ * `packs` is the amount restated in the item's own containers and is null far more often than not —
+ * it needs both a pack size on the shelf and a conversion the unit table is willing to make. Null
+ * means the row says `30 oz` and stops, rather than guessing how many tins that is.
+ */
+export interface ItemUsageDto {
+  recipeId: number
+  title: string
+  quantity: number | null
+  unit: string | null
+  packs: number | null
+  packUnit: string | null
+  /** The night holding this recipe's claim, when one does — the amber `claimed for Saturday`. */
+  claimedForDate: string | null
+}
+
 export interface ItemClaimDto {
   planEntryId: number
   date: string

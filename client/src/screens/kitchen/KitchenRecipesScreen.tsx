@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, KitchenHeader, KitchenQuickRow, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenHeader, KitchenQuickRow, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { useMeals } from '../../app/MealsProvider'
-import { cookedAgoLabel } from '../../app/mealsDomain'
+import { cookedAgoPhrase } from '../../app/mealsDomain'
 import { cuisineNameOf } from '../../app/mealsPrefs'
 import type { CookabilityDto, RecipeSummaryDto } from '../../api/types'
 
@@ -18,12 +18,6 @@ import type { CookabilityDto, RecipeSummaryDto } from '../../api/types'
  * read goes in the second reading `can't say` — never in the first. That single rule is what keeps
  * the ready band worth trusting at seven in the evening.
  */
-/** A folder row carries two lines, so its cut is 56px rather than the shelves' 42 (RECIPES §6). */
-const ROW_HEIGHT = 56
-
-/** Rows visible before the cut, per band. */
-const BAND_ROWS = 4
-
 export function KitchenRecipesScreen() {
   const navigate = useNavigate()
   const { recipes, settings } = useMeals()
@@ -93,7 +87,7 @@ export function KitchenRecipesScreen() {
 
         {/* Side-scrolling and counted. It takes new cuisines at their earned position — no tree,
             no picker, and no "+N" that hides the tail. */}
-        <div className="ml-kitchen__chips ml-cut" data-hscroll>
+        <div className="ml-kitchen__chips" data-hscroll>
           <button
             type="button"
             className={`ml-kitchen__chip${cuisine == null ? ' ml-kitchen__chip--on' : ''}`}
@@ -113,35 +107,29 @@ export function KitchenRecipesScreen() {
           ))}
         </div>
 
-        <div className="ml-band">
-          <span className="ml-band__label">COOK IT TONIGHT</span>
-          <span className="ml-band__meta">{ready.length} READY</span>
-        </div>
+        <KitchenDivider label="Cook it tonight" count={`${ready.length} READY`} gap={false} />
         {ready.length === 0 ? (
           // Not an error, and not a telling-off: early on, before the alias table is dense, this
           // band is legitimately empty and the folder still works.
-          <div className="ml-band-shade">
+          <div>
             <div className="ml-kitchen__emptyshelf">Nothing is fully accounted for yet.</div>
           </div>
         ) : (
-          <CutGroup rows={BAND_ROWS} rowHeight={ROW_HEIGHT} className="ml-band-shade">
+          <div>
             {ready.map((r) => (
               <RecipeRow key={r.id} recipe={r} standing={standing.get(r.id)}
                 canonical={settings.canonicalCuisines} onOpen={() => navigate(`/kitchen/recipes/${r.id}`)} />
             ))}
-          </CutGroup>
+          </div>
         )}
 
-        <div className="ml-band">
-          <span className="ml-band__label">EVERYTHING ELSE</span>
-          <span className="ml-band__meta">{rest.length}</span>
-        </div>
-        <CutGroup rows={BAND_ROWS} rowHeight={ROW_HEIGHT} className="ml-band-shade">
+        <KitchenDivider label="Everything else" count={rest.length} />
+        <div>
           {rest.map((r) => (
             <RecipeRow key={r.id} recipe={r} standing={standing.get(r.id)}
               canonical={settings.canonicalCuisines} onOpen={() => navigate(`/kitchen/recipes/${r.id}`)} />
           ))}
-        </CutGroup>
+        </div>
       </ScrollArea>
     </ScreenShell>
   )
@@ -172,7 +160,7 @@ function RecipeRow({
       return { text: "can't say", tone: 'cantsay' }
     }
     return {
-      text: [cuisineNameOf(recipe, canonical), cookedAgoLabel(recipe.lastCookedDate)].filter(Boolean).join(' · '),
+      text: [cuisineNameOf(recipe, canonical), cookedAgoPhrase(recipe.lastCookedDate)].filter(Boolean).join(' · '),
       tone: 'quiet',
     }
   }

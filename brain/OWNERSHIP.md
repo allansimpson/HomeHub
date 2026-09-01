@@ -19,7 +19,8 @@ Claude handles the dev base code. Hermes should still correct any detail it owns
 ## Claude
 
 - **The dev base code.** Application code, tests, styles, and the design-handoff implementations, in
-  `/srv/dev/homehub`.
+  `/srv/dev/homehub`. Geist does not modify these unless Allan explicitly changes the boundary or
+  Claude hands over a specific operationally necessary change.
 - **Verification** — builds, both test suites, lint, typecheck — so what Hermes ships is known-green.
 - **Writing down what changed**, here and in commit messages.
 - **Not deployment.** Claude does not deploy, does not write the deployment procedure, and does not
@@ -27,8 +28,9 @@ Claude handles the dev base code. Hermes should still correct any detail it owns
 
 ## Shared, and therefore worth announcing
 
-- **Commits and pushes to `main`.** History is linear and both of us commit directly to it. Say so
-  in `STATE.md` when a push lands, or the other agent finds out by diffing.
+- **Commits and pushes to `main`.** History is linear, but authority remains scope-based: Claude
+  commits application code; Geist may commit deployment-owned or shared-brain material. Neither
+  stages the other owner’s work. Say so in `STATE.md` when a push lands.
 - **Shared components.** `CutGroup` came from Claude and `CutFitProvider` was built on it by Hermes
   without either knowing. That worked out; it easily might not have. Note the intent here first.
 - **The working tree.** It is frequently large and uncommitted. Before a sweeping change, check

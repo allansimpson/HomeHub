@@ -16,20 +16,31 @@ import type { CareTimerDto } from '../../api/types'
 export type PumpMoment = 'switch' | 'done'
 
 /**
- * What each moment feels like. Short, and different from each other.
+ * What each moment feels like. Different from each other, and only one of them is short.
  *
- * <b>Two pulses for the switch, one long one for the end.</b> They are told apart by a hand in the
- * dark that is not going to look, so they cannot both be a generic buzz — one means *do something
- * now*, the other means *you are finished*. Both are well under a second: this is a tap on the
- * shoulder, not an alarm, and the household is awake and holding the thing.
+ * <b>Two short pulses for the switch, three long ones for the end.</b> They are told apart by a
+ * hand in the dark that is not going to look, so they cannot both be a generic buzz — one means
+ * *do something now*, the other means *you are finished*. The end keeps the longer pulse it has
+ * always had and now repeats it three times, which is the difference asked for by name: the switch
+ * is felt by somebody mid-session with the pump in hand, while the end can arrive with the phone
+ * set down, and one pulse asked to carry that is the easiest of the two to miss.
+ *
+ * <b>Only the end is allowed to run past a second.</b> The switch is still a tap on the shoulder
+ * and stays exactly where it was; three 400ms pulses is a second and a half, which is a deliberate
+ * exception rather than a drift away from the rule. The 150ms between them is wider than the
+ * switch's 100ms on purpose — at this pulse length a shorter gap smears the three back into one
+ * long buzz, and the count is the whole point.
  *
  * Longer than the 10ms tick `AutomatedRow` uses to confirm a press, and deliberately so. That one
  * is felt because a finger is already on the glass; this one has to be noticed by somebody who is
  * not touching the phone at all.
+ *
+ * Exported because the count is a requirement rather than a taste, and `pumpPhases.test.ts` pins
+ * it — a three that quietly becomes a one is not a failure anything else would catch.
  */
-const PATTERNS: Record<PumpMoment, number[]> = {
+export const PUMP_PATTERNS: Record<PumpMoment, number[]> = {
   switch: [200, 100, 200],
-  done: [400],
+  done: [400, 150, 400, 150, 400],
 }
 
 /**
@@ -145,7 +156,7 @@ export function usePumpAlert(timer: CareTimerDto): void {
      * all. Nothing is going to change there, so that moment is spent rather than retried once a
      * second for the rest of the session, and the device keeps the countdown it had before.
      */
-    if (navigator.vibrate?.(PATTERNS[moment]) !== false) fired.current.add(key)
+    if (navigator.vibrate?.(PUMP_PATTERNS[moment]) !== false) fired.current.add(key)
   }, [timer, seconds])
 }
 

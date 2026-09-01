@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { useMeals } from '../../app/MealsProvider'
 import { cookedAgoLabel, longWeekday, shortDate } from '../../app/mealsDomain'
@@ -70,15 +70,15 @@ export function KitchenSuggestScreen() {
   return (
     <ScreenShell
       header={
-        <DrillInHeader
-          title={date ? shortDate(date) : 'A NIGHT'}
-          onBack={() => navigate('/kitchen/plan')}
-          backLabel="BACK"
+        <KitchenDrillInHeader
+          label={date ? shortDate(date) : 'A NIGHT'}
+          onExit={() => navigate('/kitchen/plan')}
+          exit="BACK"
         />
       }
     >
       <ScrollArea>
-        <div className="ml-kitchen__sheetname">What could you cook?</div>
+        <div className="ml-kitchen__sheetname ml-kitchen__sheetname--asking">What could you cook?</div>
         <div className="ml-kitchen__askwhy">
           Sorted by what is turning first, then by what needs no shopping.
         </div>
@@ -86,9 +86,7 @@ export function KitchenSuggestScreen() {
         {/* The one card. Turning-first was the household's call, and it earns the only card. */}
         {lead && leadRecipe && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">USES SOMETHING TURNING</span>
-            </div>
+            <KitchenDivider label="Uses something turning" amber gap={false} />
             <div className="ml-kitchen__lead">
               <div className="ml-kitchen__leadtitle">{leadRecipe.title}</div>
               <div className="ml-kitchen__leadwhy">
@@ -117,13 +115,13 @@ export function KitchenSuggestScreen() {
           </>
         )}
 
-        <Band label="NOTHING TO BUY" rows={ready} onPick={put} busy={busy} />
-        <Band label="ONE OR TWO SHORT" rows={nearly} onPick={put} busy={busy}
+        <Band label="Nothing to buy" rows={ready} onPick={put} busy={busy} />
+        <Band label="One or two short" rows={nearly} onPick={put} busy={busy}
           why={(r) => {
             const n = standing.get(r.id)?.shortCount ?? 0
             return n === 1 ? 'needs one thing' : `needs ${n} things`
           }} />
-        <Band label="QUICK, AND NOT LATELY" rows={quick} onPick={put} busy={busy} />
+        <Band label="Quick, and not lately" rows={quick} onPick={put} busy={busy} />
 
         <div className="ml-kitchen__errandrow">
           <button type="button" className="ml-kitchen__errandalt" onClick={() => navigate('/kitchen/recipes')}>
@@ -153,18 +151,15 @@ function Band({
 
   return (
     <>
-      <div className="ml-band">
-        <span className="ml-band__label">{label}</span>
-        <span className="ml-band__meta">{rows.length}</span>
-      </div>
+      <KitchenDivider label={label} count={rows.length} />
       {/* Every suggestion band is a scroller that bisects — the ranking is the point, and a hard
           slice at five hides the tail of a list the household is meant to browse (PLAN_WEEK §3). */}
-      <CutGroup rows={3} rowHeight={56} className="ml-band-shade">
+      <div>
         {rows.map((r) => (
           <button
             key={r.id}
             type="button"
-            className="ml-row ml-kitchen__recipe"
+            className="ml-row ml-kitchen__recipe ml-kitchen__recipe--dense"
             disabled={busy}
             onClick={() => onPick(r.id)}
           >
@@ -179,7 +174,7 @@ function Band({
             <span className="ml-kitchen__lastmade">{cookedAgoLabel(r.lastCookedDate)}</span>
           </button>
         ))}
-      </CutGroup>
+      </div>
     </>
   )
 }

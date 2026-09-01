@@ -3,6 +3,8 @@ import { flushSync } from 'react-dom'
 import { Routes, Route, Navigate, useLocation, useNavigationType, useParams, type Location } from 'react-router'
 import { IconSprite } from '../icons/IconSprite'
 import { MicLiveBanner, LiveCards, NotificationDrawer, NotificationPullTab, RestartingScreen } from '../components'
+import { useBaby } from './BabyProvider'
+import { PumpAlert } from '../screens/care/pumpPhases'
 import { useUpdate } from './UpdateProvider'
 import { OnScreenKeyboard } from '../components/keyboard/OnScreenKeyboard'
 import { directionFor } from './routeMotion'
@@ -125,6 +127,9 @@ function droppedReason(d: DroppedOp): string {
 export function App() {
   // Global mic state (Stage 8): the banner must appear on ANY screen whenever the mic is open.
   const { micLive } = useVoice()
+  /* The running pump session, if any — see the mount below. It rides the provider that already
+     polls the care log for the Dashboard's figures rather than a second reader of its own. */
+  const { pumpTimer } = useBaby()
 
   const { locked, settings } = useSession()
   const { reconnecting, offline } = useConnection()
@@ -203,6 +208,19 @@ export function App() {
       <IconSprite />
       <div className="app-root">
         {micLive && <MicLiveBanner />}
+        {/*
+          The pump's two boundaries, felt from anywhere in the app.
+
+          <b>Mounted beside the mic banner for the same reason it is.</b> Both have to survive the
+          household being on some other screen — and this one had not been: `PumpAlert` sat inside
+          the Baby tab, so walking away unmounted it and the switch passed in silence. That is the
+          whole situation the buzz exists for, and on a panel that idles on the Dashboard it was
+          most of them. Renders nothing; it is here for the vibration.
+
+          Still only while the app is open. A backgrounded PWA runs no timers, and answering that
+          needs push notifications rather than a different mount.
+        */}
+        {pumpTimer && <PumpAlert timer={pumpTimer} />}
         {showReconnecting && (
           /*
            * Two sentences, because they describe two different situations.

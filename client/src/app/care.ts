@@ -87,6 +87,24 @@ export const CARE_ICONS: Record<CareEntryTypeName, IconId> = {
 }
 
 /**
+ * Which running sessions make you hold to stop them, rather than tap.
+ *
+ * <b>Pump only, and the asymmetry is the point.</b> Every timed session can be ended by a knee
+ * against a wall panel; what differs is what that costs. A nursing or tummy-time session ended by
+ * mistake is re-enterable from memory — you know roughly when it started and which side. A sleep is
+ * the same. A pump session is not: its value is the length the panel measured and the amount asked
+ * for afterwards, and once the timer is thrown away there is nothing to type back in. So it is the
+ * one place the guard is worth the friction, on both ways out — cancelling loses the session and
+ * finishing early shortens it.
+ *
+ * Named here rather than written inline as `type === 'Pump'` so the rule has somewhere to be tested
+ * and somewhere to be argued with when a fifth timed type arrives.
+ */
+export function holdsToStop(type: CareEntryTypeName): boolean {
+  return type === 'Pump'
+}
+
+/**
  * The title on a panel, which is not always the word on its tile.
  *
  * `BREAST` is a tile label — twelve characters of letterspaced small caps in a 2-up grid, where
@@ -127,15 +145,25 @@ export function valueLabel(entry: CareEntryDto): string {
 }
 
 /**
- * `Poo`, `Mixed`, `Breast milk` — a wire value as the household reads it.
+ * Wire values whose reading is not their spelling with the underscores taken out.
  *
- * <b>`both` is the one that matters.</b> The wire carries `both` because that is the source data's
- * word, and the household reads MIXED everywhere it is shown. Mapping it here rather than at each
- * call site is what stops a tile saying "Both" while the sheet beside it says "mixed".
+ * <b>`both` is the original.</b> The wire carries it because that is the source data's word, and
+ * the household reads MIXED everywhere it is shown. Mapping here rather than at each call site is
+ * what stops a tile saying "Both" while the sheet beside it says "mixed".
+ *
+ * <b>`breast_formula` is the bottle that is some of each</b> — `design_handoff_baby/README.md` §7,
+ * where it is a sixth content value in its own right rather than a note on one of the other five.
+ * The slash is the whole point of the label and no amount of underscore-stripping produces it.
  */
+const KIND_WORDS: Record<string, string> = {
+  both: 'Mixed',
+  breast_formula: 'Breast / formula',
+}
+
+/** `Poo`, `Mixed`, `Breast milk` — a wire value as the household reads it. */
 export function kindLabel(kind: string | null | undefined): string | null {
   if (!kind) return null
-  return capitalise((kind === 'both' ? 'mixed' : kind).replace(/_/g, ' '))
+  return KIND_WORDS[kind] ?? capitalise(kind.replace(/_/g, ' '))
 }
 
 /**
@@ -297,6 +325,20 @@ export function elapsedParts(fromIso: string, now: Date = new Date()): {
  * that the two answer different questions: this one is "how has the night gone", that one is "what
  * was logged on the 13th".
  */
+/**
+ * How many days of log one read reaches back — and therefore how far TODAY can be paged.
+ *
+ * <b>One number, because two places need to agree about it.</b> `useCareLog` asks the server for
+ * this many days, and the TODAY page lets a swipe walk back through them; a cap larger than the
+ * read would page onto days that are empty because nothing was *fetched*, which on a totals page
+ * is indistinguishable from a day where nothing happened. Raising the read raises the walk, in one
+ * edit.
+ *
+ * The last reachable window opens at 6 AM on the earliest day read, which is inside the read — it
+ * starts at that day's midnight — so every day in the range is whole.
+ */
+export const CARE_HISTORY_DAYS = 7
+
 export function careWindowStart(now: Date = new Date()): Date {
   const start = new Date(now)
   start.setHours(6, 0, 0, 0)
@@ -304,12 +346,65 @@ export function careWindowStart(now: Date = new Date()): Date {
   return start
 }
 
+/**
+ * The 6 AM → 6 AM window that `daysBack` days ago belongs to.
+ *
+ * <b>Counted in days, not in milliseconds.</b> `setDate` walks the calendar, so a window either
+ * side of a daylight-saving change is still the same 6 AM to 6 AM the household would recognise;
+ * subtracting 86,400,000 would put one of them at 5 AM or 7 AM twice a year, silently, and only in
+ * the weeks nobody is looking for it.
+ *
+ * `daysBack` of zero is the window TODAY already counts, so the two agree by construction.
+ */
+export function careWindowFor(daysBack: number, now: Date = new Date()): { from: Date; to: Date } {
+  const from = careWindowStart(now)
+  from.setDate(from.getDate() - daysBack)
+  const to = new Date(from)
+  to.setDate(to.getDate() + 1)
+  return { from, to }
+}
+
+/**
+ * The day a window is *called*, which is not always the day it opened on.
+ *
+ * The window in force at 2 AM opened at 6 AM yesterday, and the page has always called it TODAY —
+ * because that is what somebody standing at the panel at 2 AM means by today. So the name comes
+ * from the calendar day the window is counted *against*, not from its start: today less `daysBack`.
+ *
+ * Read through {@link dayLabel}, so TODAY, YESTERDAY and `Monday, 18 August` are the same three
+ * words the LOG page's day headings use. One vocabulary for the same fact.
+ */
+export function careWindowLabel(daysBack: number, now: Date = new Date()): string {
+  const day = new Date(now)
+  day.setHours(0, 0, 0, 0)
+  day.setDate(day.getDate() - daysBack)
+  return dayLabel(day.toISOString(), now.getTime())
+}
+
 /** One row of the TODAY page: what it was, how much, and whether the window is empty of it. */
 export interface WindowTotal {
   type: CareEntryTypeName
   detail: string
+  /**
+   * The row's own time column — `Last 4:00 AM`, `8:20 AM`, or null.
+   *
+   * Its own field rather than a clause on the end of {@link detail}, because the design gives the
+   * time a fixed column of its own on every page of the pager
+   * (`design_handoff_baby/README.md` §"List row"). A row with nothing to put here renders no column
+   * at all and lets the name block have the width — an empty 88px gap is worse than no column.
+   */
+  time: string | null
   value: string
   unit: string | null
+  /**
+   * A value that is not a number, when a numeral would be a claim nobody made.
+   *
+   * `ring` — nothing was recorded in this window. Deliberately not `0`: "nothing recorded" and
+   * "nothing happened" are different statements, and the second is not one the panel can make.
+   * `rule` — the thing happened and was never measured. Two pump sessions with no amount are not
+   * zero ounces; the old app called them that, which is the bug this notation exists to refuse.
+   */
+  mark: 'ring' | 'rule' | null
   /** Nothing in the window — the row recedes rather than disappearing, so its absence is legible. */
   dim: boolean
 }
@@ -393,7 +488,8 @@ export function windowTotals(entries: CareEntryDto[]): WindowTotal[] {
   return TOTAL_TYPES.map((type): WindowTotal => {
     const rows = entries.filter((e) => e.type === type)
     if (rows.length === 0) {
-      return { type, detail: 'None in this window', value: '0', unit: null, dim: true }
+      // A ring, not a zero — see `WindowTotal.mark`.
+      return { type, detail: 'None in this window', time: null, value: '', unit: null, mark: 'ring', dim: true }
     }
 
     // Newest first, so "last 8:33 PM" and "Pepcid · 9:47 AM" name the most recent one.
@@ -405,9 +501,11 @@ export function windowTotals(entries: CareEntryDto[]): WindowTotal[] {
         const ounces = rows.reduce((sum, e) => sum + (e.amount ?? 0), 0)
         return {
           type,
-          detail: `${plural(count, 'bottle')} · last ${clockLabel(new Date(latest.atUtc))}`,
+          detail: plural(count, 'bottle'),
+          time: `Last ${clockLabel(new Date(latest.atUtc))}`,
           value: trim(ounces),
           unit: 'oz',
+          mark: null,
           dim: false,
         }
       }
@@ -418,11 +516,15 @@ export function windowTotals(entries: CareEntryDto[]): WindowTotal[] {
         return {
           type,
           detail: [plural(count, 'session'), sides].filter(Boolean).join(' · '),
+          // No time column: the design gives this row a count and a duration and nothing else, and
+          // "last fed at" is the SINCE page's question rather than this one's.
+          time: null,
           // `16` `M`, matching the elapsed figures and the entry rows. The design sets this as a
           // clock, but a block that writes a duration three different ways is a block somebody has
           // to decode rather than read.
           value: String(Math.round(minutes)),
           unit: 'M',
+          mark: null,
           dim: false,
         }
       }
@@ -438,8 +540,11 @@ export function windowTotals(entries: CareEntryDto[]): WindowTotal[] {
             // and the old app's answer was to count them as `0 oz`, which is worse.
             unmeasured > 0 ? `${unmeasured} with no amount` : null,
           ].filter(Boolean).join(' · '),
-          value: ounces > 0 ? trim(ounces) : '—',
+          time: null,
+          value: ounces > 0 ? trim(ounces) : '',
           unit: ounces > 0 ? 'oz' : null,
+          // Sessions happened and none was weighed: the rule, not a zero and not an em dash.
+          mark: ounces > 0 ? null : 'rule',
           dim: false,
         }
       }
@@ -447,9 +552,12 @@ export function windowTotals(entries: CareEntryDto[]): WindowTotal[] {
       case 'Medicine':
         return {
           type,
-          detail: [latest.kind, clockLabel(new Date(latest.atUtc))].filter(Boolean).join(' · '),
+          detail: latest.kind ?? '',
+          time: clockLabel(new Date(latest.atUtc)),
           value: String(count),
+          // Lower case: `dose` is a word here, not an abbreviation like the `M` and `OZ` above it.
           unit: count === 1 ? 'dose' : 'doses',
+          mark: null,
           dim: false,
         }
 
@@ -467,9 +575,11 @@ export function windowTotals(entries: CareEntryDto[]): WindowTotal[] {
         const minutes = rows.reduce((sum, e) => sum + (e.durationMinutes ?? 0), 0)
         return {
           type,
-          detail: `${plural(count, 'sleep')} · last ${clockLabel(new Date(latest.atUtc))}`,
+          detail: plural(count, 'sleep'),
+          time: `Last ${clockLabel(new Date(latest.atUtc))}`,
           value: String(Math.round(minutes)),
           unit: 'M',
+          mark: null,
           dim: false,
         }
       }
@@ -477,9 +587,11 @@ export function windowTotals(entries: CareEntryDto[]): WindowTotal[] {
       default:
         return {
           type,
-          detail: `${detailLabel(latest)} · last ${clockLabel(new Date(latest.atUtc))}`,
+          detail: detailLabel(latest),
+          time: `Last ${clockLabel(new Date(latest.atUtc))}`,
           value: String(count),
           unit: null,
+          mark: null,
           dim: false,
         }
     }
@@ -660,9 +772,17 @@ function omissions(input: CareEntryInput): string | null {
  */
 export { clockLabel }
 
-/** `breast_milk` → `breast milk`, for a sentence rather than a wire value. */
+/**
+ * `breast_milk` → `breast milk`, for a sentence rather than a wire value.
+ *
+ * Deferred to {@link kindLabel} rather than stripping underscores itself. This was the third copy
+ * of that mapping in the log — the row, the chip and this sentence — and the review line is the one
+ * place the household is asked to confirm what is about to be written: a bottle whose chip reads
+ * BREAST / FORMULA and whose review reads "breast formula" is asking them to agree to something
+ * they were not shown.
+ */
 function spell(kind: string): string {
-  return kind.replace(/_/g, ' ')
+  return (kindLabel(kind) ?? kind).toLowerCase()
 }
 
 function capitalise(word: string): string {

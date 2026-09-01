@@ -6,7 +6,7 @@ using HomeHub.Api.Care;
 using HomeHub.Api.Controllers;
 
 /// <summary>
-/// The care log HomeHub owns — and specifically the things the Huckleberry path could never do.
+/// The care log HomeHub owns — and specifically the things the retired Huckleberry path never could.
 /// </summary>
 /// <remarks>
 /// Editing, deleting, logging after the fact, and the six types that exist nowhere else. Each of
@@ -26,6 +26,75 @@ public class CareLogTests
     }
 
     /*
+     * A bottle keeps both ends of the sum it was worked out from.
+     *
+     * The sheet asks what was poured and what came back, and writes the difference — the figure the
+     * totals and the log row read. Only that difference used to be stored, so reopening a feed to
+     * correct it showed the *consumed* amount in OFFERED with REMAINING empty: a bottle nobody
+     * drank from, and the size of the one that was actually poured gone. These two columns exist so
+     * a correction opens on what was entered.
+     */
+    [Fact]
+    public async Task Bottle_keeps_what_was_offered_and_what_came_back()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        // Four ounces poured, half an ounce back, three and a half taken.
+        var written = await AddAsync(client, new CareEntryInput(
+            CareEntryType.Bottle, Amount: 3.5, Unit: "oz", Kind: "breast_milk", Offered: 4.0, Left: 0.5));
+
+        Assert.Equal(4.0, written.Offered);
+        Assert.Equal(0.5, written.Left);
+        // Unchanged, and the point: everything else on the panel still reads what was taken.
+        Assert.Equal(3.5, written.Amount);
+
+        var read = await client.GetFromJsonAsync<List<CareEntryDto>>("/api/care/conrad/entries");
+        var round = Assert.Single(read!, e => e.Id == written.Id);
+        Assert.Equal(4.0, round.Offered);
+        Assert.Equal(0.5, round.Left);
+    }
+
+    /* A correction rewrites both ends, or the sheet would reopen on the figures before it. */
+    [Fact]
+    public async Task Correcting_a_bottle_rewrites_both_ends()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+        var written = await AddAsync(client, new CareEntryInput(
+            CareEntryType.Bottle, Amount: 3.5, Unit: "oz", Offered: 4.0, Left: 0.5));
+
+        // The baby came back for the rest of it.
+        var res = await client.PutAsJsonAsync($"/api/care/entries/{written.Id}", new CareEntryInput(
+            CareEntryType.Bottle, Amount: 4.0, Unit: "oz", Offered: 4.0, Left: 0));
+        res.EnsureSuccessStatusCode();
+
+        var updated = (await res.Content.ReadFromJsonAsync<CareEntryDto>())!;
+        Assert.Equal(4.0, updated.Offered);
+        Assert.Equal(0, updated.Left);
+        Assert.Equal(4.0, updated.Amount);
+    }
+
+    /*
+     * Nothing but a bottle is poured and handed back.
+     *
+     * The import path knows nothing about either column and the other sheets never ask, but a
+     * client is free to send anything — and a stray pair here would be two figures the bottle sheet
+     * would happily reopen on for a type that has no bottle.
+     */
+    [Fact]
+    public async Task Only_a_bottle_keeps_the_pair()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+        var nursing = await AddAsync(client, new CareEntryInput(
+            CareEntryType.Nursing, DurationMinutes: 14, Side: "left", Offered: 4.0, Left: 0.5));
+
+        Assert.Null(nursing.Offered);
+        Assert.Null(nursing.Left);
+    }
+
+    /*
      * The six types the integration has no service and no sensor for. Being able to write one at all
      * is the entire reason this table exists.
      */
@@ -36,7 +105,7 @@ public class CareLogTests
     [InlineData(CareEntryType.Bath)]
     [InlineData(CareEntryType.TummyTime)]
     [InlineData(CareEntryType.Temperature)]
-    public async Task A_type_Huckleberry_cannot_store_is_logged_here(CareEntryType type)
+    public async Task A_type_the_old_integration_could_not_store_is_logged_here(CareEntryType type)
     {
         using var app = new HubAppFactory();
         var client = app.CreateSeededClient();
@@ -91,7 +160,7 @@ public class CareLogTests
     }
 
     /*
-     * Huckleberry takes a missing pump amount and writes `0 oz`, then reports `0 oz` back as though
+     * Huckleberry took a missing pump amount and wrote `0 oz`, then reported `0 oz` back as though
      * somebody had weighed it. Five of the household's last six sessions had no amount. Null and
      * zero must not be the same thing here.
      */
@@ -393,7 +462,7 @@ public class CareLogTests
         Assert.Equal("abc-123", entry.ClientKey);
     }
 
-    /* An entry written before any of this, or pulled in from Huckleberry, has no key to report. */
+    /* An entry written before any of this, or pulled in by the old import, has no key to report. */
     [Fact]
     public async Task An_entry_written_without_a_key_reports_none()
     {

@@ -798,8 +798,16 @@ there's no CORS and no HTTPS redirect (put TLS in front via nginx if needed).
 ## Test
 
 ```bash
-dotnet test        # 55 integration/unit tests (in-memory DB; no external services needed)
+./scripts/check.sh          # client: typecheck + lint + 872 tests   (~11s)
+./scripts/check.sh backend  # 1121 integration/unit tests, in-memory DB, no external services (~47s)
+./scripts/check.sh all      # both
 ```
+
+Run the layer you changed: a client-only change never needs the backend suite, and vice versa.
+
+**Do not run `dotnet test` directly.** It needs two environment variables to pass on this machine,
+and without them it reports several hundred failures that look like real regressions but are not.
+`check.sh` supplies them; `brain/ENVIRONMENT.md` explains why they are needed.
 
 ## Deploy
 

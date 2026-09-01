@@ -18,7 +18,6 @@ import type {
   CareEntryTypeName,
   CareSummaryDto,
   CareTimerDto,
-  CareImportResult,
   TaskItemDto,
   TaskCreateInput,
   SyncListDto,
@@ -40,16 +39,6 @@ import type {
   SearchResults,
   TurnStatus,
   UpdateConversationRequest,
-  BabyHealthDto,
-  BabyChildDto,
-  BabyStateDto,
-  BabyHistoryEventDto,
-  BabyTimerKindName,
-  BabyTimerActionName,
-  NursingSideName,
-  DiaperInput,
-  BottleInput,
-  GrowthInput,
   CatHealthDto,
   LitterRobotDto,
   LitterSwitchName,
@@ -107,6 +96,8 @@ import type {
   ApplyTemplateResultDto,
   CookabilityDto,
   ItemClaimDto,
+  BarcodeLookupDto,
+  ItemUsageDto,
   ShelfLifeDto,
 } from './types'
 
@@ -134,33 +125,125 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let res: Response
+/**
+ * Fired the first time a data call comes back 401 — the session is gone and the panel does not
+ * know it yet.
+ *
+ * <b>The request layer is the only place that sees this.</b> Every provider catches its own
+ * `ApiError` and keeps what is on screen, which is right when the server is briefly unreachable and
+ * wrong when the cookie has expired: nothing is coming back, ever, and each provider independently
+ * decides to show its empty state. The panel then looks like it is working and reports an empty
+ * pantry and no recipes — which is exactly what a household saw, and what the comment on `signOut`
+ * already warned would happen with no session.
+ *
+ * An event rather than a direct call because `api` must not import a React provider; `SessionProvider`
+ * listens and locks, which lands on the picker that fixes it.
+ */
+export const SESSION_LOST_EVENT = 'homehub:session-lost'
+
+/** Once per outage. A page-load storm of 401s is one lost session, not twenty. */
+let sessionLostAnnounced = false
+
+function announceSessionLost(): void {
+  if (sessionLostAnnounced) return
+  sessionLostAnnounced = true
+  window.dispatchEvent(new Event(SESSION_LOST_EVENT))
+}
+
+/** Signing in with the wrong PIN answers 401 and means nothing about the session that made it. */
+function isAuthAttempt(path: string): boolean {
+  return path === '/session' || path.includes('/pin')
+}
+
+/** Called once a session exists again, so the next genuine expiry is announced. */
+export function armSessionLostNotice(): void {
+  sessionLostAnnounced = false
+}
+
+/**
+ * How long a call may go unanswered before it is treated as unreachable.
+ *
+ * <b>There was no deadline here at all, and a request that never answers is not a slow one.</b> A
+ * `fetch` to a host with no route does not fail promptly — it sits on an open socket until the OS
+ * gives up, which is tens of seconds on a phone and unbounded on a page the OS freezes mid-request.
+ * Every caller in the app treats an in-flight write as a reason to disable its controls, so a
+ * request with no end is a screen with no end: the pump panel came back from a locked phone with
+ * SWITCH NOW, PAUSE, FINISH and CANCEL all dimmed and no way to reach the session at all, because
+ * `useCareLog`'s `writing` was set by a `pause` that was never going to resolve or reject.
+ *
+ * Ten seconds is the panel's own definition of unreachable — `ConnectionProvider` gives a probe four
+ * — and the point is not the exact figure but that it exists: past it the request becomes the same
+ * `ApiError(0, …)` a refused connection already raised, which every caller here already knows how to
+ * answer. That is what puts the care log back on its offline path rather than leaving it waiting.
+ */
+const DEADLINE_MS = 10_000
+
+/**
+ * Long enough for a call the server answers by asking a model or a machine.
+ *
+ * Reading a photo, importing a recipe from a link and cycling the litter robot are not slow because
+ * anything is wrong; they are slow because of what they do. They would fail the ordinary deadline
+ * on a good day, so they say so at their call site rather than being special-cased in here.
+ */
+export const SLOW_CALL_MS = 90_000
+
+/**
+ * @param deadlineMs How long to wait before treating silence as unreachable. See {@link SLOW_CALL_MS}
+ *   for the calls that legitimately need longer than the default.
+ */
+async function request<T>(path: string, init?: RequestInit, deadlineMs = DEADLINE_MS): Promise<T> {
+  /* The caller's own `signal`, if it passed one through `init`, is still honoured: the spread below
+     puts it in place and this only replaces it when there is none. Nothing in this file passes one
+     today — the assist stream takes its signal as an argument and runs its own watchdog — but a
+     deadline that silently ate a Stop would be a worse bug than the one it fixes. */
+  const watchdog = new AbortController()
+  let expired = false
+  const deadline = setTimeout(() => { expired = true; watchdog.abort() }, deadlineMs)
+  // Told apart from a refusal so the message says which happened. Both are status 0: to every
+  // caller, "the server is not there" and "the server never answered" are the same fact.
+  const unreachable = (cause: unknown) => new ApiError(
+    0,
+    expired
+      ? 'The server did not answer in time.'
+      : cause instanceof Error ? cause.message : 'Network error',
+  )
+
   try {
-    res = await fetch(`/api${path}`, {
-      // Explicit, though it is also the default for a same-origin URL: since AUDIT A1 the session
-      // cookie is what authorises every one of these calls, so "cookies travel" stopped being an
-      // incidental property of relative fetches and became the thing the API depends on.
-      credentials: 'same-origin',
-      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
-      ...init,
-    })
-  } catch (cause) {
-    // Network failure (server down / offline) — surface as a 0-status ApiError.
-    throw new ApiError(0, cause instanceof Error ? cause.message : 'Network error')
+    let res: Response
+    try {
+      res = await fetch(`/api${path}`, {
+        // Explicit, though it is also the default for a same-origin URL: since AUDIT A1 the session
+        // cookie is what authorises every one of these calls, so "cookies travel" stopped being an
+        // incidental property of relative fetches and became the thing the API depends on.
+        credentials: 'same-origin',
+        headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+        signal: watchdog.signal,
+        ...init,
+      })
+    } catch (cause) {
+      // Network failure (server down / offline / no answer) — surface as a 0-status ApiError.
+      throw unreachable(cause)
+    }
+    if (!res.ok) {
+      if (res.status === 401 && !isAuthAttempt(path)) announceSessionLost()
+      const text = await res.text().catch(() => '')
+      // Plain-text problem details are the common case (the controllers return BadRequest("…")), so a
+      // parse failure is expected rather than exceptional — the message still carries the text.
+      let body: unknown
+      try { body = text ? JSON.parse(text) : undefined } catch { body = undefined }
+      throw new ApiError(res.status, text || res.statusText, body)
+    }
+    // 204 No Content and other empty bodies decode to undefined.
+    if (res.status === 204) return undefined as T
+    /* The deadline covers the body too, and deliberately. Headers arriving is not the server having
+       answered — a connection that dies between the two leaves `res.text()` hanging exactly as the
+       fetch itself did, which is the same never-ending wait one gate further along. */
+    let text: string
+    try { text = await res.text() } catch (cause) { throw unreachable(cause) }
+    return (text ? JSON.parse(text) : undefined) as T
+  } finally {
+    clearTimeout(deadline)
   }
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    // Plain-text problem details are the common case (the controllers return BadRequest("…")), so a
-    // parse failure is expected rather than exceptional — the message still carries the text.
-    let body: unknown
-    try { body = text ? JSON.parse(text) : undefined } catch { body = undefined }
-    throw new ApiError(res.status, text || res.statusText, body)
-  }
-  // 204 No Content and other empty bodies decode to undefined.
-  if (res.status === 204) return undefined as T
-  const text = await res.text()
-  return (text ? JSON.parse(text) : undefined) as T
 }
 
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) })
@@ -361,6 +444,15 @@ export const api = {
    * way. Everything else is a full replace, so omitting a name still blanks it; only the field
    * that governs what a member may do is protected from being changed by silence.
    */
+  /**
+   * How your own profile locks when the panel goes idle. **Yours only** — the server refuses it for
+   * anybody else's id, because turning off somebody's idle lock is the same act as unlocking them.
+   */
+  setLockPreference: (id: number, requirePinWhenIdle: boolean, stayLoggedIn: boolean) =>
+    request<ProfileDto>(`/profiles/${id}/lock`, {
+      method: 'PUT',
+      ...json({ requirePinWhenIdle, stayLoggedIn }),
+    }),
   updateProfile: (
     id: number,
     patch: Omit<ProfileDto, 'id' | 'hasPin' | 'role'> & Partial<Pick<ProfileDto, 'role'>>,
@@ -507,15 +599,15 @@ export const api = {
    * fact from an empty result and is not the photograph's fault.
    */
   readPhoto: (input: ReadPhotoRequest) =>
-    request<ReadPhotoResponse>('/calendar/read-photo', { method: 'POST', ...json(input) }),
+    request<ReadPhotoResponse>('/calendar/read-photo', { method: 'POST', ...json(input) }, SLOW_CALL_MS),
   /** Where a kept photograph is served from. Not a data URL — the browser fetches it with the session. */
   eventPhotoUrl: (id: number) => `/api/calendar/events/${id}/photo`,
 
-  // ---- Care logging (HomeHub's own, not the Huckleberry integration) ----
+  // ---- Care logging (the panel's own log) ----
   //
   // Ten types where that integration offers four, a real timestamp where its writes have none, and
-  // entries that can be corrected. `getBaby*` above still fronts Huckleberry for the live sensors
-  // and the timers its own app can see; these are HomeHub's log, and the only thing the panel writes.
+  // entries that can be corrected. This is the whole of the panel's baby data now — the
+  // Huckleberry integration that used to sit beside it was retired on 2026-08-30.
   getCareSummary: (childKey: string) =>
     request<CareSummaryDto>(`/care/${childKey}/summary`),
   getCareEntries: (childKey: string, fromIso?: string, toIso?: string) =>
@@ -568,9 +660,6 @@ export const api = {
     )
   },
 
-  /** Pull the household's own history out of Huckleberry. Safe to run as often as wanted. */
-  importCare: (childKey: string, days = 90) =>
-    request<CareImportResult>(`/care/${childKey}/import?days=${days}`, { method: 'POST' }),
 
   // ---- Tasks ----
   getTasks: () => request<TaskItemDto[]>('/tasks'),
@@ -720,34 +809,6 @@ export const api = {
   setNotificationSource: (source: string, enabled: boolean) =>
     request<void>(`/notifications/sources/${source}`, { method: 'PUT', ...json({ enabled }) }),
 
-  // ---- Baby (Huckleberry) ----
-  // Writes deliberately do NOT go through the write queue: Huckleberry is the system of record and a
-  // failed baby write fails visibly rather than being retried at dawn. Nothing logged here can be
-  // retracted by HomeHub — there is no delete or edit service upstream.
-  getBabyHealth: () => request<BabyHealthDto>('/baby/health'),
-  getBabyChildren: () => request<BabyChildDto[]>('/baby/children'),
-  getBabyState: (childKey: string) => request<BabyStateDto>(`/baby/${childKey}/state`),
-  getBabyHistory: (childKey: string, fromIso: string, toIso: string) =>
-    request<BabyHistoryEventDto[]>(
-      `/baby/${childKey}/history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
-    ),
-  babyTimer: (
-    childKey: string,
-    timer: BabyTimerKindName,
-    action: BabyTimerActionName,
-    side?: NursingSideName,
-  ) =>
-    request<void>(
-      `/baby/${childKey}/timer/${timer}/${action}${side ? `?side=${side}` : ''}`,
-      { method: 'POST' },
-    ),
-  logDiaper: (childKey: string, input: DiaperInput) =>
-    request<void>(`/baby/${childKey}/diaper`, { method: 'POST', ...json(input) }),
-  logBottle: (childKey: string, input: BottleInput) =>
-    request<void>(`/baby/${childKey}/bottle`, { method: 'POST', ...json(input) }),
-  logGrowth: (childKey: string, input: GrowthInput) =>
-    request<void>(`/baby/${childKey}/growth`, { method: 'POST', ...json(input) }),
-
   // ---- Litter (Litter-Robot) ----
   // Commands are fire-and-forget: the robot accepts commands it silently drops, so each of these
   // answers with a freshly-read snapshot rather than with "it worked".
@@ -761,7 +822,9 @@ export const api = {
   // Trends come from HA's recorder, which purges — check `complete` before presenting the window.
   getLitterHistory: (slug: string, days = 7) =>
     request<LitterHistoryDto>(`/cats/${slug}/history?days=${days}`),
-  startLitterCycle: (slug: string) => request<CycleResultDto>(`/cats/${slug}/cycle`, { method: 'POST' }),
+  // The robot has to physically run; the server answers when it has, not when it was asked.
+  startLitterCycle: (slug: string) =>
+    request<CycleResultDto>(`/cats/${slug}/cycle`, { method: 'POST' }, SLOW_CALL_MS),
   resetLitterDrawer: (slug: string) => request<LitterRobotDto>(`/cats/${slug}/drawer/reset`, { method: 'POST' }),
   resetLitterLevel: (slug: string) => request<LitterRobotDto>(`/cats/${slug}/litter/reset`, { method: 'POST' }),
   setLitterSwitch: (slug: string, which: LitterSwitchName, on: boolean) =>
@@ -791,7 +854,7 @@ export const api = {
   // with `confidence: "Empty"` — the request succeeded, the page just had nothing in it, and that
   // is a specific screen rather than an error.
   importRecipe: (input: RecipeImportInput) =>
-    request<RecipeImportResponse>('/recipes/import', { method: 'POST', ...json(input) }),
+    request<RecipeImportResponse>('/recipes/import', { method: 'POST', ...json(input) }, SLOW_CALL_MS),
   // The paste path, for publishers that refuse the fetcher — every People Inc. property answers 402
   // to any client. Nothing is fetched here: the household read the page in their own browser, and
   // the server parses the text it was handed. Same response shape as the link importer, so the
@@ -804,9 +867,9 @@ export const api = {
    * scales the same way.
    */
   readRecipePhoto: (input: ReadKitchenPhotoRequest) =>
-    request<RecipeReadingDto>('/recipes/read-photo', { method: 'POST', ...json(input) }),
+    request<RecipeReadingDto>('/recipes/read-photo', { method: 'POST', ...json(input) }, SLOW_CALL_MS),
   importRecipeText: (input: RecipePasteInput) =>
-    request<RecipeImportResponse>('/recipes/import/text', { method: 'POST', ...json(input) }),
+    request<RecipeImportResponse>('/recipes/import/text', { method: 'POST', ...json(input) }, SLOW_CALL_MS),
   /** URL of a recipe's cached hero image. Served from disk, never from wwwroot. */
   recipeImageUrl: (id: number) => `/api/recipes/${id}/image`,
   // Fork: the original is never touched. The body carries only the name and the edited amounts —
@@ -908,6 +971,16 @@ export const api = {
   /** One scan, written immediately. The run list is the undo (DECISIONS PG3). */
   scanIntoPantry: (input: ScanInput) =>
     request<ScanResultDto>('/pantry/scan', { method: 'POST', ...json(input) }),
+  /**
+   * What is this barcode? Identification only — writes nothing.
+   *
+   * The add form's viewfinder path. `scanIntoPantry` is the phone's tally and moves stock, which is
+   * exactly wrong for a form: a camera decodes the same pack many times a second.
+   */
+  lookupBarcode: (barcode: string, format?: string | null) =>
+    request<BarcodeLookupDto>(
+      `/pantry/catalogue/${encodeURIComponent(barcode)}${format ? `?format=${encodeURIComponent(format)}` : ''}`),
+
   /** `NAME IT` — the entire learning mechanism for unknown barcodes. */
   namePantryBarcode: (input: CatalogueInput) =>
     request<void>('/pantry/catalogue', { method: 'POST', ...json(input) }),
@@ -983,7 +1056,7 @@ export const api = {
    * after seeing what the first one caught.
    */
   readPurchasePhoto: (input: ReadKitchenPhotoRequest) =>
-    request<PurchaseReadingDto>('/pantry/imports/read-photo', { method: 'POST', ...json(input) }),
+    request<PurchaseReadingDto>('/pantry/imports/read-photo', { method: 'POST', ...json(input) }, SLOW_CALL_MS),
   createImport: (input: OrderImportInput) =>
     request<OrderImportDto>('/pantry/imports', { method: 'POST', ...json(input) }),
   updateImportLine: (id: number, lineId: number, input: ImportLineInput) =>
@@ -1068,6 +1141,9 @@ export const api = {
 
   /** Which nights have spoken for one item, soonest first. Past nights are excluded. */
   getItemClaims: (itemId: number) => request<ItemClaimDto[]>(`/pantry/${itemId}/claims`),
+
+  /** Which recipes cook one item, and how much each asks for. Spoken-for nights lead. */
+  getItemUsage: (itemId: number) => request<ItemUsageDto[]>(`/pantry/${itemId}/used-by`),
 
   // ---- How long things last (SETTINGS_AND_IMPORT §1) ----
 

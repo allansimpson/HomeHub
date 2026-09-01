@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { AttachmentRefused, readAttachment } from '../assist/attachments'
 import { DecisionCard } from './DecisionCard'
 import { sortImportLines } from '../../app/kitchenDomain'
+import { numberWord } from '../../app/pantryDomain'
 import type {
   OrderImportDto, OrderImportLineDto, PantryItemDto, ReadLineDto,
 } from '../../api/types'
@@ -150,15 +151,17 @@ export function KitchenDeliveryScreen() {
   const lines = imported?.lines ?? []
   const { matched, questions, unasked, going } = sortImportLines(lines)
   const open = questions.filter((q) => !answers.has(q.id))
+  /** The lines the reader could not make out. Answered as a group — see the card below. */
+  const garbled = questions.filter((q) => q.confidence === 'Unreadable')
 
   return (
     <ScreenShell
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="A delivery came"
-          onBack={() => navigate('/kitchen/pantry')}
-          backLabel="CANCEL"
+          onExit={() => navigate('/kitchen/pantry')}
+          exit="CANCEL"
         />
       }
     >
@@ -177,13 +180,8 @@ export function KitchenDeliveryScreen() {
           ))}
         </div>
 
-        <div className="ml-band">
-          <span className="ml-band__label">WHAT WAS READ</span>
-          <span className="ml-band__meta">
-            {shots.length} {shots.length === 1 ? 'SHOT' : 'SHOTS'}
-          </span>
-        </div>
-        <div className="ml-band-shade">
+        <KitchenDivider label="What was read" count={`${shots.length} ${shots.length === 1 ? 'SHOT' : 'SHOTS'}`} gap={false} />
+        <div>
           <div className="ml-kitchen__shotstrip" data-hscroll>
             {shots.map((shot) => (
               <div key={shot.from} className="ml-kitchen__shot">
@@ -217,13 +215,10 @@ export function KitchenDeliveryScreen() {
 
         {imported && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">MATCHED TO THE LIST</span>
-              <span className="ml-band__meta">{matched.length}</span>
-            </div>
+            <KitchenDivider label="Matched to the list" count={matched.length} />
             {/* A delivery is twenty-odd lines. The group bisects so the panel stays one screen and
                 the questions below it are still reachable without a long scroll. */}
-            <CutGroup rows={4} rowHeight={48} className="ml-band-shade">
+            <div>
               {matched.map((line) => (
                 <div key={line.id} className="ml-row ml-kitchen__matchedrow">
                   <span className="ml-kitchen__shelfname">{line.proposedName ?? line.rawText}</span>
@@ -232,16 +227,20 @@ export function KitchenDeliveryScreen() {
                   <span className="ml-kitchen__readas">{line.rawText}</span>
                 </div>
               ))}
-            </CutGroup>
+            </div>
 
             {questions.length > 0 && (
               <>
-                <div className="ml-band ml-band--amber">
-                  <span className="ml-band__label">THESE NEED YOU</span>
-                  <span className="ml-band__meta">{open.length}</span>
-                </div>
-                <div className="ml-band-shade">
-                  {questions.map((line) => (
+                <KitchenDivider label="These need you" count={open.length} amber />
+                <div>
+                  {/*
+                    Substitutions are one card each; the unreadable lines are **one card between
+                    them**, which is how the handoff draws it and what the buttons were already
+                    saying. `SKIP THEM` and `TYPE THEM IN` sat on a card about a single line — and
+                    the answer really is collective: nobody skips one piece of garbled OCR and keeps
+                    another, they deal with the lot.
+                  */}
+                  {questions.filter((l) => l.confidence !== 'Unreadable').map((line) => (
                     <ImportQuestion
                       key={line.id}
                       line={line}
@@ -249,6 +248,17 @@ export function KitchenDeliveryScreen() {
                       onChoose={(how) => setAnswers((prev) => new Map(prev).set(line.id, how))}
                     />
                   ))}
+                  {garbled.length > 0 && (
+                    <GarbledQuestion
+                      lines={garbled}
+                      chosen={answers.get(garbled[0].id)}
+                      onChoose={(how) => setAnswers((prev) => {
+                        const next = new Map(prev)
+                        for (const l of garbled) next.set(l.id, how)
+                        return next
+                      })}
+                    />
+                  )}
                 </div>
               </>
             )}
@@ -259,11 +269,8 @@ export function KitchenDeliveryScreen() {
             */}
             {unasked.length > 0 && (
               <>
-                <div className="ml-band ml-band--quiet">
-                  <span className="ml-band__label">NOT ON THE LIST</span>
-                  <span className="ml-band__meta">{unasked.length}</span>
-                </div>
-                <div className="ml-band-shade">
+                <KitchenDivider label="Not on the list" count={unasked.length} />
+                <div>
                   <div className="ml-kitchen__askwhy">
                     {unasked.length} {unasked.length === 1 ? 'thing' : 'things'} nobody put on the
                     list — still added.
@@ -314,25 +321,18 @@ function ImportQuestion({
   chosen: Settlement | undefined
   onChoose: (how: Settlement) => void
 }) {
-  const garbled = line.confidence === 'Unreadable'
-  const navigate = useNavigate()
-
   return (
     <DecisionCard
-      item={garbled ? 'A line that came out wrong' : (line.proposedName ?? line.rawText)}
-      kind={garbled ? "COULDN'T READ IT" : 'NOT WHAT WAS ASKED FOR'}
+      item={line.proposedName ?? line.rawText}
+      // Who did this, not merely that it is wrong. A substitution is the shop's decision, and
+      // naming it is what stops the card reading as though the household mis-ordered.
+      kind="SUBSTITUTED BY THE SHOP"
       leftLabel="YOU ORDERED"
       leftValue={line.proposedName ?? '—'}
-      rightLabel={garbled ? 'IT CAME OUT AS' : 'THEY SENT'}
+      rightLabel="THEY SENT"
       rightValue={line.rawText}
-      choices={garbled ? [
-        { label: 'SKIP THEM', primary: chosen !== 'typed', onChoose: () => onChoose('skip') },
-        {
-          label: 'TYPE THEM IN',
-          primary: chosen === 'typed',
-          onChoose: () => { onChoose('typed'); navigate('/kitchen/pantry/add') },
-        },
-      ] : [
+      why="Saying they are the same thing teaches it, so the next delivery matches without asking."
+      choices={[
         // `SAME THING` writes an alias, which is what makes the next delivery match better rather
         // than asking the same question again.
         { label: 'SAME THING', primary: chosen !== 'separate', onChoose: () => onChoose('same') },
@@ -341,3 +341,47 @@ function ImportQuestion({
     />
   )
 }
+
+/**
+ * The lines the reader could not make out, answered as a group.
+ *
+ * One card for all of them because the answer is collective: nobody skips one piece of garbled OCR
+ * and types another in. The handoff draws it this way, and the buttons were already plural on a
+ * card that only ever described one line.
+ */
+function GarbledQuestion({
+  lines, chosen, onChoose,
+}: {
+  lines: OrderImportLineDto[]
+  chosen: Settlement | undefined
+  onChoose: (how: Settlement) => void
+}) {
+  const navigate = useNavigate()
+  const many = lines.length > 1
+
+  return (
+    <DecisionCard
+      item={many
+        ? `${capitalise(numberWord(lines.length))} lines came out wrong`
+        : 'A line came out wrong'}
+      kind={many ? "COULDN'T READ THEM" : "COULDN'T READ IT"}
+      leftLabel="LINES"
+      leftValue={String(lines.length)}
+      rightLabel={many ? 'THEY CAME OUT AS' : 'IT CAME OUT AS'}
+      // The raw text is kept and shown rather than hidden: it is the evidence that something was
+      // there at all, and the only thing anybody has to retype from.
+      rightValue={lines.map((l) => l.rawText).join(' · ')}
+      why="Skipping leaves them out of the pantry entirely. Nothing is written for a line nobody could read."
+      choices={[
+        { label: 'SKIP THEM', primary: chosen !== 'typed', onChoose: () => onChoose('skip') },
+        {
+          label: 'TYPE THEM IN',
+          primary: chosen === 'typed',
+          onChoose: () => { onChoose('typed'); navigate('/kitchen/pantry/add') },
+        },
+      ]}
+    />
+  )
+}
+
+const capitalise = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1)

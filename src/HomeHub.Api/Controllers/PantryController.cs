@@ -1,6 +1,7 @@
 namespace HomeHub.Api.Controllers;
 
 using HomeHub.Api.Data;
+using HomeHub.Api.Meals;
 using HomeHub.Api.Pantry;
 using HomeHub.Api.Auth;
 using Microsoft.AspNetCore.Mvc;
@@ -128,11 +129,104 @@ public class PantryController : ControllerBase
             .Take(Math.Clamp(take, 1, 200))
             .ToListAsync(ct);
 
+        var causes = await CauseLabelsAsync(events, ct);
+
         return events.Select(e => new PantryEventDto(
             e.Id, e.PantryItemId, e.Kind.ToString(), e.Delta, e.ResultingQuantity,
             e.ResultingState?.ToString(), e.AtUtc,
             e.ByProfileId is { } p ? names.GetValueOrDefault(p) : null,
-            e.UndoneByEventId is not null)).ToList();
+            e.UndoneByEventId is not null,
+            causes.GetValueOrDefault(e.Id))).ToList();
+    }
+
+    /// <summary>
+    /// What caused each of these events, named — the dish, or the vendor.
+    /// </summary>
+    /// <remarks>
+    /// Two lookups for the whole page rather than one per row. A history is read five rows at a time
+    /// and could have been a join, but the two sources live in unrelated tables with different keys
+    /// and only two of the eleven kinds have a cause at all — so the page fetches the handful of ids
+    /// it actually saw, and an event whose cause has since been deleted simply has no label.
+    /// </remarks>
+    private async Task<Dictionary<int, string?>> CauseLabelsAsync(
+        List<PantryEvent> events, CancellationToken ct)
+    {
+        var nightIds = events
+            .Where(e => e.SourceKind == PantryEventSource.PlanEntry && e.SourceId != null)
+            .Select(e => e.SourceId!.Value).Distinct().ToList();
+        var importIds = events
+            .Where(e => e.SourceKind == PantryEventSource.OrderImport && e.SourceId != null)
+            .Select(e => e.SourceId!.Value).Distinct().ToList();
+
+        var nights = nightIds.Count == 0
+            ? []
+            : await _db.MealPlanEntries
+                .Where(e => nightIds.Contains(e.Id))
+                .Select(e => new { e.Id, Name = e.Recipe != null ? e.Recipe.Title : e.FreeText })
+                .ToDictionaryAsync(x => x.Id, x => x.Name, ct);
+
+        var imports = importIds.Count == 0
+            ? []
+            : await _db.OrderImports
+                .Where(i => importIds.Contains(i.Id))
+                .Select(i => new { i.Id, i.VendorLabel })
+                .ToDictionaryAsync(x => x.Id, x => x.VendorLabel, ct);
+
+        var labels = new Dictionary<int, string?>();
+        foreach (var e in events)
+        {
+            if (e.SourceId is not { } source) continue;
+            labels[e.Id] = e.SourceKind switch
+            {
+                PantryEventSource.PlanEntry => nights.GetValueOrDefault(source),
+                PantryEventSource.OrderImport => imports.GetValueOrDefault(source),
+                _ => null,
+            };
+        }
+        return labels;
+    }
+
+    /// <summary>
+    /// What is this barcode? Identification only — nothing is written (ADD_TO_PANTRY §2).
+    /// </summary>
+    /// <remarks>
+    /// The add form's viewfinder path. <c>POST /scan</c> is the phone's tally: it moves stock and
+    /// writes a ledger row per pack, which is exactly wrong here — "one scan names the thing and
+    /// fills its size; it never increments a count". A camera decodes the same barcode many times a
+    /// second, so a lookup with a side effect would have filed a row per frame.
+    /// <para>
+    /// Household entries beat global ones, and the outside catalogue is asked only when neither
+    /// knows — to pre-fill a form, never to create anything.
+    /// </para>
+    /// </remarks>
+    [HttpGet("catalogue/{barcode}")]
+    public async Task<ActionResult<BarcodeLookupDto>> Lookup(
+        string barcode, [FromQuery] string? format, CancellationToken ct)
+    {
+        var code = Barcodes.Normalise(barcode, format);
+        if (code is null) return BadRequest("That doesn't look like a grocery barcode.");
+
+        var entry = await _db.ProductCatalogue
+            .Where(c => c.Barcode == code)
+            .OrderByDescending(c => c.Scope == CatalogueScope.Household)
+            .FirstOrDefaultAsync(ct);
+
+        if (entry is not null)
+        {
+            return new BarcodeLookupDto(
+                code, true, entry.Name, entry.DefaultUnit, entry.PackSize, entry.PackUnit,
+                entry.DefaultLocation.ToString(), entry.DefaultTracking.ToString(), null);
+        }
+
+        return new BarcodeLookupDto(
+            code, false, null, null, null, null, null, null,
+            await _lookup.LookupAsync(code, ct) is { } found
+                // Brand in front of the product, as on the scan path — "Pickle Spears" is a row you
+                // cannot tell from the other jar of pickles. See ProductNames.Specific.
+                ? new ProductSuggestionDto(
+                    ProductNames.Specific(found.Brand, found.Name)!,
+                    found.Brand, found.Unit, found.PackSize, found.Source)
+                : null);
     }
 
     /// <summary>Add something by hand — the 9a footer, and the fallback for every other route in.</summary>
@@ -956,6 +1050,81 @@ public class PantryController : ControllerBase
                 x.Entry.Recipe != null ? x.Entry.Recipe.Title : x.Entry.FreeText,
                 x.Claim.Quantity))
             .ToListAsync(ct);
+    }
+
+    /// <summary>
+    /// The recipes that consume this item, with what each asks for — the sheet's <c>USED BY</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Resolved through <see cref="PantryMatcher"/> rather than a foreign key, because there is no
+    /// foreign key to resolve through: a recipe line is the words somebody wrote, and which shelf
+    /// they mean is a question the alias table answers and the ingredient row does not. Using the
+    /// same matcher as the stock check is not an optimisation — it is the only way this list and the
+    /// night's <c>3 SHORT</c> can agree about what "tomato sauce" is.
+    /// </para>
+    /// <para>
+    /// A recipe naming the item on two lines appears once, carrying the larger of the two amounts.
+    /// Two rows for one recipe would read as two different dishes, and summing them is wrong as
+    /// often as it is right — "1 can, drained" and "1 can, with juice" is one can.
+    /// </para>
+    /// </remarks>
+    [HttpGet("{id:int}/used-by")]
+    public async Task<ActionResult<IReadOnlyList<ItemUsageDto>>> UsedBy(int id, CancellationToken ct)
+    {
+        var item = await _db.PantryItems.FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (item is null) return NotFound();
+
+        var matcher = await PantryMatcher.LoadAsync(_db, ct);
+        var recipes = await _db.Recipes
+            .Where(r => !r.IsArchived)
+            .Include(r => r.Ingredients)
+            .ToListAsync(ct);
+
+        // The nights already holding this item, so a recipe that is spoken for can say so. Bounded
+        // exactly as `Claims` is — past the settler's lookback a row is residue, not a reservation.
+        var horizon = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime)
+            .AddDays(-PlanClaimService.LookbackDays);
+        var claimedBy = await _db.PlanClaims
+            .Where(c => c.PantryItemId == id)
+            .Join(_db.MealPlanEntries, c => c.PlanEntryId, e => e.Id, (c, e) => e)
+            .Where(e => e.WasEaten == null && e.Date >= horizon && e.RecipeId != null)
+            .GroupBy(e => e.RecipeId!.Value)
+            .Select(g => new { RecipeId = g.Key, Date = g.Min(e => e.Date) })
+            .ToDictionaryAsync(x => x.RecipeId, x => x.Date, ct);
+
+        var measure = PantryAmounts.MeasureUnit(item);
+        var usage = new List<ItemUsageDto>();
+
+        foreach (var recipe in recipes)
+        {
+            // The line asking for most of it is the one the sheet shows — see the remarks on why a
+            // recipe never contributes two rows.
+            RecipeIngredient? best = null;
+            foreach (var ingredient in recipe.Ingredients)
+            {
+                if (matcher.Match(ingredient)?.Id != id) continue;
+                if (best is null || (ingredient.Quantity ?? 0) > (best.Quantity ?? 0)) best = ingredient;
+            }
+            if (best is null) continue;
+
+            decimal? packs = null;
+            if (PantryAmounts.IsPackaged(item) && best.Quantity is { } asked
+                && UnitConversion.Convert(asked, best.Unit, measure) is { } inMeasure)
+            {
+                packs = decimal.Round(PantryAmounts.ToQuantity(item, inMeasure), 2);
+            }
+
+            usage.Add(new ItemUsageDto(
+                recipe.Id, recipe.Title, best.Quantity, best.Unit, packs, item.Unit,
+                claimedBy.TryGetValue(recipe.Id, out var date) ? date : null));
+        }
+
+        // Alphabetical, and a claim does not jump the queue. The list answers "what does this cook",
+        // which is a question about the folder rather than about the week — reordering it around
+        // whichever night happens to be planned would move rows under somebody between two visits
+        // for a reason that has nothing to do with what they were reading. The amber says it instead.
+        return usage.OrderBy(u => u.Title, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     // ---- How long things last (SETTINGS_AND_IMPORT §1) ----

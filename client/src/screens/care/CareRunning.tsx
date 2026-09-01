@@ -1,4 +1,5 @@
-import { careTitle, clockLabel, otherSide } from '../../app/care'
+import { HoldButton } from '../../components'
+import { careTitle, clockLabel, holdsToStop, otherSide } from '../../app/care'
 import { CarePanel } from './CarePanel'
 import { mmss, useRunningSeconds } from './runningClock'
 import { pumpBoundaries } from './pumpPhases'
@@ -15,8 +16,14 @@ import type { CareTimerDto } from '../../api/types'
  * <b>COMPLETE and CANCEL are never one control.</b> Upstream they are different acts — one writes
  * the session to history, the other throws it away — and the design puts them as two labelled cards
  * with a sentence each, in the footer where SAVE sits on every other panel, under a warning that
- * they are not the same. Nothing here is a hold: both are plainly labelled, and one of them is
- * reversible by simply logging the session again.
+ * they are not the same.
+ *
+ * <b>On a pump, both are held rather than tapped.</b> The original reading was that neither needed
+ * it: both are plainly labelled, and a nursing session ended by mistake can simply be logged again
+ * from memory. A pump session cannot. It is twenty minutes of clock the panel measured and nobody
+ * else did, and it is unrecoverable by hand — so a knee against a wall panel either throws it away
+ * or stops it early, and there is nothing to type back in afterwards. Nursing and sleep keep the
+ * plain buttons, because for those the tap is still cheaper than the guard.
  */
 export function CareRunning({
   timer, saving, rise = true, onPause, onResume, onSwitchSide, onSwitchPhase, onComplete, onDiscard, onClose,
@@ -77,10 +84,24 @@ export function CareRunning({
       onClose={onClose}
       footer={
         <>
-          {/* The design is emphatic, and so is the wording: these are not the same. */}
+          {/*
+            The cautionary line, and which caution it is depends on how the cards behave.
+
+            Where they are held, it says so. `These are not the same` was the right warning while
+            both were one tap — the risk then was picking the wrong one of two adjacent controls. A
+            held card cannot be picked by accident at all, so the thing worth saying in that slot is
+            the gesture: somebody who taps and sees nothing happen needs to be told why, and this is
+            the only line on the panel that can tell them. What the two cards *do* differently is
+            still stated in full, in the sentence under each name.
+
+            Where they are still tapped — nursing, sleep, tummy time — the original warning stands,
+            because there the two-controls risk is exactly the live one.
+          */}
           <div className="ml-carestop__head">
             <span className="ml-carestop__label">Stopping</span>
-            <span className="ml-carestop__warn">These are not the same</span>
+            <span className="ml-carestop__warn">
+              {holdsToStop(timer.type) ? 'Hold either to confirm' : 'These are not the same'}
+            </span>
           </div>
           {/*
             FINISH on a pump, COMPLETE everywhere else — and the difference is not wording.
@@ -90,27 +111,25 @@ export function CareRunning({
             the clock, holds the session, and asks. Nothing is written until SAVE on that panel.
             The card says which of the two is about to happen, in the sentence under its name.
           */}
-          <button type="button" className="ml-carestop__card" onClick={onComplete} disabled={saving}>
-            <span className="ml-carestop__name">{isPump ? 'Finish' : 'Complete'}</span>
-            <span className="ml-carestop__what">
-              {isPump
-                ? 'Stops the timer and asks how much you got'
-                : `Writes ${Math.floor(elapsed / 60)} minutes${side ? ` on the ${side}` : ''} to history`}
-            </span>
-          </button>
-          <button
-            type="button"
-            className="ml-carestop__card ml-carestop__card--discard"
-            onClick={onDiscard}
+          <StopCard
+            name={isPump ? 'Finish' : 'Complete'}
+            what={isPump
+              ? 'Stops the timer and asks how much you got'
+              : `Writes ${Math.floor(elapsed / 60)} minutes${side ? ` on the ${side}` : ''} to history`}
+            hold={holdsToStop(timer.type)}
+            onAct={onComplete}
             disabled={saving}
-          >
-            <span className="ml-carestop__name">Cancel</span>
-            <span className="ml-carestop__what">
-              {isPump
-                ? 'Throws the session away without recording it'
-                : 'Throws the session away, nothing is written'}
-            </span>
-          </button>
+          />
+          <StopCard
+            name="Cancel"
+            what={isPump
+              ? 'Throws the session away without recording it'
+              : 'Throws the session away, nothing is written'}
+            hold={holdsToStop(timer.type)}
+            discard
+            onAct={onDiscard}
+            disabled={saving}
+          />
         </>
       }
     >
@@ -188,3 +207,50 @@ export function CareRunning({
   )
 }
 
+/**
+ * One of the two ways out of a running session.
+ *
+ * The same card either way — a name and the sentence saying what it does — differing only in whether
+ * it acts on a tap or on a hold. The hold adds no label and no banner telling you to hold: the fill
+ * sweeping under the words is the affordance, and it is the one the panel already uses everywhere a
+ * touch has to be deliberate. A card captioned `HOLD TO FINISH` would be the panel explaining its
+ * own controls in the footer of a screen somebody is reading one-handed at 4am.
+ */
+function StopCard({
+  name, what, hold, discard, onAct, disabled,
+}: {
+  name: string
+  what: string
+  /** Held rather than tapped — see the note on {@link CareRunning} for which sessions earn it. */
+  hold: boolean
+  discard?: boolean
+  onAct: () => void
+  disabled?: boolean
+}) {
+  const className = 'ml-carestop__card' + (discard ? ' ml-carestop__card--discard' : '')
+
+  if (!hold) {
+    return (
+      <button type="button" className={className} onClick={onAct} disabled={disabled}>
+        <span className="ml-carestop__name">{name}</span>
+        <span className="ml-carestop__what">{what}</span>
+      </button>
+    )
+  }
+
+  return (
+    <HoldButton
+      className={`${className} ml-carestop__card--hold`}
+      onHold={onAct}
+      disabled={disabled}
+      // Terracotta under the one that cannot be taken back, brass under the other. Both are the
+      // section's standard 2s: two controls side by side that answered the same gesture at
+      // different speeds would read as one of them being broken.
+      destructive={discard}
+      label={`${name} — hold to confirm`}
+      meta={what}
+    >
+      {name}
+    </HoldButton>
+  )
+}

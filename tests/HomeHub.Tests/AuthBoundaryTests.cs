@@ -200,7 +200,9 @@ public class AuthBoundaryTests
     {
         using var app = new HubAppFactory();
         var admin = app.CreateSeededClient();
-        await admin.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("4321"));
+        // Set by its owner: an administrator can no longer set somebody else's.
+        await app.CreateSeededClient(profileId: 2)
+            .PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("4321"));
 
         var res = await app.CreateAnonymousClient().DeleteAsync("/api/profiles/2/pin");
 
@@ -208,6 +210,101 @@ public class AuthBoundaryTests
         // Still set — the point is the PIN survived, not merely that the call failed.
         var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
         Assert.True(profiles!.Single(p => p.Id == 2).HasPin);
+    }
+
+    /// <summary>
+    /// <b>An administrator cannot re-key another member's lock.</b>
+    /// </summary>
+    /// <remarks>
+    /// The escalation this closes: setting somebody's PIN without knowing the old one is the same
+    /// as opening their profile, because the next step is typing the PIN you just chose at the lock
+    /// screen. Being the household administrator is not the same as being that member.
+    /// </remarks>
+    [Fact]
+    public async Task An_admin_cannot_set_or_clear_another_members_pin()
+    {
+        using var app = new HubAppFactory();
+        var admin = app.CreateSeededClient(profileId: 1);
+        var ragnar = app.CreateSeededClient(profileId: 2);
+        await ragnar.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("2222"));
+
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            (await admin.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("9999"))).StatusCode);
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            (await admin.DeleteAsync("/api/profiles/2/pin")).StatusCode);
+
+        // The point is the PIN survived, not merely that the calls failed.
+        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        Assert.True(profiles!.Single(p => p.Id == 2).HasPin);
+    }
+
+    /// <summary>
+    /// <b>An administrator cannot turn off another member's idle lock.</b>
+    /// </summary>
+    /// <remarks>
+    /// The quieter half of the same escalation. `PUT /profiles/{id}` is administrator-only and used
+    /// to write `RequirePinWhenIdle` from its payload, so the lock could be dropped without the PIN
+    /// ever being touched — one screen removed from unlocking the profile outright.
+    /// </remarks>
+    [Fact]
+    public async Task An_admin_editing_a_member_cannot_turn_off_their_idle_lock()
+    {
+        using var app = new HubAppFactory();
+        var admin = app.CreateSeededClient(profileId: 1);
+        var ragnar = app.CreateSeededClient(profileId: 2);
+        await ragnar.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("2222"));
+
+        // A legitimate admin edit that also carries the lock fields, as the client's round-trip does.
+        var res = await admin.PutAsJsonAsync("/api/profiles/2", new UpdateProfileRequest(
+            "Ragnar", "R", RequirePinWhenIdle: false, StayLoggedIn: true, DisplayOrder: 3));
+
+        res.EnsureSuccessStatusCode();
+        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var ragnarRow = profiles!.Single(p => p.Id == 2);
+        // The rename landed; the lock did not move.
+        Assert.Equal("Ragnar", ragnarRow.Name);
+        Assert.True(ragnarRow.RequirePinWhenIdle);
+    }
+
+    /// <summary>
+    /// And the setting a member <i>can</i> reach: their own, without being an administrator.
+    /// </summary>
+    [Fact]
+    public async Task A_member_sets_their_own_idle_lock_and_nobody_elses()
+    {
+        using var app = new HubAppFactory();
+        var admin = app.CreateSeededClient(profileId: 1);
+        var ragnar = app.CreateSeededClient(profileId: 2);
+        await ragnar.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("2222"));
+
+        // His own.
+        (await ragnar.PutAsJsonAsync("/api/profiles/2/lock",
+            new LockPreferenceRequest(RequirePinWhenIdle: false, StayLoggedIn: true)))
+            .EnsureSuccessStatusCode();
+
+        // Somebody else's — including the administrator's.
+        Assert.Equal(
+            HttpStatusCode.Forbidden,
+            (await ragnar.PutAsJsonAsync("/api/profiles/1/lock",
+                new LockPreferenceRequest(RequirePinWhenIdle: false, StayLoggedIn: true))).StatusCode);
+
+        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        Assert.False(profiles!.Single(p => p.Id == 2).RequirePinWhenIdle);
+    }
+
+    /// <summary>A lock that asks for a PIN nobody set would open to any tap.</summary>
+    [Fact]
+    public async Task Requiring_a_pin_when_idle_needs_a_pin_to_exist()
+    {
+        using var app = new HubAppFactory();
+        var ragnar = app.CreateSeededClient(profileId: 2);
+
+        var res = await ragnar.PutAsJsonAsync("/api/profiles/2/lock",
+            new LockPreferenceRequest(RequirePinWhenIdle: true, StayLoggedIn: false));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 
     /// <summary>A member may manage their own PIN, and nobody else's.</summary>
@@ -334,13 +431,18 @@ public class AuthBoundaryTests
         using var app = new HubAppFactory();
         var astrid = app.CreateSeededClient(profileId: 1);
 
-        Assert.Equal(HttpStatusCode.NoContent,
-            (await astrid.PutAsJsonAsync("/api/profiles/3/pin", new SetPinRequest("9999"))).StatusCode);
-        Assert.Equal(HttpStatusCode.NoContent,
-            (await astrid.DeleteAsync("/api/profiles/3/pin")).StatusCode);
+        // Renaming and reordering a member, and granting a role: household administration.
+        Assert.Equal(HttpStatusCode.OK,
+            (await astrid.PutAsJsonAsync("/api/profiles/3", new UpdateProfileRequest(
+                "Bjorn", "B", RequirePinWhenIdle: false, StayLoggedIn: true, DisplayOrder: 4)))
+                .StatusCode);
 
         var created = await astrid.PostAsJsonAsync("/api/profiles", new CreateProfileRequest("Sigrid", "S"));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        // Their own PIN is still theirs to set — being an administrator does not remove that.
+        Assert.Equal(HttpStatusCode.NoContent,
+            (await astrid.PutAsJsonAsync("/api/profiles/1/pin", new SetPinRequest("9999"))).StatusCode);
     }
 
     // ---- Sessions ----

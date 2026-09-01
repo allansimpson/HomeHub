@@ -102,6 +102,35 @@ describe('offline queue identity boundary', () => {
     expect(store.ops.map((item) => item.id)).toEqual(['mine'])
   })
 
+  /*
+   * A send with no end kept `run` from returning, and every screen awaiting it kept its controls
+   * disabled for as long as the socket stayed open — which on a phone with no route to the server
+   * is until the OS gives up, or never. The op is durable before the fetch starts, so the honest
+   * end to that wait is to call it offline and leave it queued.
+   */
+  it('gives up on a send that is never answered, and keeps the op queued', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = memStore()
+      vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })))
+      setQueueIdentity(2)
+
+      const sending = executeDurably(store, op('unanswered', 2))
+      await vi.advanceTimersByTimeAsync(19_000)
+      expect(store.ops.map((item) => item.id)).toEqual(['unanswered'])
+
+      await vi.advanceTimersByTimeAsync(2_000)
+      // `offline`, not `cancelled`: a deadline is a server that is not there, and a cancellation is
+      // a profile transition. Both retain the op; only one of them is what happened.
+      await expect(sending).resolves.toMatchObject({ outcome: { kind: 'offline' }, settled: false })
+      expect(store.ops.map((item) => item.id)).toEqual(['unanswered'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('refuses to persist another profile\'s operation into this store', async () => {
     const store = memStore()
     setQueueIdentity(2)

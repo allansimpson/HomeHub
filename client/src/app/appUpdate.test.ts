@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   APPLIED_VISIBLE_MS, HANDOFF_KEY, HANDOFF_STALE_MS,
-  appliedAt, clearHandoff, outcomeOf, readHandoff, shortVersion, writeHandoff,
+  appliedAt, clearHandoff, outcomeOf, readHandoff, shortVersion, worthOffering, writeHandoff,
   type HandoffStore, type UpdateHandoff,
 } from './appUpdate'
 
@@ -62,6 +62,38 @@ describe('outcomeOf', () => {
   it('holds a note that is merely a slow reload old', () => {
     const slow = { ...handoff, at: NOW - HANDOFF_STALE_MS + 1_000 }
     expect(outcomeOf(slow, 'bbb2222', NOW)?.status).toBe('applied')
+  })
+})
+
+/**
+ * The case that produced "the changes are there but it says it didn't apply".
+ *
+ * A reload after a deploy is served the new shell by the network while the old worker still
+ * controls the page, so `__BUILD__` is the new build and the new worker is sitting in `waiting`
+ * behind it. Offering that as an update sends the household to a plate they cannot satisfy: the
+ * press reloads onto the build it started on, and `outcomeOf` above says — accurately — that
+ * nothing changed.
+ */
+describe('worthOffering', () => {
+  it('does not offer the build the panel is already running', () => {
+    expect(worthOffering('b2 \u00b7 2026-08-22 09:49:11Z', 'b2 \u00b7 2026-08-22 09:49:11Z')).toBe(false)
+  })
+
+  it('offers a build that is genuinely different', () => {
+    expect(worthOffering('b2 \u00b7 2026-08-22 09:49:11Z', 'b1 \u00b7 2026-08-21 21:04:36Z')).toBe(true)
+  })
+
+  /* Two builds of the same commit are two builds — the stamp carries the second, which is the
+     whole reason it is there. Comparing the commit alone would suppress a real deploy. */
+  it('offers a rebuild of the same commit', () => {
+    expect(worthOffering('a66e80a+ \u00b7 2026-08-22 09:49:16Z', 'a66e80a+ \u00b7 2026-08-22 07:12:03Z')).toBe(true)
+  })
+
+  /* `askVersion` gives up after three seconds. A worker that could not be reached is still far more
+     likely to be a new build than the one already running, and the plate can say so without a name
+     — refusing here would be how a real update goes unmentioned. */
+  it('still offers when the worker never said which build it is', () => {
+    expect(worthOffering(null, 'b1 \u00b7 2026-08-21 21:04:36Z')).toBe(true)
   })
 })
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { KitchenHeader, KitchenQuickRow, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenHeader, KitchenQuickRow, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { useMeals } from '../../app/MealsProvider'
 import { useNow } from '../../app/useNow'
@@ -149,10 +149,11 @@ export function KitchenPlanScreen() {
         {/* ---- Tonight, outside the list ---- */}
         {tonight && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">TONIGHT · {shortWeekday(today)} {dayNumber(today)}</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider
+              label={`Tonight · ${shortWeekday(today)} ${dayNumber(today)}`}
+              gap={false}
+            />
+            <div>
               <div className="ml-kitchen__tonightrow">
                 <span className="ml-kitchen__leadtitle">
                   {tonight.recipeTitle ?? tonight.freeText}
@@ -182,11 +183,8 @@ export function KitchenPlanScreen() {
         )}
 
         {/* ---- The rest. Sized to its content: no cut, no scroller. ---- */}
-        <div className="ml-band">
-          <span className="ml-band__label">THE REST</span>
-          <span className="ml-band__meta">{rest.length} NIGHTS</span>
-        </div>
-        <div className="ml-band-shade">
+        <KitchenDivider label="The rest" count={`${rest.length} NIGHTS`} />
+        <div>
           {rest.map((day) => (
             <NightRow
                 key={day.date}
@@ -208,14 +206,13 @@ export function KitchenPlanScreen() {
         {/* ---- What the whole week is short of, collected once ---- */}
         {shortfalls.length > 0 && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">THE WEEK NEEDS</span>
-              <span className="ml-band__meta">
-                {shortfalls.length} {shortfalls.length === 1 ? 'THING' : 'THINGS'}
-              </span>
-            </div>
-            <div className="ml-band-shade">
-              {/* Named by thing, with the night that wants it beside — the band exists so the list
+            <KitchenDivider
+              label="The week needs"
+              count={`${shortfalls.length} ${shortfalls.length === 1 ? 'THING' : 'THINGS'}`}
+              amber
+            />
+            <div>
+              {/* Named by thing, with the night that wants it beside — the group exists so the list
                   can be made in one pass, and a list of nights cannot be shopped from. */}
               {shortfalls.map((want) => (
                 <div key={want.key} className="ml-row ml-kitchen__shelfrow">

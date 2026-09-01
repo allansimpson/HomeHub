@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import {
-  CARE_LABELS, PUMP_PHASES, careTitle, clockLabel, elapsedLabel, otherSide, reviewSentence, valueLabel,
+  CARE_LABELS, PUMP_PHASES, careTitle, clockLabel, elapsedLabel, kindLabel, otherSide, reviewSentence,
+  valueLabel,
 } from '../../app/care'
 import { CarePanel } from './CarePanel'
 import { WhenPickerBody, WhenPickerFoot, useWhenDraft } from './WhenPicker'
@@ -142,19 +143,23 @@ export const SHAPES: Partial<Record<CareEntryTypeName, SheetShape>> = {
     bottle: true,
     choices: [{
       /*
-       * Five, not the source enum's seven.
+       * Six — `design_handoff_baby/README.md` §7, which fills the grid to two clean rows of three.
        *
-       * `soy_milk` and `tube_feeding` are gone: neither is anything this household gives, and on a
-       * panel whose whole argument is that the common case should need no adjustment, two dead
-       * chips are two more things to read past at 3am. Three to a row leaves 3 + 2 rather than the
-       * orphan a four-column grid would strand.
+       * <b>`breast_formula` is the bottle that is some of each.</b> It is a value in its own right
+       * and not a note on one of the others: a household topping breast milk up with formula was
+       * previously choosing whichever it felt was the larger half, which makes the log say a thing
+       * that did not happen. It is ours rather than the vendor's — no upstream enum has it — which
+       * is fine, because `CareEntry.Kind` is free text and this panel keeps its own record.
        *
-       * Only the *offer* narrows. `kindLabel` still renders whatever a row carries, so entries
-       * already logged — or pulled in from Huckleberry, which does emit both — keep reading
-       * correctly wherever they appear.
+       * `soy_milk` and `tube_feeding` are still not offered: neither is anything this household
+       * gives, and on a panel whose whole argument is that the common case should need no
+       * adjustment, two dead chips are two more things to read past at 3am.
+       *
+       * Only the *offer* is this list. `kindLabel` renders whatever a row carries, so anything
+       * already logged keeps reading correctly wherever it appears.
        */
-      label: 'Contents', note: 'Five values', field: 'kind', columns: 3,
-      values: ['formula', 'breast_milk', 'cow_milk', 'goat_milk', 'other'],
+      label: 'Contents', note: 'Six values', field: 'kind', columns: 3,
+      values: ['formula', 'breast_milk', 'breast_formula', 'cow_milk', 'goat_milk', 'other'],
     }],
   },
   Diaper: {
@@ -341,16 +346,27 @@ export function CareSheet({
   /*
    * What went in, and what came back.
    *
-   * `offered` opens on the last entry's amount — which is the last *consumed*, not the last offered,
-   * because the server has nowhere to store the offered figure yet. Close enough to be a useful
-   * default and wrong often enough to be worth saying out loud. `left` opens at none, always: a
-   * bottle that went back empty is the common case, and defaulting to anything else would put a
-   * subtraction in front of every clean feed.
+   * <b>A correction opens on what was entered, now that both ends are stored.</b> Only the
+   * difference used to be — so reopening a feed put the *consumed* figure in OFFERED and left
+   * REMAINING empty, which says a full bottle came back untouched. Somebody correcting a feed
+   * because the baby took more then adjusted the wrong end of the sum, and how big the bottle had
+   * been was gone for good.
+   *
+   * <b>A bottle logged before the columns existed still has only the difference</b>, and it falls
+   * back to exactly the old behaviour: the taken amount in OFFERED, nothing remaining. That is not
+   * a good reading, but it is the honest one — those rows never recorded what was poured, and the
+   * alternative is inventing a bottle size. It corrects itself the first time such an entry is
+   * saved, which is what somebody opening it is about to do.
+   *
+   * A new entry opens on the last feed's amount, which is likewise the last *taken* rather than the
+   * last offered — close enough to be a useful default. `left` opens at none: a bottle that went
+   * back empty is the common case, and defaulting to anything else would put a subtraction in front
+   * of every clean feed.
    */
   const [offered, setOffered] = useState<number | null>(
-    () => (editing ? editing.amount : last?.amount ?? 3.5),
+    () => (editing ? editing.offered ?? editing.amount : last?.amount ?? 3.5),
   )
-  const [left, setLeft] = useState<number | null>(null)
+  const [left, setLeft] = useState<number | null>(() => editing?.left ?? null)
   const consumed = offered == null ? null : Math.max(0, Math.round((offered - (left ?? 0)) * 100) / 100)
   /* How much of the bottle the gauge fills. Nothing offered is nothing to divide by — an empty bar
      rather than a full one, which would read as a bottle drained. */
@@ -1048,9 +1064,17 @@ function cols(n: number): React.CSSProperties {
   return { '--cols': n } as React.CSSProperties
 }
 
-/** `breast_milk` → `breast milk`, and the one word the household reads differently. */
+/**
+ * A chip's face — `breast_milk` → `breast milk`, `breast_formula` → `breast / formula`.
+ *
+ * <b>Deferred to `kindLabel` rather than re-implementing it.</b> This held its own copy of the
+ * `both` → `mixed` rule, which is the two-vocabularies problem the log warns about elsewhere: the
+ * sheet and the row beside it were one edit away from disagreeing about the same value, and the
+ * sixth bottle content was the edit that would have done it. The chip is uppercased by CSS, so the
+ * capitalisation `kindLabel` applies is thrown away here and only the wording is kept.
+ */
 function word(value: string): string {
-  return value === 'both' ? 'mixed' : value.replace(/_/g, ' ')
+  return (kindLabel(value) ?? value).toLowerCase()
 }
 
 /** `NOW — TAP TO CHANGE`, or what the row actually says once it is not now. */

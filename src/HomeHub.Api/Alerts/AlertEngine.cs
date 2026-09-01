@@ -122,10 +122,11 @@ public sealed class AlertEngine
                 existing.Message = input.Message;
                 existing.Source = input.Source;
                 existing.ExpiresAtUtc = input.ExpiresAtUtc;
+                ApplyDetail(existing, input);
             }
             else
             {
-                db.ActiveAlerts.Add(new ActiveAlert
+                var alert = new ActiveAlert
                 {
                     Type = type,
                     DedupeKey = input.DedupeKey,
@@ -134,13 +135,41 @@ public sealed class AlertEngine
                     Source = input.Source,
                     StartedAtUtc = nowUtc,
                     ExpiresAtUtc = input.ExpiresAtUtc,
-                });
+                };
+                ApplyDetail(alert, input);
+                db.ActiveAlerts.Add(alert);
                 raised.Add(input);
             }
         }
 
         await db.SaveChangesAsync(ct);
         return raised;
+    }
+
+    /// <summary>
+    /// Copy the statement-sheet product onto the row, on raise and on every refresh.
+    /// </summary>
+    /// <remarks>
+    /// Refresh overwrites unconditionally, including with nulls. That is deliberate: NWS amends
+    /// products in place under the same id, and an amendment that drops the call to action has to
+    /// drop it here too. Merging instead would leave the panel showing precautions for a warning
+    /// that no longer carries them, which is worse than showing none.
+    /// </remarks>
+    private static void ApplyDetail(ActiveAlert alert, ExternalAlert input)
+    {
+        alert.Event = input.Event;
+        var d = input.Detail;
+        alert.Description = d?.Description;
+        alert.Instruction = d?.Instruction;
+        alert.AreaDesc = d?.AreaDesc;
+        alert.SenderName = d?.SenderName;
+        alert.SentUtc = d?.SentUtc;
+        alert.OnsetUtc = d?.OnsetUtc;
+        alert.EndsUtc = d?.EndsUtc;
+        alert.Urgency = d?.Urgency;
+        alert.Certainty = d?.Certainty;
+        alert.SeverityText = d?.SeverityText;
+        alert.ProductId = d?.ProductId;
     }
 
     private static async Task<(bool BreachingNow, bool Sustained, double LatestValue)> EvaluateThresholdAsync(

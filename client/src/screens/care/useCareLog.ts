@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../../api/client'
-import { careWindowStart } from '../../app/care'
+import { CARE_HISTORY_DAYS, careWindowStart } from '../../app/care'
 import { useNow } from '../../app/useNow'
 import { useConnection } from '../../app/ConnectionProvider'
 import { useWriteQueue } from '../../app/WriteQueueProvider'
@@ -19,10 +19,10 @@ import type {
 /**
  * HomeHub's own care log — the ten types, their running timers, and today's entries.
  *
- * <b>Distinct from `useBaby`, which fronts the Huckleberry integration.</b> That one reads live
- * sensors and drives the timers the household's own app can see; this is the log HomeHub keeps, and
- * the only thing the panel writes to now. Six of its types exist nowhere else — the integration has
- * no service to write them and no sensor to read them.
+ * <b>Distinct from `useBaby`, which is the Dashboard's three-figure summary.</b> That one reads
+ * the same rows this does, once every thirty seconds, and derives three numbers from them; this is
+ * the whole log, with its timers, its write queue and its offline cache. The Dashboard wants none
+ * of that and is the screen that sits idle all day, which is why it does not use this hook.
  *
  * <b>It works with no server, which is the one thing the rest of the app does not do.</b> Every
  * other screen degrades to last-known values and queued writes, and that is the right trade for a
@@ -546,15 +546,6 @@ export function useCareLog(childKey: string) {
     }
   }, [childKey, refresh, putLocalTimers, add])
 
-  /*
-   * No `importFromHuckleberry` here.
-   *
-   * The pull is a Config action now — see `BabySettingsScreen`, which calls `api.importCare`
-   * directly. It has no business in this hook: everything else here is written on the device first
-   * and owed to the server afterwards, and the import is the one call that is meaningless without
-   * one. Its results still arrive, on this hook's next `refresh`.
-   */
-
   const running = useCallback(
     (type: CareEntryTypeName) => timers.find((t) => t.type === type) ?? null,
     [timers],
@@ -618,7 +609,7 @@ function stripUnset(input: CareEntryInput): Partial<CareEntryDto> {
  */
 function entriesFrom(): Date {
   const d = startOfToday()
-  d.setDate(d.getDate() - 7)
+  d.setDate(d.getDate() - CARE_HISTORY_DAYS)
   return d
 }
 

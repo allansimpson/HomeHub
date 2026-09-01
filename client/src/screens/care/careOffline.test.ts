@@ -39,7 +39,8 @@ describe('privacy boundary', () => {
 
 const entry = (over: Partial<CareEntryDto> = {}): CareEntryDto => ({
   id: 1, childKey: 'conrad', type: 'Bottle', atUtc: '2026-08-15T02:00:00.000Z',
-  amount: 3.5, unit: 'oz', durationMinutes: null, kind: 'breast_milk', side: null,
+  amount: 3.5, unit: 'oz', offered: null, left: null,
+  durationMinutes: null, kind: 'breast_milk', side: null,
   peeAmount: null, pooAmount: null, color: null, consistency: null, diaperRash: null,
   pounds: null, ounces: null, heightInches: null, headInches: null, notes: null,
   source: 'Panel', edited: false, clientKey: null, version: 1, ...over,
@@ -349,5 +350,40 @@ describe('completedEntryInput', () => {
     const pump = completedEntryInput({ ...timer, type: 'Pump' }, 2.5, 'oz', start + 20 * 60_000)
 
     expect(pump).toMatchObject({ amount: 2.5, unit: 'oz' })
+  })
+})
+
+/**
+ * A bottle queued offline keeps both ends of its sum.
+ *
+ * The local row is what the household sees and can correct until the queue drains, so it has to
+ * carry what the sheet will reopen on. Missing here, an offline feed would reopen showing the
+ * consumed figure as the bottle size — the same fault the columns were added to fix, surviving in
+ * the one place that draws its own rows.
+ */
+describe('a bottle drafted offline', () => {
+  it('keeps what was poured and what came back', () => {
+    const draft = draftEntry('ck-1', 'conrad', {
+      type: 'Bottle', amount: 3.5, unit: 'oz', offered: 4, left: 0.5,
+    }, -1)
+    expect(draft.offered).toBe(4)
+    expect(draft.left).toBe(0.5)
+    expect(draft.amount).toBe(3.5)
+  })
+
+  /* The same rule the server applies: only a bottle has two ends. */
+  it('leaves them off a type that has no bottle', () => {
+    const draft = draftEntry('ck-2', 'conrad', {
+      type: 'Nursing', durationMinutes: 14, side: 'left', offered: 4, left: 0.5,
+    }, -2)
+    expect(draft.offered).toBeNull()
+    expect(draft.left).toBeNull()
+  })
+
+  /* A bottle logged before the sheet sent them, or by anything that does not. */
+  it('is null rather than undefined when nothing was sent', () => {
+    const draft = draftEntry('ck-3', 'conrad', { type: 'Bottle', amount: 3.5, unit: 'oz' }, -3)
+    expect(draft.offered).toBeNull()
+    expect(draft.left).toBeNull()
   })
 })

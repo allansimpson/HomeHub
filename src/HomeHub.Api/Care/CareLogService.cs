@@ -15,6 +15,10 @@ public sealed record CareEntryInput(
     DateTime? AtUtc = null,
     double? Amount = null,
     string? Unit = null,
+    /// <summary>Bottle only: what was poured, and what came back. See <see cref="CareEntry.Offered"/>.</summary>
+    double? Offered = null,
+    /// <inheritdoc cref="Offered"/>
+    double? Left = null,
     double? DurationMinutes = null,
     string? Kind = null,
     string? Side = null,
@@ -441,6 +445,8 @@ public sealed class CareLogService
     {
         entry.Amount = input.Amount;
         entry.Unit = input.Unit;
+        entry.Offered = input.Offered;
+        entry.Left = input.Left;
         entry.DurationMinutes = input.DurationMinutes;
         entry.Kind = input.Kind;
         entry.Side = input.Side;
@@ -469,6 +475,15 @@ public sealed class CareLogService
     {
         if (entry.Type is CareEntryType.Pump && entry.Amount is 0) entry.Amount = null;
         if (entry.Amount is null) entry.Unit = null;
+
+        // Only a bottle is poured and handed back. Every other type computes its amount from
+        // nothing, so a stray pair here would be two columns of noise the sheet would then reopen
+        // on — and the import path, which knows nothing about either, must not leave them set.
+        if (entry.Type is not CareEntryType.Bottle)
+        {
+            entry.Offered = null;
+            entry.Left = null;
+        }
 
         // A unit with nothing to measure is noise on the row.
         if (entry.DurationMinutes is <= 0) entry.DurationMinutes = null;

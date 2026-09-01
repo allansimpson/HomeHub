@@ -148,17 +148,80 @@ export function startBy(dinnerTime: string, totalMinutes: number | null, now: Da
 // ---- Cooked history phrasing ----
 
 /**
- * The folder's history column value: `NEVER`, `THIS WEEK`, or whole weeks.
+ * The folder's history value: `NEVER`, `THIS WEEK`, `LAST WEEK`, `3 WEEKS`, `NOT SINCE MAY`.
  *
- * Weeks rather than days because the question the column answers is "are we sick of this yet",
- * and nobody holds that opinion to the day (MEALS_DATA_CONTRACT §3.3). Under a week has no useful
- * number at all, so it says so in words.
+ * Weeks rather than days because the question it answers is "are we sick of this yet", and nobody
+ * holds that opinion to the day (MEALS_DATA_CONTRACT §3.3). Under a week has no useful number at
+ * all, so it says so in words.
+ *
+ * **Past two months it names the month instead of counting.** `17 WKS` is arithmetic nobody does in
+ * their head — the handoff writes `not since May`, and it is right: at that distance the useful
+ * fact is which season you last cooked it in, not how many weeks have elapsed. Under two months the
+ * count still means something, so it stays.
+ *
+ * `WKS` was also an abbreviation of a word that fits: the folder rows have the room for `3 WEEKS`.
  */
 export function cookedAgoLabel(lastCookedDate: string | null, today = new Date()): string {
   if (!lastCookedDate) return 'NEVER'
-  const days = Math.floor((planDate(planKey(today)).getTime() - planDate(lastCookedDate).getTime()) / 86_400_000)
+  const days = daysSinceDate(lastCookedDate, today)
   if (days < 7) return 'THIS WEEK'
-  return `${Math.floor(days / 7)} WKS`
+  if (days < 14) return 'LAST WEEK'
+  const weeks = Math.floor(days / 7)
+  if (weeks <= WEEKS_BEFORE_NAMING_THE_MONTH) return `${weeks} WEEKS`
+  // Abbreviated, because this form is a column token: `NOT SINCE FEB` beside a 15-minute cook time
+  // on a right-aligned cell. The prose forms below spell the month, as the handoff does in mixed
+  // case — same fact, three places, and the column is the one with no room.
+  return `NOT SINCE ${MONTHS_LONG[planDate(lastCookedDate).getMonth()].slice(0, 3).toUpperCase()}`
+}
+
+/**
+ * The same fact as a mixed-case clause — `not since February`, `3 weeks ago`, `last week`.
+ *
+ * The folder's supporting line joins it to a cuisine (`Italian · not since May`), so it can be
+ * neither the caps column token nor a full sentence. It used to be the column token, which put
+ * `Italian · NOT SINCE MAY` in the middle of a lower-case line.
+ */
+export function cookedAgoPhrase(lastCookedDate: string | null, today = new Date()): string {
+  if (!lastCookedDate) return 'never made'
+  const days = daysSinceDate(lastCookedDate, today)
+  if (days < 7) return 'made this week'
+  if (days < 14) return 'made last week'
+  const weeks = Math.floor(days / 7)
+  if (weeks <= WEEKS_BEFORE_NAMING_THE_MONTH) return `${weeks} weeks ago`
+  return `not since ${MONTHS_LONG[planDate(lastCookedDate).getMonth()]}`
+}
+
+/** Whole days between a plan-key date and today, compared as calendar dates. */
+function daysSinceDate(date: string, today: Date): number {
+  return Math.floor((planDate(planKey(today)).getTime() - planDate(date).getTime()) / 86_400_000)
+}
+
+/**
+ * Two months. Past it, `cookedAgoLabel` names the month rather than counting weeks — see there.
+ */
+const WEEKS_BEFORE_NAMING_THE_MONTH = 8
+
+const MONTHS_LONG = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+/**
+ * The same fact as a sentence — `Last made three weeks ago.`, `Not made since May.`
+ *
+ * A separate function because {@link cookedAgoLabel} returns a *value for a column*, and the two
+ * shapes it can take do not both fit one sentence frame: "Last made 3 weeks ago" reads, and "Last
+ * made not since May" does not. Prose callers were gluing a prefix onto the column value and got
+ * the second whenever a recipe was old enough — which is exactly when they had something to say.
+ */
+export function lastCookedSentence(lastCookedDate: string | null, today = new Date()): string {
+  const phrase = cookedAgoPhrase(lastCookedDate, today)
+  // `not since April` needs a different frame from `3 weeks ago` — "Last made not since April" is
+  // what gluing one prefix onto every shape produced.
+  if (phrase.startsWith('not since')) return `Not made since ${phrase.slice('not since '.length)}.`
+  if (phrase.startsWith('made ')) return `${phrase[0].toUpperCase()}${phrase.slice(1)}.`
+  if (phrase === 'never made') return 'Never made.'
+  return `Last made ${phrase}.`
 }
 
 /** `COOKED` / `COOKED 2×` — the caption under the history value. */

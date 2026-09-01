@@ -70,9 +70,26 @@ public sealed class WeatherRefresher
             .Select(a => new ExternalAlert(
                 DedupeKey: $"nws:{a.Id}",
                 Severity: a.Severity,
+                // The "Event: message" shape stays, because `alertHeadline` on the client still
+                // reads a title out of it for any alert with no Event of its own.
                 Message: $"{a.Event}: {a.Message}",
                 Source: "weather",
-                ExpiresAtUtc: a.ExpiresUtc))
+                ExpiresAtUtc: a.ExpiresUtc,
+                Event: a.Event,
+                Detail: new AlertDetail(
+                    Description: a.Description,
+                    Instruction: a.Instruction,
+                    AreaDesc: a.AreaDesc,
+                    SenderName: a.SenderName,
+                    SentUtc: a.SentUtc,
+                    // ALERT_SHEET.md: IN EFFECT starts at `onset ?? effective`. NWS omits onset on
+                    // products that are already in force when issued.
+                    OnsetUtc: a.OnsetUtc ?? a.EffectiveUtc,
+                    EndsUtc: a.EndsUtc,
+                    Urgency: a.Urgency,
+                    Certainty: a.Certainty,
+                    SeverityText: a.SeverityText,
+                    ProductId: a.Id)))
             .ToList();
         await _engine.ReconcileAsync(db, WeatherAlertType, external, nowUtc, ct);
     }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { countdown, ingredientsForStep, stepTimerMinutes } from '../../app/kitchenDomain'
 import { clockLabel } from '../../app/dates'
@@ -57,7 +57,7 @@ export function KitchenCookScreen() {
 
   if (!recipe || !step) {
     return (
-      <ScreenShell nav={false} header={<DrillInHeader title="" onBack={() => navigate(-1)} />}>
+      <ScreenShell nav={false} header={<KitchenDrillInHeader exit="BACK" onExit={() => navigate(-1)} />}>
         <div className="ml-kitchen__emptyshelf">Nothing to cook here.</div>
       </ScreenShell>
     )
@@ -75,13 +75,13 @@ export function KitchenCookScreen() {
     <ScreenShell
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           // Where you are, not what you are making — you know what you are making; you are holding
           // it. The clock on the right is the time of day, which is the thing somebody mid-recipe
           // actually looks up (COOKING_AND_AFTER §1).
-          title={`STEP ${at + 1} OF ${steps.length}`}
-          onBack={() => navigate(-1)}
-          backLabel="PAUSE"
+          label={`STEP ${at + 1} OF ${steps.length}`}
+          onExit={() => navigate(-1)}
+          exit="PAUSE"
           status={clockLabel(now)}
         />
       }
@@ -102,11 +102,8 @@ export function KitchenCookScreen() {
 
         {beside.length > 0 && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">FOR THIS STEP</span>
-              <span className="ml-band__meta">{beside.length}</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="For this step" count={beside.length} gap={false} />
+            <div>
               {/* Only this step's ingredients. The full list is a scroll away and having it here
                   would put twelve lines in front of somebody who needs three. */}
               {beside.map((text) => (
@@ -145,13 +142,10 @@ export function KitchenCookScreen() {
         </div>
 
         {/* The whole recipe, reachable without leaving. */}
-        <div className="ml-band ml-band--quiet">
-          <span className="ml-band__label">THE WHOLE THING</span>
-          <span className="ml-band__meta">{steps.length} STEPS</span>
-        </div>
+        <KitchenDivider label="The whole thing" count={`${steps.length} STEPS`} />
         {/* 50px rows here, not the recipe panel's 46 — this one is read at arm's length with wet
             hands, and each group's cut derives from its own row height (COOKING_AND_AFTER §6). */}
-        <CutGroup rows={4} rowHeight={50} className="ml-band-shade">
+        <div>
           {steps.map((s, i) => (
             <button
               key={s.id}
@@ -166,16 +160,14 @@ export function KitchenCookScreen() {
               <span className="ml-kitchen__steplinetext">{s.text}</span>
             </button>
           ))}
-        </CutGroup>
+        </div>
 
         {/*
           What is *not* happening. Saying it here is what makes abandoning the panel safe: the
           household can walk away at step three knowing the shelves are untouched.
         */}
-        <div className="ml-band ml-band--quiet">
-          <span className="ml-band__label">WHEN YOU'VE EATEN</span>
-        </div>
-        <div className="ml-band-shade">
+        <KitchenDivider label="When you've eaten" />
+        <div>
           <div className="ml-kitchen__askwhy">
             {check
               ? `${check.totalLines} ${check.totalLines === 1 ? 'thing comes' : 'things come'} off the shelves once somebody says you ate it.`

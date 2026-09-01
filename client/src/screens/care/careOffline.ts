@@ -20,30 +20,29 @@ import type { CareEntryDto, CareEntryInput, CareEntryTypeName, CareTimerDto } fr
  * are none.
  */
 
-/** Bump when a stored shape changes — an old payload is dropped rather than half-read. */
-const CACHE_KEY = 'homehub.care.cache.v1'
-const PENDING_KEY = 'homehub.care.pending.v1'
-const TIMER_KEY = 'homehub.care.timers.v1'
+/*
+ * Where any of this is actually stored is `careVault.ts`, and deliberately not here.
+ *
+ * It used to be four plaintext `localStorage` keys and a boolean gate, purged whenever the panel
+ * locked. The purge is what made an offline morning start from nothing — see the vault's own note.
+ * The functions below keep their shapes exactly: they read and write a decrypted copy held in
+ * memory, so nothing in the hook had to learn that the store underneath became asynchronous.
+ */
+export { closeCareVault, flushCareVault, isCareVaultOpen, openCareVault } from './careVault'
+import { clearCareVault, readVault, writeVault } from './careVault'
+import type { VaultStorage } from './careVault'
 
-interface CareStorage {
-  getItem(key: string): string | null
-  setItem(key: string, value: string): void
-  removeItem(key: string): void
-}
-
-// Cold boot starts closed. SessionProvider opens this only after it has established the current
-// identity and lock state; a locked render cannot recover care records by importing this module.
-let storageUnlocked = false
-
-export function setCareStorageUnlocked(unlocked: boolean): void {
-  storageUnlocked = unlocked
-}
-
-/** Purge every care-specific persisted value when the privacy boundary closes. */
-export function clearCareOfflineData(storage: CareStorage = localStorage): void {
-  for (const key of [CACHE_KEY, `${CACHE_KEY}.summary`, PENDING_KEY, TIMER_KEY]) {
-    try { storage.removeItem(key) } catch { /* best effort; reads remain blocked in memory */ }
-  }
+/**
+ * Erase every care record this device holds.
+ *
+ * <b>Kept apart from merely closing the vault, which is the distinction that was missing.</b> Every
+ * caller of the old purge meant one of two quite different things — "nobody is proven right now"
+ * (lock, idle, an expired cookie) or "this household is finished with this device" (sign-out) — and
+ * treating them alike is what threw away the log on every offline boot. Only the second belongs
+ * here; the first is {@link closeCareVault}, which leaves a sealed blob behind.
+ */
+export function clearCareOfflineData(storage: VaultStorage = localStorage): void {
+  clearCareVault(storage)
 }
 
 /**
@@ -75,15 +74,11 @@ export interface PendingEntry {
  * "nothing has been logged tonight", and somebody acting on that reading will feed a baby twice.
  */
 export function loadCachedEntries(childKey: string): CareEntryDto[] {
-  if (!storageUnlocked) return []
-  return readJson<Record<string, CareEntryDto[]>>(CACHE_KEY)?.[childKey] ?? []
+  return readVault().entries[childKey] ?? []
 }
 
 export function saveCachedEntries(childKey: string, entries: CareEntryDto[]): void {
-  if (!storageUnlocked) return
-  const all = readJson<Record<string, CareEntryDto[]>>(CACHE_KEY) ?? {}
-  all[childKey] = entries
-  writeJson(CACHE_KEY, all)
+  writeVault((cur) => ({ ...cur, entries: { ...cur.entries, [childKey]: entries } }))
 }
 
 /**
@@ -94,27 +89,21 @@ export function saveCachedEntries(childKey: string, entries: CareEntryDto[]): vo
  * the SINCE rows for a quiet type read `NO RECORD` for something logged four days ago.
  */
 export function loadCachedSummary(childKey: string): CareEntryDto[] {
-  if (!storageUnlocked) return []
-  return readJson<Record<string, CareEntryDto[]>>(`${CACHE_KEY}.summary`)?.[childKey] ?? []
+  return readVault().summary[childKey] ?? []
 }
 
 export function saveCachedSummary(childKey: string, entries: CareEntryDto[]): void {
-  if (!storageUnlocked) return
-  const all = readJson<Record<string, CareEntryDto[]>>(`${CACHE_KEY}.summary`) ?? {}
-  all[childKey] = entries
-  writeJson(`${CACHE_KEY}.summary`, all)
+  writeVault((cur) => ({ ...cur, summary: { ...cur.summary, [childKey]: entries } }))
 }
 
 // ---- pending entries ----
 
 export function loadPending(): PendingEntry[] {
-  if (!storageUnlocked) return []
-  return readJson<PendingEntry[]>(PENDING_KEY) ?? []
+  return readVault().pending
 }
 
 export function savePending(pending: PendingEntry[]): void {
-  if (!storageUnlocked) return
-  writeJson(PENDING_KEY, pending)
+  writeVault((cur) => ({ ...cur, pending }))
 }
 
 /**
@@ -147,6 +136,10 @@ export function draftEntry(
     amount,
     // A unit with nothing to measure is noise on the row, here as on the server.
     unit: amount == null ? null : input.unit ?? null,
+    // Only a bottle has two ends to record, which is the same rule `Normalise` applies server-side.
+    // Carried on the local row so a feed queued offline can still be corrected before it syncs.
+    offered: input.type === 'Bottle' ? input.offered ?? null : null,
+    left: input.type === 'Bottle' ? input.left ?? null : null,
     durationMinutes: duration,
     kind: input.kind ?? null,
     side: input.side ?? null,
@@ -261,13 +254,11 @@ export interface LocalTimer {
 }
 
 export function loadLocalTimers(): LocalTimer[] {
-  if (!storageUnlocked) return []
-  return readJson<LocalTimer[]>(TIMER_KEY) ?? []
+  return readVault().timers
 }
 
 export function saveLocalTimers(timers: LocalTimer[]): void {
-  if (!storageUnlocked) return
-  writeJson(TIMER_KEY, timers)
+  writeVault((cur) => ({ ...cur, timers }))
 }
 
 /** Begin a session here. Returns the existing one rather than starting a second, as the server does. */
@@ -426,23 +417,8 @@ export function completedEntryInput(
   }
 }
 
-// ---- storage plumbing ----
-
-function readJson<T>(key: string): T | null {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T) : null
-  } catch {
-    // A full, disabled or corrupt store costs the panel its offline memory and nothing else. It
-    // must not cost it the screen.
-    return null
-  }
-}
-
-function writeJson(key: string, value: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* best effort — see above */
-  }
-}
+/*
+ * The storage plumbing that used to sit here is `careVault.ts`. A full, disabled or corrupt store
+ * still costs the panel its offline memory and nothing else — it must not cost it the screen — and
+ * that rule now lives in one place rather than in eight `try`/`catch` pairs.
+ */

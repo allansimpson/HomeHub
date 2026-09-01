@@ -137,8 +137,10 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   top: 1.25rem; /* 20px */
   right: 1.25rem;
   z-index: 5;
-  width: 3rem; /* 48px */
-  height: 3rem;
+  /* 44px with a 17px letter, which is how every Kitchen panel draws it and the only declared
+     figure in any handoff. It was 48/19. */
+  width: 2.75rem; /* 44px */
+  height: 2.75rem;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -146,12 +148,14 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   background: none;
   border: var(--control-border) solid var(--brass-dim); /* signed out: hairline ring */
   color: var(--text-muted);
-  font-size: 1.1875rem;
+  font-size: 1.0625rem; /* 17px */
 }
 .ml-avatar--in {
   border: max(2px, 0.125rem) solid var(--live-accent); /* signed in: 2px verdigris ring */
   background: var(--bg-profile-selected);
-  color: var(--brass-bright);
+  /* The ring carries the signed-in state; the letter is just a letter. Brass here made it the
+     brightest mark in a corner nobody is meant to look at. */
+  color: var(--text-secondary);
 }
 
 /* ---------- The wants-you badge ----------
@@ -265,7 +269,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
    competing with it — the same relationship `.ml-next__ampm` has on the NEXT rows. */
 .ml-dash-header__ampm {
   font-family: var(--font-sans);
-  font-size: 0.8125rem; /* 13px */
+  font-size: 1rem; /* 16px */
   letter-spacing: 0.1em;
   margin-left: 0.3125rem;
   color: var(--text-muted);
@@ -510,7 +514,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   text-overflow: ellipsis;
 }
 .ml-row__sub {
-  font-size: 0.8125rem; /* 13px */
+  font-size: 1rem; /* 16px */
   color: var(--text-muted);
   margin-top: 0.15rem;
 }
@@ -749,6 +753,10 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   justify-content: center;
   flex: 0 0 auto;
 }
+.ml-alert__text {
+  flex: 1 1 auto;
+  min-width: 0; /* so a long headline wraps instead of pushing READ ▸ off the edge */
+}
 .ml-alert__title {
   font-size: 0.875rem; /* 14px */
   letter-spacing: 0.24em;
@@ -759,9 +767,253 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   font-size: 0.8125rem;
   margin-top: 0.15rem;
 }
+.ml-alert--tap {
+  cursor: pointer;
+}
+.ml-alert--tap:active {
+  opacity: 0.82;
+}
 .ml-alert__stripe {
   height: 0.5rem; /* 8px */
   background: repeating-linear-gradient(-45deg, #d08a2e 0 10px, #171207 10px 20px);
+}
+
+/* ---------- The NWS statement sheet (design_handoff_weather_alert/ALERT_SHEET.md §2) ----------
+ *
+ * What the banner names, in full. Its own `.ml-wxalert__*` block rather than an extension of
+ * `.ml-sheet__*`: that sheet wraps its content and is built around label/value rows, and this one
+ * is a fixed head over a scrolling body of prose with a hazard stripe along its top edge. Sharing
+ * the class names would have meant overriding most of what they set.
+ *
+ * The stripe is the reason the amber reads as continuous with the banner two hundred pixels above
+ * it — same gradient, same 8px, same angle.
+ */
+.ml-wxalert {
+  position: fixed;
+  inset: 0;
+  z-index: 50; /* over the sheet layer (45): an alert outranks whatever was already open */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.ml-wxalert__scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim-alert);
+}
+.ml-wxalert__sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: 88%;
+  background: var(--bg-tile);
+  border-top: var(--control-border) solid var(--alert);
+  animation: ml-sheet-rise 220ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-wxalert__sheet { animation: none; }
+}
+.ml-wxalert__stripe {
+  height: 0.5rem; /* 8px — the banner's stripe, repeated */
+  flex: 0 0 auto;
+  background: repeating-linear-gradient(-45deg, #d08a2e 0 10px, #171207 10px 20px);
+}
+
+/* Head — fixed */
+.ml-wxalert__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  flex: 0 0 auto;
+  padding: 1.25rem var(--gutter);
+  border-bottom: var(--hairline-px) solid var(--rule-major);
+}
+.ml-wxalert__glyph {
+  width: 2.125rem; /* 34px */
+  height: 2.125rem;
+  flex: 0 0 auto;
+  border: var(--control-border) solid var(--alert);
+  color: var(--alert);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ml-wxalert__heading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ml-wxalert__title {
+  margin: 0;
+  font-size: 0.875rem; /* 14px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--alert);
+}
+.ml-wxalert__issued {
+  margin: 0.25rem 0 0;
+  font-size: 1rem; /* 16px */
+  color: var(--text-muted);
+}
+.ml-wxalert__close {
+  width: 2.75rem; /* 44px */
+  height: 2.75rem;
+  flex: 0 0 auto;
+  background: none;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-quiet);
+  font-size: 1.125rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ml-wxalert__close:active {
+  border-color: var(--brass);
+  color: var(--brass-bright);
+}
+
+/* Body — scrolls */
+.ml-wxalert__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 0 1.625rem 1.5rem; /* 26px sides */
+}
+.ml-wxalert__metarow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 0.8125rem 0; /* 13px */
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-wxalert__metalabel {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+.ml-wxalert__window {
+  font-size: 1.25rem; /* 20px */
+  color: var(--text-primary);
+  text-align: right;
+}
+.ml-wxalert__severity {
+  font-size: 0.875rem; /* 14px */
+  color: var(--text-secondary);
+  text-align: right;
+}
+.ml-wxalert__severity--severe {
+  color: var(--alert);
+}
+.ml-wxalert__counties {
+  font-size: 0.875rem; /* 14px */
+  color: var(--text-secondary);
+  text-align: right;
+  max-width: 22.5rem; /* 360px */
+  line-height: 1.5;
+}
+.ml-wxalert__section {
+  margin-top: 1.5rem;
+}
+.ml-wxalert__seclabel {
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+.ml-wxalert__seclabel--brass {
+  color: var(--brass);
+}
+.ml-wxalert__seclabel--amber {
+  color: var(--alert);
+}
+
+/* HAZARD / SOURCE / IMPACT — the labels NWS writes into a warning's own text. */
+.ml-wxalert__tag {
+  display: flex;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+}
+.ml-wxalert__tag:last-child {
+  border-bottom: none;
+}
+.ml-wxalert__taglabel {
+  min-width: 4.625rem; /* 74px */
+  flex: 0 0 auto;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-top: 0.2rem;
+}
+.ml-wxalert__tagtext {
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1.55;
+  color: #e0d8c8;
+}
+.ml-wxalert__prose {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem; /* 12px */
+}
+.ml-wxalert__prose p {
+  margin: 0;
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1.62;
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+.ml-wxalert__precautions {
+  border-left: var(--control-border) solid var(--alert);
+  padding-left: 1rem; /* 16px */
+  font-size: 0.9375rem; /* 15px */
+  line-height: 1.62;
+  color: #e0d8c8;
+  white-space: pre-line; /* NWS writes these as short lines and means them */
+}
+.ml-wxalert__prov {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.5rem 0 0;
+  font-size: 0.75rem; /* 12px */
+  color: var(--text-muted);
+}
+.ml-wxalert__provtick {
+  width: 0.4375rem; /* 7px */
+  height: 0.4375rem;
+  flex: 0 0 auto;
+  background: var(--brass-meta);
+}
+
+/* Actions — fixed */
+.ml-wxalert__actions {
+  display: flex;
+  gap: 0.625rem; /* 10px */
+  flex: 0 0 auto;
+  padding: 1rem var(--gutter) 1.25rem;
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+.ml-wxalert__btn {
+  flex: 1 1 0;
+  min-height: 3.25rem; /* 52px */
+  background: none;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-quiet);
+  font-size: 0.75rem; /* 12px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ml-wxalert__btn--brass {
+  border-color: var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+.ml-wxalert__btn:active {
+  opacity: 0.82;
 }
 
 /* The Dashboard's clock header takes its right gutter back when the avatar is not drawn — which on
@@ -824,7 +1076,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   gap: 0.4375rem; /* 7px */
 }
 .ml-plate__label {
-  font-size: 0.8125rem; /* 13px */
+  font-size: 1rem; /* 16px */
   letter-spacing: 0.24em;
   text-transform: uppercase;
   font-weight: 400;
@@ -1599,7 +1851,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   gap: 0.375rem;
 }
 .ml-sensor__now {
-  font-size: 0.8125rem; /* 13px */
+  font-size: 1rem; /* 16px */
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--live-text);
@@ -3753,7 +4005,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   color: var(--text-secondary);
 }
 .ml-weather__wind {
-  font-size: 0.8125rem; /* 13px */
+  font-size: 1rem; /* 16px */
   color: var(--text-muted);
 }
 /* Hourly strip (5 columns). */
@@ -3976,7 +4228,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
  */
 .ml-settings__build {
   padding: 0.875rem var(--gutter) 2.75rem; /* 14px 34px 44px */
-  font-size: 0.8125rem; /* 13px */
+  font-size: 1rem; /* 16px */
   font-weight: 300;
   color: var(--text-disabled);
   font-variant-numeric: tabular-nums;
@@ -4028,6 +4280,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   color: var(--text-muted);
 }
 /* A standing fact about the data, not a summary of this screen — sits under the footer count. */
+
 .ml-settings__footnote {
   padding: 0 var(--gutter) 0.9375rem;
   font-size: 0.6875rem; /* 11px */
@@ -4156,7 +4409,7 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 }
 .ml-settings__callback-uri {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.8125rem; /* 13px */
+  font-size: 1rem; /* 16px */
   line-height: 1.4;
   color: var(--text-secondary);
   overflow-wrap: anywhere;
@@ -6830,6 +7083,25 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   );
   touch-action: pan-y;
 }
+/*
+ * TODAY takes the vertical axis, and only TODAY.
+ *
+ * `pan-y` above is what leaves horizontal to the page swipe — but it also hands *vertical* to the
+ * browser, which is why the day swipe did nothing at all: the pan started, the pointer was
+ * cancelled, and the handler never saw a second sample. `touch-action` is decided when a gesture
+ * begins, so this is keyed on the settled page rather than the live one; a class that changed
+ * mid-drag would be read too late to matter anyway.
+ *
+ * The cost is honest and worth stating: while TODAY is showing, a finger on this block cannot
+ * scroll the screen behind it — `CareScreen` wraps the view in a `ScrollArea`, and this region has
+ * stopped forwarding to it. On the two pages that have no days to walk the block still carries
+ * `pan-y` and still scrolls the screen, and everywhere on TODAY outside these six rows does too.
+ * The same trade the climate dial makes, for the same reason: a gesture cannot be claimed from an
+ * axis that was given away.
+ */
+.ml-sincepager--days {
+  touch-action: none;
+}
 /* Exactly the action row (44px) plus its gap (10px). Tied to `.ml-careactions__btn`'s min-height
    and `.ml-careactions`' margin — change either and this moves with it. */
 .ml-sincepager--selecting {
@@ -6973,7 +7245,12 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 .ml-since--none .ml-since__glyph { color: var(--text-disabled); }
 .ml-since__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1875rem; }
 .ml-since__name {
-  font-size: 0.9375rem;
+  /*
+   * 16px. One step up from 15, which is as far as it goes without moving anything: the row is a
+   * fixed `--care-row` and these two lines plus their gap have to keep fitting inside it. See the
+   * measurement in `.ml-since__detail` below.
+   */
+  font-size: 1rem;
   /* Explicit, because the row's height is computed from these two lines. */
   line-height: 1.2;
   font-weight: var(--body-weight);
@@ -7001,14 +7278,174 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 /* The glyph leads the row and is the first thing scanned down the page; dimming it while the entry
    waits is what makes the state legible at a glance without the badge having to be read. */
 .ml-since--unsent .ml-since__glyph { color: var(--brass-meta); }
+/*
+ * 11px, up from 10.
+ *
+ * With the name at 16 the two lines and their gap come to 19.2 + 3 + 15.4 = 37.6px inside a 53px
+ * row — comfortably clear, where a second step on either would start eating the padding that keeps
+ * the glyph centred. Anything larger has to move `--care-row`, and that takes the SINCE block's
+ * six-row window and the LOG grid below it along with it.
+ */
 .ml-since__detail {
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   line-height: 1.4;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-disabled);
 }
-.ml-since__ago { display: flex; align-items: baseline; gap: 0.25rem; font-size: 1.5rem; color: var(--text-primary); }
+
+/*
+ * The clock reading inside a Baby row's detail line, set heavier than the words around it.
+ *
+ * <b>It is the one part of that line somebody comes to the row for.</b> On LOG the time leads the
+ * line and on SINCE it closes it, but in both the rest is a description of an entry already known
+ * — the question at 4am is *when*, and the answer was set in the same 10px `--text-disabled` as
+ * everything beside it.
+ *
+ * <b>Weight and one step of ink, not size.</b> The row's height is computed from its two lines, so
+ * a larger figure here would move every row on the page and take the SINCE block's six-row window
+ * with it. Weight costs no layout at all. `--text-muted` is the smallest lift that survives being
+ * dimmed; `--text-secondary` would put the time level with the entry's own name a line above it,
+ * which is a different row than the one that was designed.
+ *
+ * <b>600 because it is a face we actually load.</b> `fonts.css` ships Josefin Sans at 300, 400 and
+ * 600 and nothing between, so 500 would match down to the Regular already used by `--body-weight`
+ * and this rule would do nothing at all — quietly, and only on the panel, since a dev machine with
+ * the family installed would synthesise the step and look right.
+ */
+.ml-since__when {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/*
+ * The time, in a fixed column of its own between the name and the figure
+ * (`design_handoff_baby/README.md` §"List row").
+ *
+ * <b>This reverses a deliberate earlier decision, and the reason it is safe now is that all three
+ * pages take the column together.</b> The old fixed column was removed because only ENTRIES had
+ * one: swiping between pages moved the name and the figure to different edges, so the block's
+ * contents appeared to shift when only the page had changed. Putting the time back on one page
+ * would rebuild exactly that fault. Putting it on all three is what the design does, and it leaves
+ * every page with the same four columns — glyph, name, time, value — so a swipe now changes only
+ * what the row says.
+ *
+ * The gain is that the time is legible again. Under the name it was 11px of letterspaced caps in
+ * the same ink as the words either side of it; the one thing somebody walks to the panel at 4am to
+ * read was the hardest thing on the screen to find.
+ *
+ * <b>A row with no time renders no column.</b> Not an empty 88px box — the name block takes the
+ * width, which is what lets `NONE IN THIS WINDOW` and `2 SESSIONS · RIGHT · LEFT` breathe.
+ */
+.ml-since__time {
+  flex: none;
+  /*
+   * 144px, not the design's 88.
+   *
+   * <b>88px could not hold this column's own longest value even at the design's own size.</b> The
+   * window page writes `LAST 11:00 AM`, which measures 96px at 12px/0.1em — so it was clipped from
+   * the moment the column was built, silently, because `nowrap` in a fixed box cuts rather than
+   * wraps. Only the two window pages carry the `LAST ` prefix, which is why the entries and since
+   * pages looked correct and hid it.
+   *
+   * <b>The width and the size below move together, and 9rem is the ceiling.</b> `LAST 12:30 AM` is
+   * the longest value this column ever holds, and it measures 142px at the size below — so 8.5rem
+   * clipped it and 8rem clipped it at the previous size too, which was a live fault at the 540×960
+   * canvas. Going further is not available: at 9.5rem the name block loses enough that the totals
+   * page's longest detail (`2 SESSIONS · 2 WITH NO AMOUNT`) takes a third line and the row breaks
+   * its fixed `--care-row`. Measured at root 16px, 32px and 11.6px — the whole layout is in rem, so
+   * the fit is the same at every panel size, but the sub-pixel rounding is not and 16px is worst.
+   *
+   * That prefix is most of the width — the entries page's longest value is `12:20 AM` — so if this
+   * column ever needs room back, dropping `Last ` from `windowTotals` is where it is, not the size.
+   */
+  width: 9rem; /* 144px */
+  text-align: right;
+  /*
+   * 18px, up from the design's 12, at Allan's request three times over: a first step to 13 was too
+   * small to see, then 16, and this is the third. This column is what somebody walks up to the
+   * panel at 4am to read.
+   *
+   * It is now a step *above* the entry name's 16px, where it used to match it — which the note on
+   * `--text-time` below was written to avoid. That reasoning was about *ink*, and it still holds:
+   * the colour keeps the time back from the name however large it is set. Size is doing a different
+   * job here — on a chronological list the time is the column the eye scans.
+   *
+   * The row's height is unaffected: it comes from the two stacked lines beside this one, and this
+   * is a single centred line with slack above and below it. The width above is the live constraint.
+   */
+  font-size: 1.125rem; /* 18px */
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* A step back from the entry's own name in ink — which is what stops the time reading as the
+     louder of the two now that it is also the larger — and a step brighter than the detail under
+     it. */
+  color: var(--text-time);
+}
+.ml-since--none .ml-since__time { color: var(--text-disabled); }
+/*
+ * Night, for the same reason `.ml-since__when` above needs it: `index.css` drops the app to
+ * brightness(0.4) after 10 PM, which is exactly when this column is read, and the lift is spent
+ * before it arrives. Raised so it survives the multiplication rather than switched off.
+ */
+:root[data-nightdim='on'] .ml-since__time { color: var(--text-secondary); }
+
+/*
+ * Two values that are not numbers.
+ *
+ * <b>Drawn, not written.</b> There is no character meaning "nothing was recorded" that is not also
+ * readable as zero, and zero is a measurement — the claim the panel must not make about a window
+ * nobody logged, or a pump session nobody weighed. See `WindowTotal.mark`.
+ */
+.ml-since__ring {
+  width: 1.375rem; /* 22px */
+  height: 1.375rem;
+  border: var(--control-border) solid var(--border-inactive);
+  border-radius: 50%;
+}
+.ml-since__rule {
+  width: 2.125rem; /* 34px */
+  height: 2px;
+  background: var(--text-secondary);
+}
+
+/*
+ * Night.
+ *
+ * `index.css` drops the whole app to brightness(0.4) after 10 PM, which is when this row is read
+ * most and read worst — a feed at 4am is somebody checking when the last one was, on a panel
+ * deliberately too dark to wake a room. `--text-muted` through that filter lands near the ink
+ * `--text-disabled` gives in daylight, so the lift above is spent before it arrives.
+ *
+ * An ancestor's filter cannot be switched off from inside it, so the colour is raised to survive
+ * the multiplication instead — the same move `.ml-sheet__amber` and `.ml-avatar__badge` make. The
+ * value is `--text-secondary`, which is a step past what the rule above rejected in daylight: once
+ * 60% has been taken off it, it reads roughly where `--text-muted` does undimmed. The words beside
+ * it dim normally, so the time separates from them further at night rather than less.
+ */
+:root[data-nightdim='on'] .ml-since__when {
+  color: var(--text-secondary);
+}
+/*
+ * The figure, in a fixed column (`design_handoff_baby/README.md` §"List row" — 92px).
+ *
+ * <b>Fixed because the column beside it is.</b> While this sized to its content every row of a
+ * different figure width — `4 OZ` against `11.75 OZ`, `1D` against `12H 52M` — pushed the time
+ * column left by a different amount, so eighty-eight pixels of nominally aligned column ended up
+ * with six different right edges down one page. A column that is only the same width is not a
+ * column; it has to land in the same place.
+ */
+.ml-since__ago {
+  flex: none;
+  width: 5.75rem; /* 92px */
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  font-size: 1.5rem;
+  color: var(--text-primary);
+}
 /* The unit letters are set small beside the numeral — the figure is what the eye is scanning for
    down the right edge, and `34M` at one size makes the M part of the number. */
 .ml-since__unit {
@@ -7255,14 +7692,23 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 /* Chips — one selection treatment throughout: brass-dim border on brass fill. Never a tick. */
 /* 40px, which is the figure the design itself uses for its kind chips and toggles — the 44px
    minimum applies to the quick-value chips a thumb hunts for, not to every bordered word. */
+/*
+ * Tracking and side padding are the design's (`design_handoff_baby/README.md` §7 — 11px / 0.12em),
+ * and they are what keep the widest label on one line.
+ *
+ * <b>`BREAST / FORMULA` is the label that decides this.</b> At the previous 0.16em and 14px of side
+ * padding it wrapped, which broke the contents grid into one tall row and one short one — the two
+ * even rows of three are the whole shape of that block. Both values only ever make room, so no
+ * other chip in the panel can start wrapping because of them.
+ */
 .ml-carechip {
   min-height: 2.5rem;
-  padding: 0.5625rem 0.875rem;
+  padding: 0.5625rem 0.625rem;
   border: var(--control-border) solid var(--border-inactive);
   background: none;
   color: var(--text-secondary);
   font-size: 0.6875rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 .ml-carechip--on {
@@ -7743,6 +8189,44 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
 .ml-carestop__card--discard .ml-carestop__name { color: var(--danger); }
 .ml-carestop__card--discard .ml-carestop__what { color: var(--text-fault-meta); }
 
+/*
+ * The stopping cards on a pump, where both are held rather than tapped.
+ *
+ * `HoldButton` brings the fill and the timing; this brings back the card. Left alone, `.ml-hold`
+ * would centre the two lines in a 96px block — which is right for the standalone hold controls it
+ * was built for and wrong here, where the pair has to stay the same two cards the other session
+ * types show. Only the gesture changes, not the furniture.
+ *
+ * Nothing is added to say it is held. The fill sweeping under the words is the affordance, the same
+ * one the panel uses everywhere a touch has to be deliberate.
+ */
+.ml-carestop__card--hold {
+  min-height: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+.ml-carestop__card--hold .ml-hold__body {
+  align-items: flex-start;
+  gap: 0.25rem;
+  width: 100%;
+}
+/* The label and meta wear the card's typography rather than the hold control's, so a held card and
+   a tapped one are the same object — see `.ml-carestop__name` and `__what` above. */
+.ml-carestop__card--hold .ml-hold__label {
+  font-size: 0.875rem;
+  letter-spacing: 0.24em;
+}
+.ml-carestop__card--hold .ml-hold__meta {
+  font-size: 0.6875rem;
+  font-weight: var(--body-weight);
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text-muted);
+}
+.ml-carestop__card--discard.ml-carestop__card--hold .ml-hold__meta {
+  color: var(--text-fault-meta);
+}
+
 /* ---- Bottle: the bottle itself ----
  *
  * Option 1B of the amount exploration, the one it locked in. Consumed is read off a bar the length
@@ -7979,30 +8463,67 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   text-transform: uppercase;
   color: var(--text-muted);
 }
-/* The one primary action on an idle pump panel — SAVE below it writes a *finished* session. */
+/*
+ * The one primary action on an idle pump panel — SAVE below it writes a *finished* session.
+ *
+ * **Verdigris, not brass, and that departs from the handoff** (`design_handoff_baby/README.md`
+ * draws 1px `#5c5342` on `#1c1a15`, 58px, a 14px `#e8e4dc` label). Changed at Allan's direction on
+ * 2026-08-31 against his screenshot of the design project. The reason it needed changing: every
+ * other control on this panel is brass-on-near-black — both phase steppers, the typed route's
+ * steppers, the quick amounts, SAVE — so the button most people opened the panel to press was
+ * drawn in exactly the register of the rows around it and read as one more of them.
+ *
+ * Verdigris is the app's LIVE/OK accent and nowhere decorative (`tokens.css`), which is the test
+ * this passes: pressing it is what makes a session live, and the running panel it opens is already
+ * verdigris. It is also the one colour on the sheet that nothing else here is competing in.
+ *
+ * Height and label size go up a step with it (58 → 68px, 14 → 16px). The colour alone would carry
+ * on a desk monitor; this is read at arm's length on a wall panel, and at that distance size is
+ * what separates a button from a row before the hue is resolved.
+ */
 .ml-caresheet__begin {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   width: 100%;
-  min-height: 3.625rem;
-  margin-top: 1rem;
+  min-height: 4.25rem;
+  /* Air on both sides, where there used to be only a top margin. Below it is `OR LOG ONE YOU
+     FINISHED`, whose own margin is the dense panel's 11px, and a 68px verdigris block sitting
+     11px off the next section's heading reads as that section's header rather than as the end of
+     this one. Given here rather than on `.ml-caresheet__label`, which every panel in the app
+     shares and none of the others has this problem. */
+  margin: 1.25rem 0;
   padding: 0 1.125rem;
-  border: var(--control-border) solid var(--brass-dim);
-  background: var(--bg-brass-soft);
+  border: var(--control-border) solid var(--live-dim);
+  background: var(--bg-live-soft);
+}
+/* There was no disabled rule at all, which only stopped being survivable once the button got loud:
+   it is `disabled` for the length of a write, and a full-strength verdigris button that ignores a
+   press is worse than a brass one doing the same. Worded like the steppers above — border to
+   `--rule-minor`, ink to `--text-disabled` — so a dead control looks dead in one way on this sheet. */
+.ml-caresheet__begin:disabled {
+  border-color: var(--rule-minor);
+  background: none;
 }
 .ml-caresheet__beginlabel {
-  font-size: 0.875rem;
+  font-size: 1rem;
   letter-spacing: 0.26em;
   text-transform: uppercase;
-  color: var(--text-primary);
+  color: var(--live-text);
 }
 .ml-caresheet__beginnote {
   font-size: 0.625rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--brass-meta);
+  /* One step quieter than the label and in its family. It stays load-bearing (see the call site),
+     so it drops in weight rather than out of the colour — brass beside verdigris on a fill this
+     size reads as two accents disagreeing rather than as a note under a heading. */
+  color: var(--live-accent);
+}
+.ml-caresheet__begin:disabled .ml-caresheet__beginlabel,
+.ml-caresheet__begin:disabled .ml-caresheet__beginnote {
+  color: var(--text-disabled);
 }
 
 /* ---- Medicine: what has been given before, and anything else ----

@@ -69,10 +69,20 @@ describe('withinTrustWindow', () => {
 })
 
 describe('private offline cache boundary', () => {
-  it('requires a currently confirmed server session and an unlocked screen', () => {
-    expect(mayAccessPrivateCache(false, false)).toBe(false)
-    expect(mayAccessPrivateCache(true, true)).toBe(false)
-    expect(mayAccessPrivateCache(true, false)).toBe(true)
+  it('requires a proved identity and an unlocked screen', () => {
+    expect(mayAccessPrivateCache('none', false)).toBe(false)
+    expect(mayAccessPrivateCache('server-session', true)).toBe(false)
+    expect(mayAccessPrivateCache('server-session', false)).toBe(true)
+  })
+
+  /*
+   * The offline half. A PIN proved against this device's own sealed enrolment opens the cache
+   * without a server — which is safe only because the cache is sealed under the key that proof
+   * produces, and is the difference between a usable offline log and an empty one.
+   */
+  it('admits a PIN proved on the device, and still not while locked', () => {
+    expect(mayAccessPrivateCache('device-pin', false)).toBe(true)
+    expect(mayAccessPrivateCache('device-pin', true)).toBe(false)
   })
 
   it('does not let a forged persisted unlock note bypass the PIN boundary', () => {

@@ -2,8 +2,7 @@ namespace HomeHub.Api.Cats;
 
 /// <summary>
 /// Last-known snapshots, so a burst of panel requests isn't a burst of HA calls and a failed refresh
-/// can still serve something honest (flagged stale) instead of an empty section. Mirrors
-/// <see cref="Baby.HuckleberrySnapshotCache"/>.
+/// can still serve something honest (flagged stale) instead of an empty section.
 /// </summary>
 /// <remarks>
 /// Read by request-scoped providers and written by the singleton recovery loop, so every mutation is

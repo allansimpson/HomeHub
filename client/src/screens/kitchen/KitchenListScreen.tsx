@@ -1,16 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, KitchenHeader, KitchenQuickRow, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenHeader, KitchenQuickRow, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { grocerySections, mirrorLines, provenanceLine } from '../../app/pantryDomain'
 import { amountOf } from '../../app/kitchenDomain'
 import type { GroceryLineDto, GroceryListDto } from '../../api/types'
-
-/** A list row is taller than a shelf row — it carries a second line — so its cut is its own. */
-const ROW_HEIGHT = 56
-
-/** Rows visible per band before the cut. Five on the longest, so the panel's budget holds. */
-const BAND_ROWS = 4
 
 /**
  * LIST — the grocery list (LIST_AND_SHOPPING §1, panel G1).
@@ -70,6 +64,29 @@ export function KitchenListScreen() {
     <ScreenShell
       header={<KitchenHeader title="THE LIST" meta={`${open} OPEN`} />}
       dock={<KitchenQuickRow active="List" counts={{ list: `${open} OPEN` }} />}
+      /*
+        **One footer button** (LIST_AND_SHOPPING §1), now pinned outside the scrolling body
+        (design_handoff_kitchen_lists §4).
+
+        The review is reached from the plan's `WHAT WE NEED` and putting away from the shop's own
+        commit, so neither needs a door here. Adding them made this panel a menu of the section
+        rather than the list, which is what it is for.
+
+        It sits outside the scroller because it was being clipped: the way to the shop lived under
+        fourteen lines of shopping, so the control for acting on the list was reachable only after
+        scrolling past everything it acts on.
+      */
+      action={open > 0 ? (
+        <div className="ml-kitchen__actionbar">
+          <button
+            type="button"
+            className="ml-kitchen__shop"
+            onClick={() => navigate('/kitchen/list/shop')}
+          >
+            SHOP · {open} {open === 1 ? 'THING' : 'THINGS'}
+          </button>
+        </div>
+      ) : undefined}
     >
       <ScrollArea>
         {/* Add field with a brass ＋ (LIST_AND_SHOPPING §1). Most of what a household wants is not
@@ -131,38 +148,23 @@ export function KitchenListScreen() {
           </div>
         )}
 
-        {sections.map((section) => (
-          section.lines.length === 0 ? null : (
-            <div key={section.key}>
-              <div className={`ml-band${section.key === 'done' ? ' ml-band--quiet' : ''}`}>
-                <span className="ml-band__label">{section.label}</span>
-                <span className="ml-band__meta">{section.lines.length}</span>
-              </div>
-              <CutGroup rows={BAND_ROWS} rowHeight={ROW_HEIGHT} className="ml-band-shade">
-                {section.lines.map((line) => (
-                  <Line key={line.id} line={line} onTick={() => tick(line)} />
-                ))}
-              </CutGroup>
-            </div>
-          )
-        ))}
-
         {/*
-          **One footer button** (LIST_AND_SHOPPING §1).
-
-          The review is reached from the plan's `WHAT WE NEED` and putting away from the shop's own
-          commit, so neither needs a door here. Adding them made this panel a menu of the section
-          rather than the list, which is what it is for.
+          Every section runs to its full length. They used to be capped at four rows each with the
+          fifth bisected, which on a fourteen-line list meant the only way to reach the bottom of
+          `For the week` was to scroll a group inside the scrolling page
+          (design_handoff_kitchen_lists §2).
         */}
-        {open > 0 && (
-          <button
-            type="button"
-            className="ml-kitchen__shop"
-            onClick={() => navigate('/kitchen/list/shop')}
-          >
-            SHOP · {open} {open === 1 ? 'THING' : 'THINGS'}
-          </button>
-        )}
+        {/* Indexed over the sections that actually render, not over all three: with `For the week`
+            empty, `Asked for` becomes the first divider on the page and must not carry the 18px
+            gap that only separates it from a group above it. */}
+        {sections.filter((s) => s.lines.length > 0).map((section, i) => (
+          <div key={section.key}>
+            <KitchenDivider label={section.label} count={section.lines.length} gap={i > 0} />
+            {section.lines.map((line) => (
+              <Line key={line.id} line={line} onTick={() => tick(line)} />
+            ))}
+          </div>
+        ))}
       </ScrollArea>
     </ScreenShell>
   )

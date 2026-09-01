@@ -12,7 +12,7 @@ import type {
   StockCheckDto,
   StockStatusName,
 } from '../api/types'
-import { calendarDaysBetween } from './pantryDomain'
+import { amountLabel, calendarDaysBetween, numberWord, relativeWords } from './pantryDomain'
 import { planDate, weekStart } from './mealsDomain'
 
 /**
@@ -190,11 +190,174 @@ export const STALE_DAYS = 14
  * cannot have a number that has drifted.
  */
 export function staleCount(items: PantryItemDto[], now: Date = new Date()): number {
-  return items.filter((i) => {
-    if (i.isArchived || i.tracking === 'NotCounted') return false
-    if (!i.lastSeenAtUtc) return true
-    return calendarDaysBetween(new Date(i.lastSeenAtUtc), now) >= STALE_DAYS
-  }).length
+  return items.filter((i) => isStale(i, now)).length
+}
+
+/**
+ * Whether one row's number is old enough to be worth confirming.
+ *
+ * Extracted so the badge on P1 and the queue on P3 are the same predicate rather than two readings
+ * of the same rule. They were not: the badge counted rows past `STALE_DAYS` and the check ran the
+ * twelve stalest rows whether or not any of them were stale at all — so a pantry with nothing to
+ * confirm still offered six cards, and a badge saying `6` opened a run of twelve.
+ */
+export function isStale(item: PantryItemDto, now: Date = new Date()): boolean {
+  if (item.isArchived || item.tracking === 'NotCounted') return false
+  if (!item.lastSeenAtUtc) return true
+  return calendarDaysBetween(new Date(item.lastSeenAtUtc), now) >= STALE_DAYS
+}
+
+/**
+ * **FRIDGE first.** `PANTRY_SHELVES` §1 calls the shelf order load-bearing, and `LOCATIONS` in
+ * `pantryDomain` does not give it — that constant is Cupboard-first for the older `/pantry` screen,
+ * which is not this section's rule. It ordered four stacked sections; it now orders the shelf
+ * switch, which is the same question asked once rather than four times.
+ *
+ * Shared rather than local to one panel, because the shelves and the check have to walk the house
+ * in the same direction: the run is done on foot, and a queue that visits the fridge, then the
+ * cupboard, then the fridge again is a queue that sends somebody back across the kitchen.
+ */
+export const KITCHEN_SHELF_ORDER: PantryLocationName[] = ['Fridge', 'Cupboard', 'Freezer']
+
+/**
+ * A shelf the pantry can be showing — the three places, plus the one state.
+ *
+ * `Soon` is not a location and never will be: the jar it names is *also* in the fridge, and that is
+ * the point of it (design_handoff_kitchen_lists §3). It is in this union because the switch above
+ * the list treats it as a peer, not because anything downstream may store it on an item.
+ */
+export type PantryShelfKey = 'Soon' | PantryLocationName
+
+/**
+ * The run, left to right: `SOON · FRIDGE · CUPBOARD · FREEZER` (§3).
+ *
+ * **Fixed, and four.** Four entries fit one line at the 540px canvas without the row scrolling
+ * sideways, which is the constraint that makes the switch readable at a glance; a fifth would break
+ * it. Derived from `KITCHEN_SHELF_ORDER` rather than written out again so the switch and the check
+ * cannot come to disagree about which way round the house is walked.
+ */
+export const KITCHEN_SHELF_RUN: PantryShelfKey[] = ['Soon', ...KITCHEN_SHELF_ORDER]
+
+/**
+ * Which shelf the pantry opens on.
+ *
+ * `Soon` when anything is turning, otherwise the first place in the run. Left open by §3 — "Soon is
+ * the argument, last-used shelf is the alternative" — and this takes the argument: opening on the
+ * one shelf that can be *empty* would give the household a blank panel as the answer to "what is in
+ * the pantry", which is the failure the alternative was guarding against rather than an argument
+ * for remembering state. Landing on Soon only when it has rows keeps the answer and avoids that.
+ *
+ * Last-used is deliberately not implemented: it needs somewhere to persist, and a shelf remembered
+ * across days is a worse default than a shelf chosen by what is actually turning today.
+ */
+export function landingShelf(items: PantryItemDto[], now: Date = new Date()): PantryShelfKey {
+  return openItems(items, now).length > 0 ? 'Soon' : KITCHEN_SHELF_ORDER[0]
+}
+
+/**
+ * The run: which rows a check asks about, and in what order (PANTRY_SHELVES §3).
+ *
+ * **Stale rows, in shelf order.** The two halves answer different questions and the screen had them
+ * confused into one: *which* rows are worth asking about is a question about staleness, and *what
+ * order* to ask them in is a question about where the person is standing. Sorting the queue itself
+ * by staleness — which is what it used to do — walks the household back and forth across the
+ * kitchen in the order the numbers happened to rot.
+ */
+export function checkQueue(items: PantryItemDto[], now: Date = new Date()): PantryItemDto[] {
+  return items
+    .filter((i) => isStale(i, now))
+    .sort((a, b) =>
+      KITCHEN_SHELF_ORDER.indexOf(a.location) - KITCHEN_SHELF_ORDER.indexOf(b.location)
+      || a.name.localeCompare(b.name))
+}
+
+/**
+ * The lede over the run — what it is and how long it will take.
+ *
+ * It states the size before the household commits to it, which is the same argument the sync
+ * control's badge makes on P1: a check is a tool you pick up knowing its weight, not a nag that
+ * turns out to be twelve questions long once you have started.
+ */
+export function checkLede(count: number): string {
+  const weeks = Math.round(STALE_DAYS / 7)
+  const period = weeks === 1 ? 'a week' : `${numberWord(weeks)} weeks`
+  const noun = count === 1 ? 'number' : 'numbers'
+  // `nobody` takes the singular whatever it is counting — "eight numbers nobody have confirmed"
+  // agreed the verb with the wrong noun.
+  return `${capitalise(numberWord(count))} ${noun} nobody has confirmed in ${period}. `
+    + 'Two minutes at the cupboard and they stop being guesses.'
+}
+
+/**
+ * `We think 200 g. Last confirmed five weeks ago.`
+ *
+ * **A sentence, not two labels.** The card used to render the shelf list's own `SEEN 3 WK.` token
+ * after the amount, which is a column heading standing in the middle of a sentence — and the
+ * shelves already say it in a place where a caps token belongs. Here the age is prose because the
+ * card is asking a question and the staleness is the reason it is asking.
+ */
+export function beliefLine(item: PantryItemDto, now: Date = new Date()): string {
+  const believed = amountLabel(item)
+  if (!item.lastSeenAtUtc) return `We think ${believed}. Never confirmed.`
+  return `We think ${believed}. Last confirmed ${relativeWords(item.lastSeenAtUtc, now)}.`
+}
+
+/** What one settled row says in `STILL TO CHECK` — the belief, marked as a belief. */
+export function believedLabel(item: PantryItemDto): string {
+  return `think ${amountLabel(item)}`
+}
+
+/** One answer this run has written, for `CORRECTED JUST NOW`. */
+export interface SettledRow {
+  itemId: number
+  /** The ledger row this answer wrote, so `UNDO LAST` has something to reverse. */
+  eventId: number | null
+  name: string
+  answer: 'confirmed' | 'changed' | 'gone' | 'notfound'
+  /** What the row said before, and what it says now — both, so the line can show the change. */
+  was: string
+  now: string
+}
+
+/**
+ * The right-hand cell of a `CORRECTED JUST NOW` row.
+ *
+ * A confirmation restates the number it confirmed; a change shows both sides. `was 2, now 1` is the
+ * only shape here that lets somebody catch their own mis-tap while the cupboard is still open,
+ * which is the whole reason the block is on the screen rather than in the item sheet's history.
+ */
+export function settledLine(row: SettledRow): string {
+  switch (row.answer) {
+    case 'confirmed': return `${row.now} · confirmed`
+    case 'notfound': return "couldn't find it"
+    default: return `was ${row.was}, now ${row.now}`
+  }
+}
+
+/** Whether a settled row changed a number — the verdigris ones (`ALL GONE` counts). */
+export function settledChanged(row: SettledRow): boolean {
+  return row.answer === 'changed' || row.answer === 'gone'
+}
+
+/** `Four confirmed, two corrected` — what the run has come to so far. */
+export function runTally(rows: SettledRow[]): string {
+  const confirmed = rows.filter((r) => r.answer === 'confirmed').length
+  const corrected = rows.filter(settledChanged).length
+  const missing = rows.filter((r) => r.answer === 'notfound').length
+
+  // Only the parts with a number in them. "Four confirmed, nothing corrected" is a sentence about
+  // the absence of a thing nobody asked about.
+  const parts = [
+    confirmed > 0 && `${numberWord(confirmed)} confirmed`,
+    corrected > 0 && `${numberWord(corrected)} corrected`,
+    missing > 0 && `${numberWord(missing)} not found`,
+  ].filter(Boolean) as string[]
+
+  return parts.length === 0 ? 'Nothing settled yet' : capitalise(parts.join(', '))
+}
+
+function capitalise(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1)
 }
 
 /**
@@ -635,20 +798,6 @@ export function missingTonight(check: StockCheckDto | undefined): number {
 
 // ---- The bisected cut (PANTRY_SHELVES §1) ----
 
-/**
- * The height a scroll group must be for its next row to be visibly bisected, in canvas pixels.
- *
- * `N × rowH + rowH/2`. The half-row is not decoration: the native scrollbar is hidden and there is
- * no track, so the row cut through the middle is the **only** signal that the group continues.
- *
- * The failure this exists to prevent is silent. A height landing on a row boundary clips nothing
- * but padding, and the group then reads as a complete list with nothing below it — no error, no
- * clipped glyph, just a household that never finds out there are four more things in the cupboard.
- * Three panels in one segment shipped that way before the rule was written down.
- */
-export function cutHeight(rows: number, rowHeight: number): number {
-  return rows * rowHeight + rowHeight / 2
-}
 
 /**
  * What the `ALREADY IN` column says — how much is **in**, never how much is wanted.

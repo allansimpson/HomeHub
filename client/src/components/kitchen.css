@@ -25,7 +25,13 @@
 
 .ml-kitchen-header__title {
   margin: 0;
-  font-size: 2.5rem; /* 40px page title */
+  /*
+   * 28px with a hair of tracking, which is what `PANTRY`, `THE WEEK`, `RECIPES` and `THE LIST` are
+   * each drawn at in their own section file. It was 2.5rem and untracked — 12px larger than the
+   * handoff, on the most prominent word of every destination.
+   */
+  font-size: 1.75rem; /* 28px */
+  letter-spacing: 0.05em;
   font-weight: 400;
   line-height: 1;
   color: var(--text-primary);
@@ -39,9 +45,132 @@
 .ml-kitchen-header__meta {
   flex: 0 0 auto;
   font-size: 0.6875rem; /* 11px */
-  letter-spacing: 0.22em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--brass-meta);
+  color: var(--text-muted);
+}
+
+/* ---------- The drill-in header ---------- */
+
+/*
+ * `BACK · CUPBOARD · badge` — three columns, title centred (every drilled-in panel in
+ * `design_handoff_kitchen/designs`).
+ *
+ * A grid rather than a flex row, and `1fr auto 1fr` rather than `space-between`, because the centre
+ * cell has to sit on the screen's centre line regardless of how wide the two outer cells are. The
+ * word in the exit box changes per screen — `BACK` against `UNDO ALL` is a 40px difference — and
+ * under `space-between` every one of those would drag the title off centre by half of it.
+ *
+ * Padding is the gutter on both sides, not `--gutter-avatar` on the right: the account badge is
+ * pinned over the right-hand cell rather than laid out in it, so reserving its clearance here would
+ * shift the centre column 27px left of the screen's middle on exactly the screens that show it.
+ */
+.ml-kitchenhead {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.75rem;
+  padding-right: var(--gutter);
+  /* The exit box's own height, so a header with one never shifts against a header without. */
+  min-height: 2.75rem; /* 44px */
+}
+
+.ml-kitchenhead__exit {
+  justify-self: start;
+}
+
+/*
+ * The exit: a word in a box, no arrow.
+ *
+ * 44px minimum height because it is the one control on the screen somebody reaches for without
+ * looking — the same floor every other target in the section is held to.
+ */
+.ml-kitchenhead__exitbtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem; /* 44px */
+  padding: 0 1.25rem;
+  background: none;
+  border: var(--control-border) solid var(--border-inactive);
+  color: var(--text-quiet);
+  font: inherit;
+  font-size: 0.6875rem; /* 11px — chrome, not a second title */
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.ml-kitchenhead__exitbtn:active {
+  background: var(--bg-active);
+}
+
+/*
+ * A step quieter for the words that abandon something.
+ *
+ * The handoff sets `BACK`, `PAUSE` and `STOP` in `--text-quiet` and `CANCEL`, `LATER` and
+ * `UNDO ALL` in `--text-muted`, and the split is not decorative: the first three leave a screen
+ * that will still be there, the last three give something up. The quieter tone is the panel
+ * declining to invite it.
+ */
+.ml-kitchenhead__exitbtn--abandon {
+  color: var(--text-muted);
+}
+
+/*
+ * The screen's own name — `Add to pantry`, `Check the shelves`.
+ *
+ * 22px, against the 40px of a destination header and the 32px the ledger screens use. A drill-in is
+ * somewhere you already know you went, so its name is a caption on the journey rather than the
+ * loudest thing on the glass; the body's own heading is what carries the weight.
+ */
+/*
+ * 22px, and that is a ruling rather than a measurement.
+ *
+ * The handoff draws this component at 22px on nine panels and 24px on three (`Add to pantry`,
+ * `Check the shelves`, `Add a recipe`) with nothing distinguishing them — the drawing is simply not
+ * self-consistent here. One component gets one size, and 22 is both the majority and the one that
+ * leaves room for `How long things last` without ellipsing.
+ */
+.ml-kitchenhead__title {
+  font-size: 1.375rem; /* 22px */
+  line-height: 1.2;
+  text-align: center;
+  color: var(--text-primary);
+  /* A long name stops rather than pushing the status out from under the badge. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * A context label in place of a name — `CUPBOARD`, `SAT 23 AUG`, `STEP 3 OF 6`.
+ *
+ * Brass and small, because it is not a title: it says where in the household's own data this screen
+ * is standing, on the panels whose name is already the heading below.
+ */
+.ml-kitchenhead__label {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--brass);
+  white-space: nowrap;
+}
+
+/* Empty on the screens that carry the account badge — it is pinned over this cell, not laid out
+   in it, so the cell exists to hold the centre column in the middle rather than to draw anything. */
+.ml-kitchenhead__status {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.875rem;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brass-bright);
+}
+.ml-kitchenhead__status--live {
+  color: var(--live-text);
 }
 
 /* ---------- A row's supporting line ---------- */
@@ -143,92 +272,216 @@
   color: var(--text-muted);
 }
 
-/* ---------- The full-bleed band ---------- */
+/* ---------- The section divider ---------- */
 
 /*
- * Section headers run edge to edge, deliberately breaking the 34px content gutter. A boxed label
- * does not separate two lists; a full-width rule does (PANTRY_SHELVES §1). The 3px stub is what
- * makes it read as a header rather than a strip of tinted background.
+ * Every group heading in the Kitchen (design_handoff_kitchen_lists §1).
+ *
+ * **This replaced the full-bleed band**, which was a tinted strip with a 3px brass stub running
+ * edge to edge, breaking the gutter on purpose. The divider does the opposite: it *keeps* the
+ * gutter, and separates two lists with a rule rather than with a fill. A serif name at 19px reads
+ * as a heading at arm's length where 11px brass caps read as a label stuck to the list below it.
+ *
+ * The label is **sentence case** — `Worth using soon`, not `WORTH USING SOON`. It is a name for
+ * what follows, not a system label, and the whole point of moving it into the serif is that it is
+ * read rather than scanned.
+ *
+ * There is no fill, no left stub, and **no inset shadow beneath it**. The band's
+ * `box-shadow: inset 0 20px 16px -18px` was deleted everywhere with it; §1 says do not put it back.
  */
-.ml-band {
+.ml-kdiv {
   display: flex;
   align-items: baseline;
-  gap: 0.625rem; /* 10px */
-  /*
-   * Full-bleed already — no negative margin.
-   *
-   * The band lives in a content area that has no horizontal padding of its own (rows are full
-   * width and it is their *hairline* that is inset, see `.ml-row::before` in ledger.css). Pulling
-   * the band outward on top of that put its 3px brass stub off the left edge entirely and cut the
-   * first glyph of every band label in half against the glass — on every band in the section.
-   *
-   * The padding below is what does the insetting: 3px of stub, then `gutter - 3`, so the label
-   * starts at exactly `--gutter` and lines up with the rows beneath it. That is the reference
-   * design's own arithmetic (`border-left:3px` + `padding-left:31px` at a 34px gutter).
-   */
-  padding: 0.625rem var(--gutter) 0.625rem calc(var(--gutter) - 3px);
-  background: var(--bg-brass-soft);
-  border-left: 3px solid var(--brass);
+  gap: 0.875rem; /* 14px */
+  padding: 0 var(--gutter);
 }
 
-/* Amber when the band needs a person — same structure, different temperature. */
-.ml-band--amber {
-  background: var(--bg-fault);
-  border-left-color: var(--alert);
-}
-.ml-band--amber .ml-band__label {
-  color: var(--alert);
+/*
+ * 18px above, and nothing above the first divider in a scroll region.
+ *
+ * Given as a modifier the caller adds rather than as `:first-child`, because the first divider on
+ * a panel is rarely the first *element* — a search row, a mirror strip or a lede usually sits above
+ * it, and `:first-child` would then put the gap back exactly where §1 removes it.
+ */
+.ml-kdiv--gap {
+  margin-top: 1.125rem; /* 18px */
 }
 
-/* Quiet, for a band that is a fact rather than a call to action ("SETTLED", "LEFT ALONE"). */
-.ml-band--quiet {
-  border-left-color: var(--brass-dim);
+.ml-kdiv__label {
+  font-family: var(--font-serif);
+  font-size: 1.1875rem; /* 19px */
+  letter-spacing: 0.14em;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
-.ml-band--quiet .ml-band__label {
+
+/* The rule takes the room the label leaves; it is what carries the eye to the count. */
+.ml-kdiv__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--rule-major);
+}
+
+.ml-kdiv__count {
+  /* Same fallback chain as every other figure in the section — `--font-mono` is deliberately
+     undefined, so the platform monospace is what actually renders. */
+  font-family: var(--font-mono, ui-monospace, 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace);
+  font-size: 0.6875rem; /* 11px */
   color: var(--text-muted);
 }
 
-.ml-band__label {
+/*
+ * Amber, for **time pressure only** — `Worth using soon`, `These need you`, `Can't say yet`.
+ *
+ * All three parts move together. An amber label over a neutral rule reads as a rendering fault
+ * rather than as a warmer heading, which is why the rule and the count have their own tokens
+ * instead of being left grey.
+ */
+.ml-kdiv--amber .ml-kdiv__label {
+  color: var(--alert);
+}
+.ml-kdiv--amber .ml-kdiv__rule {
+  background: var(--rule-amber);
+}
+.ml-kdiv--amber .ml-kdiv__count {
+  color: var(--amber-deep);
+}
+
+/* ---------- The answering page's headings ---------- */
+
+/*
+ * The Kitchen home panel's section headings — `TONIGHT`, `USE IT OR LOSE IT`, `THE NEXT FEW
+ * NIGHTS`, `WHAT WE NEED`.
+ *
+ * **Not `.ml-kdiv`, and deliberately so.** `design_handoff_kitchen_lists` ships this panel
+ * unchanged from the previous handoff and draws these as a plain brass label with a door opposite:
+ * no rule, no serif, no count in the mono. The divider is for a heading over a *group of rows of
+ * the same kind*; this page's four sections are four different answers, and ruling between them
+ * would imply they are parts of one list.
+ *
+ * These were `.ml-band` in the build, which neither handoff ever drew here.
+ */
+.ml-kitchen__homehead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.625rem;
+  padding: 1rem var(--gutter) 0;
+}
+
+.ml-kitchen__homelabel {
   font-size: 0.6875rem; /* 11px */
   letter-spacing: 0.3em;
   color: var(--brass);
 }
 
-.ml-band__meta {
+/* Amber on the one heading that owns waste — the same time-pressure rule the divider follows. */
+.ml-kitchen__homehead--amber .ml-kitchen__homelabel {
+  color: var(--alert);
+}
+
+.ml-kitchen__homemeta {
   font-size: 0.625rem; /* 10px */
   letter-spacing: 0.14em;
   color: var(--text-muted);
 }
 
 /*
- * The block directly under a band, and nowhere else.
+ * Three small captions that used to borrow `.ml-band__meta`.
  *
- * Marks the band-to-rows transition so rows darken as they pass up beneath it. Two shaded siblings
- * inside one band reads as a rendering fault, which is why this is a modifier applied once rather
- * than a rule on every list.
+ * They are separate rules rather than one shared caption class because the handoff draws them at
+ * three different sizes, and the shared class is exactly how they came to look alike in the first
+ * place: it was reached for as "the small one", not because any of them is a band's count.
  */
-.ml-band-shade {
-  box-shadow: inset 0 20px 16px -18px rgba(8, 9, 11, 0.85);
+
+/* `START BY` / `START NOW`, on the start-by card. */
+.ml-kitchen__startlabel {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
+  color: var(--brass);
 }
 
-/* ---------- The bisected cut ---------- */
+/* `ONE MEAL CLEARS THREE OF THEM`, at the head of the lead card. */
+.ml-kitchen__leadclears {
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.24em;
+  color: var(--brass);
+}
+
+/* `THE RECIPE ASKS FOR`, over the ingredient being sorted (M2). */
+.ml-kitchen__askedlabel {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.2em;
+  color: var(--brass-meta);
+}
+
+/* ---------- The shelf switch ---------- */
 
 /*
- * A fixed-height scroller with **no visible track**. The height must land inside a row's text box
- * so the next row is visibly cut in half — that bisected row *is* the scroll affordance, and it is
- * the only one. A height landing on a row boundary clips only padding, and the group then reads as
- * a complete list with nothing below it.
+ * The run above the Pantry list (design_handoff_kitchen_lists §3) — `SOON · FRIDGE · CUPBOARD ·
+ * FREEZER`, one shelf showing at a time.
  *
- * Row heights differ per group (40–69px), so the height is always set by the caller from its own
- * row height — `N × rowH + rowH/2`. There is deliberately no default here: a shared default is
- * exactly how one panel's height ends up on another panel's rows.
+ * `align-items: flex-end` is what makes the underline work: the active entry trades 2px of
+ * `padding-bottom` for a 2px brass border, so every label keeps its baseline and only the rule
+ * appears. Sizing the entries from the top instead moves the active word up by 2px as you switch.
  */
-.ml-cut {
-  overflow-y: auto;
-  scrollbar-width: none;
+.ml-shelfswitch {
+  display: flex;
+  gap: 1.875rem; /* 30px */
+  align-items: flex-end;
+  padding: 1.25rem var(--gutter) 0;
 }
-.ml-cut::-webkit-scrollbar {
-  display: none;
+
+.ml-shelfswitch__entry {
+  background: none;
+  border: none;
+  padding: 0 0 0.5625rem; /* 9px */
+  font: inherit;
+  font-size: 0.8125rem; /* 13px */
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.ml-shelfswitch__entry--on {
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--brass);
+  padding-bottom: 0.4375rem; /* 7px — the 2px the border takes back */
+}
+
+/* `SOON` is a state rather than a place, so it stays amber while it is not the shelf being read. */
+.ml-shelfswitch__entry--soon {
+  color: var(--amber-deep);
+}
+
+.ml-shelfswitch__count {
+  /* Inherits the entry's colour, so it warms and brightens with its own label rather than being a
+     separate decision on every one of the four states an entry can be in. */
+  margin-left: 0.375rem;
+  font-family: var(--font-mono, ui-monospace, 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace);
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: normal;
+}
+
+.ml-shelfswitch__rule {
+  margin-inline: var(--gutter);
+  height: 1px;
+  background: var(--rule-minor);
+}
+
+/* ---------- The pinned action bar ---------- */
+
+/*
+ * A screen's one primary action, held outside the scrolling body (§2).
+ *
+ * Only a wrapper: the button inside is the section's ordinary `.ml-kitchen__shop`, which carries
+ * its own 16px top margin. Giving the bar the gutter here rather than widening the button keeps
+ * that button identical whether it is pinned or sitting in flow, which it still does on eight
+ * other panels.
+ */
+.ml-kitchen__actionbar {
+  flex: 0 0 auto;
+  padding-inline: var(--gutter);
 }
 
 /* ---------- The answering page ---------- */
@@ -343,7 +596,10 @@
 /* A band's meta when it is a door rather than a count. */
 .ml-kitchen__banddoor {
   margin-left: auto;
-  padding: 0;
+  /* Padded to a real target. As text alone it measured 11px tall — the exact figure
+     MATCHING_AND_ALIASES §M2 names when it says a borderless control stops being pressable. */
+  padding: 1rem 0 1rem 1rem;
+  margin-block: -1rem;
   background: none;
   border: 0;
   font: inherit;
@@ -471,7 +727,10 @@
 .ml-kitchen__cook {
   background: none;
   border: 0;
-  padding: 0;
+  /* Padded into a target for the same reason as `.ml-kitchen__banddoor`: as bare text it was 11px
+     tall, and it is the one control on the week that starts cooking. */
+  padding: 0.875rem 0 0.875rem 0.875rem;
+  margin-block: -0.875rem;
   font: inherit;
   font-size: 0.6875rem;
   letter-spacing: 0.14em;
@@ -660,7 +919,7 @@
   background: var(--bg-brass-soft);
   border: var(--hairline-px) solid var(--brass);
   color: var(--brass-bright);
-  font-size: 1.125rem;
+  font-size: 1.1875rem; /* 19px */
   cursor: pointer;
 }
 
@@ -720,7 +979,7 @@
   flex: 1;
   font-size: 1rem;
   font-weight: 300;
-  color: var(--text-primary);
+  color: var(--text-secondary);
   /*
    * A long name ellipses rather than shoving the figures off the row.
    *
@@ -732,6 +991,32 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The shown shelf's rows (design_handoff_kitchen_lists §3).
+ *
+ * Top padding only. The rows are `.ml-row`, which already carries the gutter, so insetting here
+ * as well would indent the whole shelf by 68px and put its names out of line with every other list
+ * in the section.
+ */
+.ml-kitchen__shelf {
+  padding-top: 0.75rem; /* 12px */
+}
+
+/*
+ * Which shelf a search result is on.
+ *
+ * Search is global across all four shelves, so a result with no place on it does not answer the
+ * question that was asked. Its own cell rather than a replacement for the state beside it: the
+ * `SEEN 5 W` is the honesty mechanism (PANTRY_BEHAVIOURS §9) and displacing it to make room for
+ * the location would trade one required fact for another.
+ */
+.ml-kitchen__shelfwhere {
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  color: var(--brass-meta);
   white-space: nowrap;
 }
 
@@ -775,18 +1060,39 @@
   color: var(--brass-meta);
 }
 
-/* Believed gone: the name dims and the amount goes amber. */
+/*
+ * **The temperature sits on the state, not on the quantity.**
+ *
+ * The handoff colours `2 DAYS LEFT` and `OPEN 3 D` amber and leaves `1 bag` and `½ pot` at
+ * `--text-secondary`, on every row it draws. It was the other way round here, which inverts what
+ * the row is claiming: the number is not the alarming part — four cans is four cans — the *state*
+ * is. Amber on the amount reads as "this figure is wrong"; amber on the state reads as "this runs
+ * out on Tuesday", which is the thing being said.
+ */
 .ml-kitchen__shelfrow--gone .ml-kitchen__shelfname {
   color: var(--text-muted);
 }
-.ml-kitchen__shelfrow--gone .ml-kitchen__shelfamount {
+.ml-kitchen__shelfrow--gone .ml-kitchen__shelfstate {
   color: var(--alert);
 }
 
-/* Low is amber on the amount only — the thing is there, there is just not much of it. */
-.ml-kitchen__shelfrow--low .ml-kitchen__shelfamount {
+/* Opened, or short-dated: the two states that are about *time* rather than about the count, and the
+   only ones the handoff spends amber on. Wins over the estimated row's quiet brass below, because a
+   half-used thing going off is the more urgent of the two facts. */
+.ml-kitchen__shelfstate--turning,
+.ml-kitchen__shelfrow--estimated .ml-kitchen__shelfstate--turning {
   color: var(--alert);
 }
+
+/*
+ * **A low count is not marked at all**, which is the handoff's judgement and worth keeping.
+ *
+ * Every counted row in `FRIDGE`, `CUPBOARD` and `FREEZER` is drawn in the same quiet pair whatever
+ * the number is; the only amber on the panel is on `2 DAYS LEFT` and `OPEN 3 D`, in `WORTH USING
+ * SOON`. The distinction is between *running low* — arithmetic anybody can do from the number
+ * already on the row — and *turning*, which is a fact about time the row would not otherwise carry.
+ * Marking both spends the shelves' one colour on the less useful of them.
+ */
 
 /*
  * A staple is never a problem and never listed as one. Getting this confused with "gone" is what
@@ -834,7 +1140,7 @@
 
 .ml-kitchen__chev {
   color: var(--brass-dim);
-  font-size: 1.1875rem;
+  font-size: 0.875rem; /* 14px — it was 19, which read as a control rather than a direction */
 }
 
 /* ---------- LIST: the grocery list (G1) ---------- */
@@ -903,20 +1209,42 @@
  * the stock back on a shelf. 24px box, 44px target — it is pressed one-handed in a shop.
  */
 .ml-kitchen__tick {
-  width: 1.5rem;
-  height: 1.5rem;
+  /*
+   * The box is 24px and the *target* is 44px — the comment above has always said so, but the
+   * element was 24px square, so the thing this panel exists to do was a 24px tap in a supermarket.
+   * The box is drawn with a pseudo-element inside a 44px button rather than by growing the border,
+   * which would have made the tick itself twice the size the design draws.
+   */
+  position: relative;
+  width: 2.75rem;
+  height: 2.75rem;
   flex: 0 0 auto;
-  margin-top: 0.125rem;
-  border: 1px solid var(--brass-dim);
+  border: 0;
   background: none;
   color: var(--bg-screen);
   font-size: 0.8125rem;
   line-height: 1;
   cursor: pointer;
 }
-.ml-kitchen__tick--on {
+.ml-kitchen__tick::before {
+  content: '';
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 1.5rem;
+  height: 1.5rem;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--brass-dim);
+}
+/* The mark rides above the box rather than beside it. */
+.ml-kitchen__tick > * ,
+.ml-kitchen__tick::first-line {
+  position: relative;
+}
+.ml-kitchen__tick--on::before {
   background: var(--brass);
   border-color: var(--brass);
+}
+.ml-kitchen__tick--on {
   cursor: default;
 }
 
@@ -968,8 +1296,8 @@
   border: 1px solid var(--brass);
   color: var(--brass-bright);
   font: inherit;
-  font-size: 0.75rem;
-  letter-spacing: 0.14em;
+  font-size: 0.6875rem; /* 11px — it was 12, on every primary the section has */
+  letter-spacing: 0.16em;
   cursor: pointer;
 }
 
@@ -1039,7 +1367,7 @@
 }
 
 .ml-kitchen__recipename {
-  font-size: 1.0625rem;
+  font-size: 1.0625rem; /* 17px — the folder's size, which is where most of these rows live */
   font-weight: 300;
   color: var(--text-primary);
 }
@@ -1223,17 +1551,35 @@
 }
 
 /*
+ * The primary as a peer, when it sits in a row beside one.
+ *
+ * `.ml-kitchen__shop` is written for the footer, where it is the only control and spans the panel:
+ * `display:block; width:100%; margin-top:1rem`. Dropped into a flex row none of that stops
+ * applying — the 100% basis takes the whole line and the alternative beside it collapses to a
+ * two-line sliver, while the margin leaves the pair vertically misaligned. Both were visible on the
+ * Kitchen home page's lead card, where `LOOK AT IT` had shrunk to about 40px.
+ *
+ * `1 1 auto` rather than `1`: the buttons then size to their labels, so a long primary stays wider
+ * than a short alternative instead of the pair being forced to an even split.
+ */
+.ml-kitchen__errandrow > .ml-kitchen__shop {
+  flex: 1 1 auto;
+  width: auto;
+  margin-top: 0;
+}
+
+/*
  * Bordered peers, never borderless text. A borderless alternative reads as a caption on the primary
  * and drops to an 11px hit target — M2 calls this out by name.
  */
 .ml-kitchen__errandalt {
-  flex: 1;
-  padding: 0.875rem 0;
+  flex: 1 1 auto;
+  padding: 0.875rem 0.875rem;
   background: none;
   border: 1px solid var(--border-inactive);
   color: var(--text-secondary);
   font: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.6875rem; /* 11px */
   letter-spacing: 0.14em;
   cursor: pointer;
   min-height: 2.75rem;
@@ -1259,10 +1605,18 @@
  * Facts, not fields. A three-cell strip states what is known; editing lives behind EDIT, because a
  * sheet made of inputs invites a correction nobody came here to make.
  */
+/*
+ * Inset by margin, not by the shared `padding-inline` allow-list at the foot of this file.
+ *
+ * The strip is a bordered box, and padding sits *inside* a border: listed with the plain text blocks
+ * it drew its own frame hard against the glass on both edges while the count block below it — which
+ * uses a margin — sat correctly at the gutter. Two bordered blocks, one under the other, visibly
+ * disagreeing about where the page edge is.
+ */
 .ml-kitchen__facts {
   display: flex;
   border: 1px solid var(--border-inactive);
-  margin-bottom: 0.875rem;
+  margin: 0 var(--gutter) 0.875rem;
 }
 
 .ml-kitchen__fact {
@@ -1278,8 +1632,8 @@
 }
 
 .ml-kitchen__factlabel {
-  font-size: 0.5625rem;
-  letter-spacing: 0.18em;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.2em;
   color: var(--brass-meta);
 }
 
@@ -1288,29 +1642,59 @@
   font-weight: 300;
   color: var(--text-secondary);
 }
-
-.ml-kitchen__claimrow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.875rem;
+/* `not yet` against `14 Mar 2027` — an absent fact is stated, and stated quietly. */
+.ml-kitchen__factvalue--quiet {
+  color: var(--text-muted);
 }
 
 /*
- * Amber, because being spoken for is actionable: it is the difference between "there are three" and
- * "there are three and Saturday is having one".
+ * The sheet's two lists — the history and `USED BY`.
+ *
+ * Ruled rows at the gutter, under a plain `.ml-section` label. **Not `.ml-band` + `.ml-band-shade`,
+ * which is what these were.** The full-bleed band is the shelves' device for separating one scrolling
+ * group from the next (PANTRY_SHELVES §1); this sheet is one page read top to bottom, and banding its
+ * headings made two short ruled lists look like two more scrollers that had run out. The handoff
+ * draws them as plain brass labels over plain rows, and that is a different structure rather than a
+ * lighter version of the same one.
  */
-.ml-kitchen__claimfor {
-  font-size: 0.6875rem;
-  color: var(--alert);
-  white-space: nowrap;
+/*
+ * Margin rather than padding, because every rule in these lists is a border on a row inside them.
+ * Under `padding-inline` those borders span the padding box and run edge to edge, which is the
+ * shelves' full-bleed treatment appearing on the one screen that does not use it.
+ */
+.ml-kitchen__sheetlist {
+  margin-inline: var(--gutter);
 }
 
+/* The one divider the sheet has — above `USED BY`, separating what happened from what it is for. */
+.ml-kitchen__sheetdivide {
+  margin: 1rem var(--gutter) 0;
+  border-top: var(--hairline-px) solid var(--rule-major);
+}
+
+/*
+ * One line of history: date, what changed, who and how.
+ *
+ * Baseline-aligned rather than centred, because the three cells are three different sizes and the
+ * date is read *along* the middle column rather than beside it — the eye follows a baseline down a
+ * history and loses a set of boxes.
+ */
 .ml-kitchen__eventrow {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 0.875rem;
+  width: 100%;
+  padding: 0.75rem 0;
+  background: none;
+  border: 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+/* The last row of a list has the section below it as its edge; a rule there would read as a cut. */
+.ml-kitchen__sheetlist > .ml-kitchen__eventrow:last-child {
+  border-bottom: 0;
 }
 
 /* An undone event is kept and struck rather than deleted — history is never mutated. */
@@ -1319,17 +1703,343 @@
   text-decoration: line-through;
 }
 
+/*
+ * What changed, in the household's own words.
+ *
+ * Set in the body face, not the mono one it used to wear. Mono said "this is a log", which is exactly
+ * the reading §2 is trying to avoid — the block is meant to be read by somebody who thinks a number
+ * is wrong, and a monospaced column of `6 → 4` is a thing to decode rather than a thing to disagree
+ * with.
+ */
 .ml-kitchen__eventwhat {
-  font-family: var(--font-mono, ui-monospace, 'IBM Plex Mono', Consolas, monospace);
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.875rem; /* 14px */
+  font-weight: 300;
+  color: var(--text-primary);
 }
 
 .ml-kitchen__eventwho {
-  font-size: 0.625rem;
-  letter-spacing: 0.1em;
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* The archive link, wearing the row's own shape so it reads as the list continuing. */
+.ml-kitchen__sheetmore {
+  cursor: pointer;
+}
+.ml-kitchen__sheetmore .ml-kitchen__eventwhat {
+  font-size: 0.8125rem;
+  color: var(--brass-meta);
+}
+
+/* A recipe this thing cooks. A row rather than a line, because it goes somewhere. */
+.ml-kitchen__usedrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.875rem;
+  width: 100%;
+  padding: 0.75rem 0;
+  background: none;
+  border: 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 2.75rem;
+}
+.ml-kitchen__sheetlist > .ml-kitchen__usedrow:last-child {
+  border-bottom: 0;
+}
+
+/* The same row where it is a statement rather than a link — the check's two lists. */
+.ml-kitchen__usedrow--flat {
+  cursor: default;
+}
+
+/* A settled row whose number actually moved. Verdigris is the section's "this is now confirmed"
+   colour, and it is what lets somebody scan the block for their own mis-tap. */
+.ml-kitchen__usedamount--changed {
+  color: var(--live-text);
+}
+
+.ml-kitchen__usedname {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.9375rem; /* 15px */
+  font-weight: 300;
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* What the recipe asks for — quiet, because it qualifies the dish rather than competing with it. */
+.ml-kitchen__usedamount {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/*
+ * Amber, because being spoken for is actionable: it is the difference between "there are three" and
+ * "there are three and Saturday is having one". It replaces the amount rather than joining it — the
+ * row has one thing worth saying and it is no longer how much the recipe wants.
+ */
+.ml-kitchen__claimfor {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  color: var(--alert);
+  white-space: nowrap;
+}
+
+/* The footer's peers, side by side and equal — no primary among them (§2). */
+.ml-kitchen__sheetactions {
+  display: flex;
+  gap: 0.625rem;
+  margin: 1.125rem var(--gutter) 0;
+}
+/* The three shelves, revealed under MOVE IT. Tighter to it than the footer is to the list above,
+   so the choice reads as belonging to the button rather than as a second row of actions. */
+.ml-kitchen__sheetactions--choice {
+  margin-top: 0.625rem;
+}
+
+/* ---------- P3 · run a check ---------- */
+
+/*
+ * The lede over the run — what it is and how long it will take.
+ *
+ * Prose rather than a heading, because it is making an argument ("two minutes and they stop being
+ * guesses") rather than naming a section. The screen has to earn a trip to the cupboard.
+ */
+.ml-kitchen__checklede {
+  padding: 1.125rem var(--gutter) 0;
+  font-size: 0.875rem; /* 14px */
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--text-quiet);
+}
+
+/*
+ * The bar and the count, together.
+ *
+ * A bar alone says "some of the way"; `2 OF 6` says how many more questions there are, which is the
+ * thing somebody standing at a cupboard is actually deciding about. §3 asks for both, and the pair
+ * is why the bar is laid out here rather than left to `.ml-kitchen__bar`'s own block margins.
+ */
+.ml-kitchen__checkprogress {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 1rem var(--gutter) 0;
+}
+.ml-kitchen__checkprogress .ml-kitchen__bar {
+  flex: 1;
+  height: 0.1875rem; /* 3px */
+  margin-block: 0;
+}
+/* Brass, not the coverage bar's verdigris: this is progress through a task, and verdigris in this
+   section means "live/confirmed" — which is what the run is on its way to producing, not what it
+   is. `.ml-kitchen__bar` stays as it is for the matching screen's coverage reading. */
+.ml-kitchen__checkprogress .ml-kitchen__barfill {
+  background: var(--brass);
+}
+
+.ml-kitchen__checkcount {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
+}
+
+/*
+ * The card — the one question, drawn as a thing on top of the page.
+ *
+ * Bordered in dim brass over the brass-soft fill, which is the same treatment every other "this is
+ * the live one" surface in the section wears. Without it the question and the two lists under it
+ * were one continuous column, and the card that is supposed to be the whole screen read as its
+ * first paragraph.
+ */
+.ml-kitchen__checkcard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  margin: 1.25rem var(--gutter) 0;
+  padding: 1.25rem 1.375rem;
+  border: var(--control-border) solid var(--brass-dim);
+  background: var(--bg-brass-soft);
+}
+
+.ml-kitchen__checkwhere {
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  color: var(--brass);
+}
+
+.ml-kitchen__checkname {
+  font-size: 1.75rem; /* 28px */
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.ml-kitchen__checkbelief {
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--text-quiet);
+}
+
+/* Controls at the edges, number in the middle — so the thing being changed is what the eye lands
+   on, rather than the pair of buttons changing it. */
+.ml-kitchen__checkcount-row {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding-top: 0.125rem;
+}
+
+.ml-kitchen__checkvalue {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.625rem;
+  min-width: 0;
+}
+
+.ml-kitchen__checknum {
+  font-size: 2.625rem; /* 42px */
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.ml-kitchen__checkunit {
+  font-size: 1.0625rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+}
+
+/*
+ * Two answers, weighted, side by side.
+ *
+ * `THAT'S RIGHT` takes the wider share as well as the brass: it is the commonest answer by a long
+ * way, and §3 makes "confirming is one tap" a rule rather than a preference.
+ */
+.ml-kitchen__checkanswers {
+  display: flex;
+  gap: 0.5625rem;
+}
+
+.ml-kitchen__checkyes,
+.ml-kitchen__checkalt {
+  padding: 0.9375rem 0.5rem;
+  font: inherit;
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-align: center;
+  cursor: pointer;
+  min-height: 2.75rem;
+}
+
+.ml-kitchen__checkyes {
+  flex: 1.2;
+  border: var(--control-border) solid var(--brass);
+  background: var(--bg-active);
+  color: var(--brass-bright);
+}
+
+.ml-kitchen__checkalt {
+  flex: 1;
+  border: var(--control-border) solid var(--border-inactive);
+  background: none;
+  color: var(--text-secondary);
+}
+
+.ml-kitchen__checkyes:disabled,
+.ml-kitchen__checkalt:disabled {
+  color: var(--text-disabled);
+  border-color: var(--rule-major);
+  cursor: default;
+}
+
+/*
+ * The two ways of not answering — links, not boxes.
+ *
+ * Drawn as peers of `ALL GONE` they offered "I gave up" at the weight of "the shelf is empty", and
+ * those two answers write opposite things: one zeroes a count and the other deliberately zeroes
+ * nothing. The 44px target is kept in the padding; only the border goes.
+ */
+.ml-kitchen__checkpass {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.ml-kitchen__checklink {
+  padding: 0.75rem 0.875rem;
+  min-height: 2.75rem;
+  background: none;
+  border: 0;
+  color: var(--brass-meta);
+  font: inherit;
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+.ml-kitchen__checklink:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+/* `UNDO LAST`, riding the section label's status slot. */
+.ml-kitchen__undolast {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--brass-bright);
+  font: inherit;
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+}
+.ml-kitchen__undolast:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+/* Why there is no SAVE on this screen, said once and quietly. */
+.ml-kitchen__checkwritten {
+  margin: 1rem var(--gutter) 0;
+  padding-top: 1rem;
+  border-top: var(--hairline-px) solid var(--rule-major);
+  font-size: 0.75rem;
+  font-weight: 300;
+  line-height: 1.6;
+  color: var(--text-disabled);
+}
+
+.ml-kitchen__checktally {
+  display: flex;
+  align-items: baseline;
+  gap: 0.875rem;
+  margin: 0.875rem var(--gutter) 0;
+}
+.ml-kitchen__checktallysaid {
+  flex: 1;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+}
+.ml-kitchen__checktallymeta {
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  color: var(--text-muted);
 }
 
 /* ---------- COOKING: the question (C2) and the receipt (C3) ---------- */
@@ -1347,7 +2057,7 @@
  */
 .ml-kitchen__askwhy {
   padding-block: 0.75rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem; /* 13px */
   font-weight: 300;
   line-height: 1.55;
   color: var(--text-muted);
@@ -1443,6 +2153,38 @@
   padding-block: 0.875rem;
 }
 
+/* The receipt's leftover captions, 9px as drawn — a step under the fact strip's labels. */
+/*
+ * The receipt reuses the shelf row's three columns, and the handoff sizes two of them differently
+ * there: `had 4` is 11px rather than the shelves' 10, because it is a *fact about this night*
+ * rather than a state token in a scanning column.
+ */
+.ml-kitchen__receiptrow .ml-kitchen__shelfstate {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: normal;
+}
+
+/* `of 6` — the qualifier on a produced count, not a second figure. */
+.ml-kitchen__ofwhat {
+  font-size: 0.75rem; /* 12px */
+  color: var(--text-muted);
+}
+
+/*
+ * The three leftover destinations are a row of equals at 10px, a step under the section's other
+ * primaries: this is the last question on a screen that has already written everything.
+ */
+.ml-kitchen__leftovers .ml-kitchen__shop,
+.ml-kitchen__leftovers .ml-kitchen__errandalt {
+  font-size: 0.625rem; /* 10px */
+}
+
+.ml-kitchen__leftoverhead .ml-kitchen__factlabel,
+.ml-kitchen__leftovers .ml-kitchen__factlabel {
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.18em;
+}
+
 .ml-kitchen__leftoverhead {
   display: flex;
   align-items: baseline;
@@ -1474,6 +2216,88 @@
  * obviously not running. Scanning is identification, not tallying — one scan names the thing and
  * fills its size; it never increments a count.
  */
+/*
+ * The live camera, and the banner saying what it read.
+ *
+ * The video is always mounted and simply has nothing in it until a stream arrives — attaching one
+ * needs the element to exist already, and a `<video>` that appears in the same frame as its stream
+ * shows a black flash before the first picture.
+ */
+.ml-kitchen__vfvideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+}
+.ml-kitchen__viewfinder--live .ml-kitchen__vfvideo {
+  opacity: 1;
+}
+/* Over the picture the caption needs its own ground; over the dormant fill it must not have one. */
+.ml-kitchen__viewfinder--live .ml-kitchen__vflabel {
+  position: relative;
+  padding: 0.375rem 0.75rem;
+  background: rgba(10, 11, 13, 0.72);
+  color: var(--brass-bright);
+}
+
+/*
+ * Where these values came from (ADD_TO_PANTRY §4).
+ *
+ * Teal when the household's own catalogue knew the pack, amber when nobody does — and the amber one
+ * carries the raw digits, because "we don't know this one" about a code you cannot see is not
+ * something anybody can act on.
+ */
+.ml-kitchen__readfrom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.875rem;
+  margin: 0 var(--gutter) 0.875rem;
+  padding: 0.75rem 0.875rem;
+  border: var(--control-border) solid var(--border-live);
+  background: var(--bg-live-soft);
+}
+.ml-kitchen__readfrom--unknown {
+  border-color: var(--border-fault);
+  background: var(--bg-fault);
+}
+
+.ml-kitchen__readlabel {
+  flex: 0 0 auto;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.3em;
+  color: var(--live-text);
+}
+.ml-kitchen__readfrom--unknown .ml-kitchen__readlabel {
+  letter-spacing: 0.14em;
+  color: var(--alert);
+}
+
+.ml-kitchen__readwhat {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.8125rem;
+  font-weight: 300;
+  color: var(--text-secondary);
+}
+.ml-kitchen__readfrom--unknown .ml-kitchen__readwhat {
+  color: var(--text-fault-meta);
+}
+
+.ml-kitchen__readundo {
+  flex: 0 0 auto;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--brass-bright);
+  font: inherit;
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  cursor: pointer;
+}
+
 .ml-kitchen__viewfinder {
   position: relative;
   display: flex;
@@ -1809,23 +2633,42 @@
 }
 
 .ml-kitchen__aislepos {
-  width: 1.5rem;
-  font-family: var(--font-serif);
-  font-size: 1rem;
+  width: 1rem; /* 16px */
+  font-family: var(--font-mono, ui-monospace, 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace);
+  font-size: 0.75rem; /* 12px */
   color: var(--brass-meta);
+}
+
+/* A row on this panel that states something rather than naming an aisle — a step down from the
+   aisles it sits under, which is how the handoff separates the two. */
+.ml-kitchen__aislesaid {
+  flex: 1;
+  font-size: 0.9375rem; /* 15px */
+  font-weight: 300;
+  color: var(--text-secondary);
+}
+/* The foot of the order itself, which is still part of the list and keeps its 16px. `:first-child`
+   could not tell the two apart — both are. */
+.ml-kitchen__aislesaid--infold {
+  font-size: 1rem; /* 16px */
 }
 
 .ml-kitchen__aislename {
   flex: 1;
-  font-size: 1rem;
+  font-size: 1.0625rem; /* 17px */
   font-weight: 300;
-  color: var(--text-primary);
+  color: var(--text-secondary);
 }
 
 .ml-kitchen__aislecount {
   font-size: 0.6875rem;
   color: var(--text-muted);
   white-space: nowrap;
+}
+/* What this setting reaches, in the section's live colour. Declared *after* the base rule: at equal
+   specificity the later one wins, and as a modifier written above it this did nothing at all. */
+.ml-kitchen__aislecount--live {
+  color: var(--live-text);
 }
 
 /* An aisle with nothing in it stays listed and says so — a vanished row leaves a hole in an order
@@ -1862,6 +2705,15 @@
 
 /* ---------- The decision card: shared by the review, the put-away and the delivery ---------- */
 
+/* Why the panel cannot decide this one. Prose under the two columns, because the columns show what
+   disagrees and this says what the household is being asked to rule on. */
+.ml-kitchen__cardwhy {
+  font-size: 0.75rem;
+  font-weight: 300;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
 /*
  * One card pattern for every panel that asks the household to settle a disagreement between what
  * the app believed and what turned out to be true (LIST_AND_SHOPPING §2 and §4). Sized to its own
@@ -1869,7 +2721,9 @@
  * something in it that isn't.
  */
 .ml-kitchen__card {
-  border: 1px solid var(--control-border);
+  /* `--control-border` is a *width*, not a colour: as `1px solid var(--control-border)` the whole
+     declaration was invalid and the card had no border at all. Same slip as the P4 sheet's rows. */
+  border: var(--control-border) solid var(--border-inactive);
   background: var(--bg-tile);
   padding: 0.875rem;
   margin: 0.5rem 0.75rem;
@@ -1878,15 +2732,27 @@
   gap: 0.5rem;
 }
 
+/*
+ * The item in dispute. 16px in the body face, not 18px Marcellus.
+ *
+ * It is a row label, and the card's weight belongs to the two columns under it — a serif heading
+ * turns the disagreement into a headline about the item, which is not what is being asked.
+ */
+/*
+ * The item in dispute: 18px in the **body** face.
+ *
+ * Only the family was ever wrong — it was Marcellus, which made the disagreement read as a headline
+ * about the item rather than a question about it. The size and colour are as drawn.
+ */
 .ml-kitchen__cardname {
-  font-family: var(--font-serif);
-  font-size: 1.125rem;
+  font-size: 1.125rem; /* 18px */
+  font-weight: 300;
   color: var(--text-primary);
 }
 
 .ml-kitchen__cardkind {
-  font-size: 0.625rem;
-  letter-spacing: 0.09em;
+  font-size: 0.5625rem; /* 9px */
+  letter-spacing: 0.16em;
   color: var(--alert);
 }
 
@@ -1911,7 +2777,7 @@
 .ml-kitchen__cardvalue {
   font-size: 0.9375rem;
   font-weight: 300;
-  color: var(--text-primary);
+  color: var(--text-secondary);
   overflow-wrap: anywhere;
 }
 
@@ -1936,11 +2802,13 @@
   min-height: 2.75rem;
   padding: 0 0.75rem;
   background: none;
-  border: 1px solid var(--control-border);
+  /* See `.ml-kitchen__card` — a width where the colour goes, so this button was borderless, which
+     is precisely the "reads as a caption rather than a choice" failure the note above warns about. */
+  border: var(--control-border) solid var(--border-inactive);
   color: var(--text-secondary);
   font: inherit;
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.14em;
   cursor: pointer;
 }
 
@@ -2054,10 +2922,12 @@
 
 /* When it was last made. Without it a suggestion list converges on the same four dinners and
    never surprises anybody again. */
+/* Brass-meta rather than grey: on this panel the history *is* the argument for cooking the thing,
+   so it is the one cell drawn a shade warmer than the row around it. */
 .ml-kitchen__lastmade {
-  font-size: 0.625rem;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.1em;
+  color: var(--brass-meta);
   white-space: nowrap;
 }
 
@@ -2149,12 +3019,20 @@
 /* Right-aligned in the mono column, as on every amount in the section. `min-width` rather than
    `width` for the reason `.ml-kitchen__shelfamount` gives: a label longer than the column runs past
    the gutter rather than tucking itself in. */
+/*
+ * A recipe's amounts, in the same face as every other amount column in the section.
+ *
+ * It was 15px Marcellus. The handoff draws these at 13px in `'IBM Plex Mono'`, exactly as the
+ * shelves draw `4 cans` and `200 g` — an amount is a figure to be compared down a column, and a
+ * serif with proportional numerals is the one face that makes that hard. Same fallback chain as
+ * `.ml-kitchen__shelfamount`, which is the column it has to line up with.
+ */
 .ml-kitchen__ingamount {
   flex: 0 0 auto;
-  min-width: 5.25rem;
+  min-width: 5.25rem; /* 84px */
   text-align: right;
-  font-family: var(--font-serif);
-  font-size: 0.9375rem;
+  font-family: var(--font-mono, ui-monospace, 'IBM Plex Mono', 'Cascadia Mono', Consolas, monospace);
+  font-size: 0.8125rem; /* 13px */
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -2163,7 +3041,7 @@
 
 .ml-kitchen__provenance {
   padding: 0 var(--gutter) 1rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem; /* 13px */
   font-weight: 300;
   color: var(--text-muted);
 }
@@ -2187,7 +3065,14 @@
   display: flex;
   flex-direction: column;
   gap: 0.3125rem;
-  padding: 0.9375rem 1.125rem;
+  padding: 1.125rem 1.25rem; /* 18px 20px */
+}
+
+/* Brass, a step up from the fact strip's `--brass-meta`: this block is the one thing on the sheet
+   that can be changed, and the handoff marks it as such. */
+.ml-kitchen__countfacts .ml-kitchen__factlabel {
+  letter-spacing: 0.22em;
+  color: var(--brass);
 }
 
 .ml-kitchen__countnum {
@@ -2195,14 +3080,16 @@
   align-items: baseline;
   gap: 0.5rem;
   font-family: var(--font-serif);
-  font-size: 2rem; /* 32px */
+  font-size: 2.25rem; /* 36px */
   line-height: 1;
   color: var(--text-primary);
 }
 
 .ml-kitchen__countunit {
-  font-family: var(--font-body, inherit);
-  font-size: 0.875rem;
+  /* `--font-body` is not a token — this said `var(--font-body, inherit)`, and `inherit` inside the
+     serif figure meant the unit rendered in Marcellus. Name the family the rest of the app uses. */
+  font-family: var(--font-sans);
+  font-size: 1rem; /* 16px */
   font-weight: 300;
   color: var(--text-secondary);
 }
@@ -2212,12 +3099,33 @@
   color: var(--text-muted);
 }
 
+/*
+ * The two controls are **cells of the count block**, not buttons sitting inside it.
+ *
+ * `.ml-stepper` is a fixed 54px square with a border on all four sides — right for the standalone
+ * pairs it was built for, wrong here. The handoff draws `flex:0 0 66px` columns divided from the
+ * figure by a single rule and running the full height of the block, and the difference shows more
+ * the taller the block gets: on a phone the block is 72px and the buttons were 41px squares
+ * floating in it, boxed twice over and short at top and bottom.
+ *
+ * Height comes from `align-self: stretch` against the block's `align-items: stretch`, so the pair
+ * tracks the figure beside them however many lines it grows to.
+ */
+.ml-kitchen__count .ml-stepper {
+  flex: 0 0 4.125rem; /* 66px */
+  width: auto;
+  height: auto;
+  align-self: stretch;
+  border: 0;
+  border-left: var(--control-border) solid var(--border-inactive);
+}
+
 /* The history's date column — fixed, so the middle column starts at the same x on every row. */
 .ml-kitchen__eventwhen {
   flex: 0 0 auto;
-  width: 4.25rem; /* 68px */
-  font-size: 0.625rem;
-  letter-spacing: 0.14em;
+  width: 4.625rem; /* 74px */
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.1em;
   color: var(--brass-meta);
 }
 
@@ -2441,6 +3349,12 @@
 /* ---------- P4 · how something gets in ---------- */
 
 /* Over the legible shelves, not instead of them — you can still see what you were looking at. */
+/*
+ * P4 · the way in.
+ *
+ * A sheet docked to the foot over the still-legible shelves, brass-topped so it reads as a thing
+ * that arrived rather than a screen you navigated to.
+ */
 .ml-kitchen__choices {
   position: absolute;
   left: 0;
@@ -2448,50 +3362,114 @@
   bottom: 0;
   background: var(--bg-sheet);
   border-top: 2px solid var(--brass);
-  padding: 1rem 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  z-index: 3;
+  /*
+   * Above `.ml-kitchen__scrim`, which sits at 6.
+   *
+   * At 3 the scrim covered the sheet as well as the shelves: the panel came up dimmed, the rows
+   * read as disabled, and — the part that mattered — every tap on a row landed on the scrim and
+   * closed the sheet instead of opening the door. The dimming is for what is *behind* it.
+   */
+  z-index: 7;
 }
 
+/*
+ * The section's ordinary brass heading, not a serif question.
+ *
+ * It read `How is it getting in?` in 18px Marcellus across the width of the sheet — a sentence
+ * where every other block in the Kitchen has a letterspaced label, which made the sheet look like a
+ * different piece of software from the panel it slides over.
+ */
 .ml-kitchen__choicestitle {
-  font-family: var(--font-serif);
-  font-size: 1.125rem;
-  color: var(--text-primary);
-  padding-bottom: 0.25rem;
+  padding: 1.375rem var(--gutter) 0;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--brass);
 }
 
+.ml-kitchen__choicelist {
+  padding-inline: var(--gutter);
+}
+
+/*
+ * A ruled row, not a bordered card.
+ *
+ * These were boxes, and the first was filled brass to mark it as the common case — a weight the
+ * handoff does not give it, and one that made the sheet read as a recommended button above two
+ * alternatives rather than three doors. `One thing` leads by being first; that is the whole of its
+ * precedence.
+ *
+ * The border they *did* declare never drew at all: `1px solid var(--control-border)` puts a length
+ * where the colour goes, so the whole declaration was invalid and every rule on this sheet was
+ * silently missing. Hence the ruled rows below use `--rule-minor` by name.
+ */
 .ml-kitchen__choice {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.1875rem;
-  min-height: 3.5rem;
-  padding: 0.625rem 0.75rem;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 1rem 0;
   background: none;
-  border: 1px solid var(--control-border);
+  border: 0;
+  border-bottom: var(--hairline-px) solid var(--rule-minor);
+  color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
+/* The last row's edge is the foot of the list; a rule there would read as a cut. */
+.ml-kitchen__choicelist > .ml-kitchen__choice:last-child {
+  border-bottom: 0;
+}
 
-/* `One thing` stays first because it is the common case; the sheet is not a menu of equals. */
-.ml-kitchen__choice:first-of-type {
-  border-color: var(--brass);
-  background: var(--bg-brass-soft);
+/*
+ * Gold, the same gold as the `ADD TO THE PANTRY` label above them.
+ *
+ * The handoff strokes these a shade brighter (`--brass-bright`), but a row's glyph and the heading
+ * it sits under are one piece of chrome and reading as two golds at this size looks like a mistake
+ * rather than a hierarchy. Household's call.
+ *
+ * On the wrapper rather than the `<svg>`: `Icon` writes `color: inherit` inline, so a class on the
+ * glyph itself loses to it and does nothing at all.
+ */
+.ml-kitchen__choiceglyph {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--brass);
+}
+
+.ml-kitchen__choicewords {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
 }
 
 .ml-kitchen__choicelabel {
-  font-size: 1rem;
+  font-size: 1.0625rem; /* 17px */
   font-weight: 300;
   color: var(--text-primary);
 }
 
 .ml-kitchen__choicedetail {
-  font-size: 0.6875rem;
+  font-size: 0.75rem; /* 12px */
   color: var(--text-muted);
 }
+
+/* The way out, with the sheet's bottom inset under it. */
+.ml-kitchen__choicefoot {
+  display: flex;
+  padding: 1rem var(--gutter) 1.625rem;
+}
+/* Quieter and wider-tracked than `MARK OPENED` and its peers: this one abandons the errand rather
+   than doing anything, and the handoff sets it apart on both counts. */
+.ml-kitchen__choicefoot .ml-kitchen__errandalt {
+  letter-spacing: 0.24em;
+  color: var(--text-quiet);
+}
+
 
 /*
  * `can't say` against `on the shelf` (MATCHING_AND_ALIASES §2).
@@ -2575,7 +3553,6 @@
 .ml-kitchen__wanted,
 .ml-kitchen__provenance,
 .ml-kitchen__coverage,
-.ml-kitchen__facts,
 .ml-kitchen__field,
 .ml-kitchen__chips,
 .ml-kitchen__errandactions,
@@ -2610,4 +3587,70 @@
    inside that, so its two columns line up with the rows above and below it. */
 .ml-kitchen__card {
   margin-inline: var(--gutter);
+}
+
+/*
+ * The Kitchen's section labels.
+ *
+ * `.ml-section__label` is the ledger's, at 12px/0.26em, and the two sections do not agree about it:
+ * every band in `design_handoff_kitchen` is 11px/0.3em. Scoped to the Kitchen shell rather than
+ * changed globally, because Config, Assist and Sensor History are drawn to the ledger's figure.
+ */
+.ml-kitchen .ml-section__label,
+.ml-shell:has(.ml-quickrow) .ml-section__label {
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.3em;
+}
+
+/* ---------- Panel-local sizes the handoff sets against the shared defaults ---------- */
+
+/*
+ * A night's dish on the week: 17px, a step up from the shared row value.
+ *
+ * The week is read at a glance from across a kitchen and the dish is the only thing on the row
+ * anybody is looking for; the handoff gives it the extra point for that reason.
+ */
+.ml-kitchen__nightbody .ml-row__value {
+  font-size: 1.0625rem; /* 17px */
+}
+
+/*
+ * `What could you cook?` is 26px, not the 32px a sheet's own name takes.
+ *
+ * It is a question rather than a title — the panel is asking, and the suggestions under it are the
+ * answer. At 32px it reads as the name of a screen called that.
+ */
+.ml-kitchen__sheetname--asking {
+  font-size: 1.625rem; /* 26px */
+}
+
+/* The shop's aisle-order footnote and the control beside it, both a shade under the list they
+   annotate — the order is context for the shopping, not a thing to go and do. */
+.ml-kitchen__aislefoot {
+  font-size: 0.8125rem; /* 13px */
+}
+.ml-kitchen__aislefoot button {
+  color: var(--brass-meta);
+  font: inherit;
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.14em;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* `COOKING FOR` is a label in its own right, so it takes brass rather than the fact strip's
+   quieter meta tone. */
+.ml-kitchen__cookingfor .ml-kitchen__factlabel {
+  letter-spacing: 0.22em;
+  color: var(--brass);
+}
+
+/*
+ * The suggestions list sets its rows a point smaller than the folder's: four bands stack on one
+ * screen where the folder shows two. Both use `.ml-kitchen__recipe`, so the distinction is drawn on
+ * the *screen*, not the row — see the `--dense` modifier the suggest panel puts on its scroller.
+ */
+.ml-kitchen__recipe--dense .ml-kitchen__recipename {
+  font-size: 1rem; /* 16px */
 }

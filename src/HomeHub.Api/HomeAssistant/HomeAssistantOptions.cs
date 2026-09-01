@@ -2,9 +2,9 @@ namespace HomeHub.Api.HomeAssistant;
 
 /// <summary>
 /// Home Assistant connection config, bound from the <c>HomeAssistant</c> section. The app talks
-/// to HA (not the AC units or the Huckleberry backend directly) via a long-lived access token.
+/// to HA (not the AC units or the robot directly) via a long-lived access token.
 /// Secrets never committed: user-secrets in dev, env vars in prod. When <see cref="IsConfigured"/>
-/// is false the app uses the simulated climate provider and reports Huckleberry as not connected.
+/// is false the app uses the simulated climate provider and reports the Litter-Robot as not connected.
 /// </summary>
 /// <remarks>
 /// Lives here rather than under <c>Climate</c> because HA is now shared infrastructure: climate

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '../../api/client'
 import { HoldButton, UnitField } from '../../components'
 import { usePantry } from '../../app/PantryProvider'
+import { useBarcodeScanner } from '../../app/useBarcodeScanner'
 import { LOCATIONS, trimNumber } from '../../app/pantryDomain'
 import { refreshUnits } from '../../app/units'
 import type {
@@ -36,7 +37,6 @@ export function ScanScreen() {
    * is on would send them hunting for a hardware fault that doesn't exist. `insecure` is the case
    * that HTTPS fixes, and naming it is what makes the fix discoverable.
    */
-  const [camera, setCamera] = useState<'idle' | 'live' | 'no-camera' | 'no-decoder' | 'insecure'>('idle')
   const [run, setRun] = useState<ScanRow[]>([])
   const [unmatched, setUnmatched] = useState<string | null>(null)
   const [suggestion, setSuggestion] = useState<ProductSuggestionDto | null>(null)
@@ -79,80 +79,14 @@ export function ScanScreen() {
     setRun((prev) => [{ ...toRow(result), sequence: seq }, ...prev])
   }, [scan, location, runId])
 
-  // The Barcode Detection API is Chromium-only and needs a secure context. Where it is missing the
-  // screen still works entirely through `TYPE ONE` — the camera is a shortcut, not the feature.
-  useEffect(() => {
-    const detectorCtor = (window as unknown as {
-      BarcodeDetector?: new (opts: { formats: string[] }) => {
-        detect: (source: CanvasImageSource) => Promise<{ rawValue: string; format: string }[]>
-      }
-    }).BarcodeDetector
-    // Distinguished in this order because it is the order in which they can be fixed: an insecure
-    // origin is a deployment problem with a known answer, a missing decoder is a browser choice
-    // nobody here can change, and an absent camera is a device fact.
-    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      setCamera(window.isSecureContext ? 'no-camera' : 'insecure')
-      return
-    }
-    if (!detectorCtor) {
-      setCamera('no-decoder')
-      return
-    }
-
-    let stream: MediaStream | null = null
-    let raf = 0
-    let stopped = false
-    let lastCode = ''
-    let lastAt = 0
-
-    const detector = new detectorCtor({ formats: ['upc_a', 'upc_e', 'ean_8', 'ean_13'] })
-
-    const loop = async () => {
-      if (stopped || !videoRef.current) return
-      // Hold everything while a pack is being named. The frames keep arriving; we simply stop
-      // reading them until the question on screen has been answered.
-      if (awaitingName.current) {
-        raf = requestAnimationFrame(() => void loop())
-        return
-      }
-      try {
-        const hits = await detector.detect(videoRef.current)
-        const hit = hits[0]
-        // A barcode held in front of the lens decodes on every frame. Debounce on the value so one
-        // pack counts once, but allow the same pack again after two seconds — scanning six
-        // identical tins is exactly what unpacking looks like.
-        if (hit && (hit.rawValue !== lastCode || Date.now() - lastAt > 2000)) {
-          lastCode = hit.rawValue
-          lastAt = Date.now()
-          await record(hit.rawValue, hit.format)
-        }
-      } catch {
-        // A frame that could not be read is normal; keep going.
-      }
-      if (!stopped) raf = requestAnimationFrame(() => void loop())
-    }
-
-    void navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-      .then((s) => {
-        if (stopped) { s.getTracks().forEach((t) => t.stop()); return }
-        stream = s
-        if (videoRef.current) {
-          videoRef.current.srcObject = s
-          void videoRef.current.play()
-        }
-        setCamera('live')
-        raf = requestAnimationFrame(() => void loop())
-      })
-      // Reached when the API exists but the stream doesn't: permission denied, or no camera on the
-      // device. Either way there is nothing here to point at a barcode.
-      .catch(() => setCamera('no-camera'))
-
-    return () => {
-      stopped = true
-      cancelAnimationFrame(raf)
-      stream?.getTracks().forEach((t) => t.stop())
-    }
-  }, [record])
+  /*
+   * The camera lives in `useBarcodeScanner` now, shared with the Kitchen add form's viewfinder.
+   *
+   * The two surfaces do opposite things with what they read — this one moves stock, that one only
+   * fills a form — but the part in between is identical and is the part with the traps in it. See
+   * the hook for the debounce, the pause, the teardown and the three ways a camera is unavailable.
+   */
+  const camera = useBarcodeScanner(videoRef, record, { active: true, paused: awaitingName.current })
 
   const nameIt = async () => {
     if (!unmatched || !naming.trim()) return
@@ -216,7 +150,7 @@ export function ScanScreen() {
         <video ref={videoRef} className="pt-viewfinder__video" muted playsInline />
         {camera !== 'live' && (
           <span className="pt-viewfinder__idle">
-            {camera === 'idle' && <>CAMERA<br />POINT AT THE BARCODE ON THE PACK</>}
+            {(camera === 'idle' || camera === 'starting') && <>CAMERA<br />POINT AT THE BARCODE ON THE PACK</>}
             {camera === 'no-camera' && <>NO CAMERA HERE<br />USE TYPE ONE BELOW</>}
             {camera === 'no-decoder' && <>THIS BROWSER CAN&rsquo;T READ BARCODES<br />USE TYPE ONE BELOW</>}
             {/* Named precisely, because the fix is a real and findable one. */}

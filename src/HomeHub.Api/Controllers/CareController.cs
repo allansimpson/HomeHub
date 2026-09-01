@@ -9,9 +9,10 @@ using Microsoft.AspNetCore.Mvc;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Distinct from <c>BabyController</c>, which fronts the Huckleberry integration and always will:
-/// that surface reads live sensors and drives the timers the household's own app can see. This one
-/// is HomeHub's own log, and it is the only thing the panel writes to now.
+/// The whole of the panel's baby data. A <c>BabyController</c> stood beside this fronting the
+/// Huckleberry integration — live sensors and that app's own timers — until the integration was
+/// retired on 2026-08-30; this log outlived it because it can do the three things it could not:
+/// ten types rather than four, a timestamp that is not "now", and a row that can be corrected.
 /// </para>
 /// <para>
 /// Six of its ten types exist nowhere else — the integration has no service to write them and no
@@ -23,12 +24,10 @@ using Microsoft.AspNetCore.Mvc;
 public class CareController : ControllerBase
 {
     private readonly CareLogService _log;
-    private readonly CareImportService _import;
 
-    public CareController(CareLogService log, CareImportService import)
+    public CareController(CareLogService log)
     {
         _log = log;
-        _import = import;
     }
 
     /// <summary>Everything in a window, newest first. Defaults to today.</summary>
@@ -166,25 +165,6 @@ public class CareController : ControllerBase
         await _log.CompleteTimerAsync(childKey, type, amount, unit, atUtc, ct) is { } entry
             ? Ok(CareEntryDto.From(entry)) : NotFound();
 
-    // ---- import ----
-
-    /// <summary>
-    /// Pull the household's own history out of Huckleberry, on demand.
-    /// </summary>
-    /// <remarks>
-    /// Safe to run as often as wanted: each upstream event is keyed and written once, so a second
-    /// pull over the same window reports it as already had rather than duplicating it. Defaults to
-    /// ninety days, which is Home Assistant's own recorder retention — asking for more returns
-    /// nothing older, because there is nothing older to return.
-    /// </remarks>
-    [HttpPost("{childKey}/import")]
-    public async Task<ActionResult<CareImportResult>> Import(
-        string childKey, [FromQuery] int days, CancellationToken ct)
-    {
-        var window = days <= 0 ? 90 : Math.Min(days, 400);
-        var to = DateTimeOffset.UtcNow;
-        return Ok(await _import.ImportAsync(childKey, to.AddDays(-window), to, ct));
-    }
 }
 
 /// <summary>One logged moment, as the panel reads it.</summary>
@@ -195,6 +175,10 @@ public sealed record CareEntryDto(
     DateTime AtUtc,
     double? Amount,
     string? Unit,
+    /// <summary>Bottle only: what was poured, and what came back. See <see cref="CareEntry.Offered"/>.</summary>
+    double? Offered,
+    /// <inheritdoc cref="Offered"/>
+    double? Left,
     double? DurationMinutes,
     string? Kind,
     string? Side,
@@ -239,7 +223,8 @@ public sealed record CareEntryDto(
     {
         ArgumentNullException.ThrowIfNull(e);
         return new(
-            e.Id, e.ChildKey, e.Type.ToString(), e.AtUtc, e.Amount, e.Unit, e.DurationMinutes,
+            e.Id, e.ChildKey, e.Type.ToString(), e.AtUtc, e.Amount, e.Unit, e.Offered, e.Left,
+            e.DurationMinutes,
             e.Kind, e.Side, e.PeeAmount, e.PooAmount, e.Color, e.Consistency, e.DiaperRash,
             e.Pounds, e.Ounces, e.HeightInches, e.HeadInches, e.Notes,
             e.Source.ToString(), e.UpdatedUtc is not null,

@@ -1,9 +1,10 @@
 namespace HomeHub.Api.Cats;
 
 /// <summary>
-/// How the Litter-Robot integration is doing. Kept distinguishable for the same reason
-/// <see cref="Baby.HuckleberryStatus"/> is: "HA is down", "the integration isn't there" and "Whisker's
-/// cloud is unreachable" need different fixes, and the panel should say which.
+/// How the Litter-Robot integration is doing. Kept distinguishable because "HA is down", "the
+/// integration isn't there" and "Whisker's cloud is unreachable" need different fixes, and the panel
+/// should say which. This mirrored the retired Huckleberry integration's status enum, which is now
+/// the only Home Assistant health this app reports.
 /// </summary>
 public enum CatIntegrationStatus
 {

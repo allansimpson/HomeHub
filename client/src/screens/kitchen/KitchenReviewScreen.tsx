@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { useMeals } from '../../app/MealsProvider'
 import { agoLabel, longWeekday, shortWeekday, todayKey } from '../../app/mealsDomain'
-import { isFlagged } from '../../app/pantryDomain'
+import { calendarDaysBetween, isFlagged, pluralUnit, trimNumber } from '../../app/pantryDomain'
 import { collateWants, isBuyable, needsAPerson } from '../../app/kitchenDomain'
 import { DecisionCard } from './DecisionCard'
 import type { GroceryInput, MealPlanEntryDto, StockCheckLineDto } from '../../api/types'
@@ -148,10 +148,10 @@ export function KitchenReviewScreen() {
     <ScreenShell
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="What to add"
-          onBack={() => navigate('/kitchen/list')}
-          backLabel="CANCEL"
+          onExit={() => navigate('/kitchen/list')}
+          exit="CANCEL"
         />
       }
     >
@@ -176,13 +176,10 @@ export function KitchenReviewScreen() {
 
         {sure.length > 0 && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">ADD THESE</span>
-              <span className="ml-band__meta">{sure.length}</span>
-            </div>
+            <KitchenDivider label="Add these" count={sure.length} gap={false} />
             {/* The cards below are sized to content, deliberately — a question you have to scroll
                 to find is one that gets answered by accident. This list is not a question. */}
-            <CutGroup rows={5} rowHeight={55} className="ml-band-shade">
+            <div>
               {sure.map(({ key, first: w, nights: n }) => (
                 <div key={key} className="ml-row ml-kitchen__wantrow">
                   <span className="ml-kitchen__wanttext">
@@ -202,41 +199,50 @@ export function KitchenReviewScreen() {
                   <span className="ml-kitchen__wantbuy">{w.line.needed ?? '1'}</span>
                 </div>
               ))}
-            </CutGroup>
+            </div>
           </>
         )}
 
         {open.length > 0 && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">THESE NEED YOU</span>
-              <span className="ml-band__meta">{stillOpen.length}</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="These need you" count={stillOpen.length} amber />
+            <div>
               {open.map(({ key, first: w }) => {
                 const chosen = settled.get(key)
                 return (
                   <DecisionCard
                     key={key}
                     item={w.line.name}
-                    kind={w.line.status === 'NoMatch'
-                      ? 'NOT SURE WHAT THIS IS'
-                      : "CAN'T SAY HOW MUCH IS LEFT"}
+                    kind={doubtKind(w.line)}
                     leftLabel="WANTED"
                     leftValue={w.line.needed ?? '—'}
                     rightLabel="IN THE PANTRY"
-                    rightValue={w.line.status === 'NoMatch'
-                      ? 'nothing like it'
-                      : w.line.lastSeenState ? `about ${w.line.lastSeenState.toLowerCase()}` : 'unclear'}
+                    rightValue={inThePantry(w.line)}
+                    why={doubtWhy(w.line, longWeekday(w.entry.date))}
                     choices={[
-                      // Going and looking is the honest answer, so it is the likely one.
+                      /*
+                        The first choice is the one the doubt itself suggests.
+
+                        Where the amount was never counted, going and looking settles it, so
+                        `CHECK IT NOW` leads. Where it *was* counted and simply cannot be compared —
+                        the night wants liquid stock and the shelf holds cubes — looking again
+                        changes nothing, and the useful answer is whether what is there will do.
+                        Saying so teaches the match, which is why the card says it will be
+                        remembered (LIST_AND_SHOPPING §2).
+                      */
+                      cannotCompare(w.line)
+                        ? {
+                          label: `${pluralUnit(w.line.lastSeenQuantity, w.line.lastSeenUnit || 'that').toUpperCase()} WILL DO`,
+                          primary: chosen == null,
+                          onChoose: () => answer(key, 'leave'),
+                        }
+                        : {
+                          label: 'CHECK IT NOW',
+                          primary: chosen == null,
+                          onChoose: () => navigate('/kitchen/pantry/check'),
+                        },
                       {
-                        label: 'CHECK IT NOW',
-                        primary: chosen == null,
-                        onChoose: () => navigate('/kitchen/pantry/check'),
-                      },
-                      {
-                        label: 'ADD IT',
+                        label: addLabel(w.line),
                         primary: chosen === 'add',
                         onChoose: () => answer(key, 'add'),
                       },
@@ -257,11 +263,8 @@ export function KitchenReviewScreen() {
           One collapsed line, always present. When the answer is "nothing to buy" this *is* the
           answer, and a blank screen would read as the panel having failed to run.
         */}
-        <div className="ml-band ml-band--quiet">
-          <span className="ml-band__label">ALREADY COVERED</span>
-          <span className="ml-band__meta">{covered}</span>
-        </div>
-        <div className="ml-band-shade">
+        <KitchenDivider label="Already covered" count={covered} />
+        <div>
           <div className="ml-kitchen__askwhy">
             {covered === 0
               ? 'Nothing on these nights is already in.'
@@ -284,4 +287,75 @@ export function KitchenReviewScreen() {
       </div>
     </ScreenShell>
   )
+}
+
+/* ---- The two doubts a review can hold, and how each is worded (LIST_AND_SHOPPING §2) ---- */
+
+/**
+ * Counted, and still not comparable — the night wants a volume and the shelf holds cubes.
+ *
+ * Distinct from "we never counted it": checking the cupboard again produces the same standoff, so
+ * the question is not how much is there but whether it counts at all.
+ */
+function cannotCompare(line: StockCheckLineDto): boolean {
+  return line.status !== 'NoMatch' && line.lastSeenQuantity != null && line.lastSeenState == null
+}
+
+/** The card's kind line: the reason, named, rather than a category. */
+function doubtKind(line: StockCheckLineDto): string {
+  if (line.status === 'NoMatch') return 'NOT SURE WHAT THIS IS'
+  if (cannotCompare(line)) return "DON'T KNOW IF IT COUNTS"
+  // The age *is* the doubt on an uncounted amount, so it is what the line says.
+  // A digit, not a number word: this is a caps label beside `SEEN 2 D` and `OPEN 3 D`, and the
+  // section spells ages in figures wherever it letterspaces them.
+  return line.lastSeenAtUtc ? `LAST SEEN ${weeksAgoLabel(line.lastSeenAtUtc)}` : "CAN'T SAY HOW MUCH IS LEFT"
+}
+
+/** What the shelf actually holds, in its own words. */
+function inThePantry(line: StockCheckLineDto): string {
+  if (line.status === 'NoMatch') return 'nothing like it'
+  // `about a bottle`, not `about plenty`. The estimate word answers "how much", and the question
+  // on this card is "how much of *what*" — a container is something you can picture on a shelf.
+  if (line.lastSeenState) {
+    return line.lastSeenUnit ? `about a ${line.lastSeenUnit}` : `about ${line.lastSeenState.toLowerCase()}`
+  }
+  if (line.lastSeenQuantity != null) {
+    return [trimNumber(line.lastSeenQuantity),
+      pluralUnit(line.lastSeenQuantity, line.lastSeenUnit)].filter(Boolean).join(' ')
+  }
+  return 'unclear'
+}
+
+/** The grounds for the ruling, which the two columns cannot supply on their own. */
+function doubtWhy(line: StockCheckLineDto, night: string): string | undefined {
+  if (line.status === 'NoMatch') {
+    return 'Nothing on the shelves answers to this name, so the panel cannot say either way.'
+  }
+  if (cannotCompare(line)) {
+    return `${night} wants ${line.needed ?? 'it'}. What is on the shelf might do, and if you say so `
+      + 'we will remember it.'
+  }
+  return 'The amount was never counted, so it may be wrong either way.'
+}
+
+/**
+ * `ADD A BOTTLE` · `ADD STOCK` — the button names what would be bought.
+ *
+ * Two shapes, because the two doubts buy different things. Where the amount is merely uncounted you
+ * are topping up the same item, so the pantry's own container is the word (`a bottle`). Where it
+ * cannot be compared you are buying the *form the night wants*, not another of what is already
+ * there — `ADD A CUBE` would be exactly the wrong instruction.
+ */
+function addLabel(line: StockCheckLineDto): string {
+  if (!cannotCompare(line) && line.lastSeenUnit) return `ADD A ${line.lastSeenUnit.toUpperCase()}`
+  const word = line.name.trim().split(/\s+/).pop() ?? line.name
+  return `ADD ${word.toUpperCase()}`
+}
+
+/** `5 WEEKS AGO` — the age as figures, for the card's letterspaced kind line. */
+function weeksAgoLabel(atUtc: string, now: Date = new Date()): string {
+  const days = calendarDaysBetween(new Date(atUtc), now)
+  if (days < 7) return 'THIS WEEK'
+  if (days < 14) return 'LAST WEEK'
+  return `${Math.floor(days / 7)} WEEKS AGO`
 }

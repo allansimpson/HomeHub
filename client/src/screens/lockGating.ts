@@ -99,25 +99,42 @@ export function rowMeta(profile: GatedProfile, selectedId: number | null): RowMe
   return { text: 'PIN REQUIRED', tone: 'locked', lock: true }
 }
 
+/**
+ * Who is going to check these four digits.
+ *
+ * <b>`device` is the state that used to be impossible.</b> With no connection the PIN could not be
+ * checked at all, so the honest thing to say was that it could not — and that sentence is now wrong
+ * for the ordinary case, because a profile that has signed in on this device before can be admitted
+ * by it. `unavailable` remains for the profiles that cannot: one that has never signed in here, and
+ * so has nothing stored to check against.
+ */
+export type PinCheck = 'server' | 'device' | 'unavailable'
+
 export interface PinSublineInput {
-  /** The PIN could not be checked at all — a different fact from its being wrong. */
-  unreachable: boolean
-  /** Seconds left on a server-imposed cooldown, or null. */
+  check: PinCheck
+  /** Seconds left on a cooldown, whether the server imposed it or this device did. */
   lockedFor: number | null
+  /** The device was asked and had nothing to check against. Terminal until the server is back. */
+  notEnrolled: boolean
 }
 
 /**
  * The line under "Eleanor's PIN" in the sheet header — and the only surface that can explain why
  * the keys have stopped answering.
  *
- * The unreachable case leads, because it is the only one that changes what to do about it. A
- * cooldown is a reason to wait; "the server cannot be reached" means no PIN will work at all until
- * something else changes, and somebody standing there needs that before they try a fourth time.
+ * Ordered by what a person standing there can act on. `notEnrolled` leads because it is the only
+ * terminal one: no amount of retyping will do anything until the house is back in range, and that
+ * is worth saying before a fourth attempt rather than after. A cooldown is next, because it is a
+ * reason to wait. Being checked on the device is last and is not a warning at all — it is there so
+ * that a keypad answering with no connection does not look like a keypad that has stopped caring.
+ *
  * Saying nothing — which is what this screen used to do on a non-401 — is indistinguishable from
  * being told you are wrong, repeatedly, by a panel that will not say so.
  */
-export function pinSubline({ unreachable, lockedFor }: PinSublineInput): string {
-  if (unreachable) return 'NO CONNECTION · PIN CANNOT BE CHECKED'
+export function pinSubline({ check, lockedFor, notEnrolled }: PinSublineInput): string {
+  if (notEnrolled) return 'NO CONNECTION · NOT SET UP ON THIS DEVICE'
   if (lockedFor) return `LOCKED · ${lockedFor}s`
+  if (check === 'unavailable') return 'NO CONNECTION · PIN CANNOT BE CHECKED'
+  if (check === 'device') return 'NO CONNECTION · CHECKED ON THIS DEVICE'
   return 'FOUR DIGITS'
 }

@@ -5,7 +5,6 @@ using HomeHub.Api.Accounts;
 using HomeHub.Api.Ai;
 using HomeHub.Api.Alerts;
 using HomeHub.Api.Auth;
-using HomeHub.Api.Baby;
 using HomeHub.Api.Calendar;
 using HomeHub.Api.Calendar.Capture;
 using HomeHub.Api.Cats;
@@ -645,12 +644,12 @@ if (imageExtractor?.Configured != true)
     builder.Services.AddSingleton<IKitchenPhotoReader, NotConfiguredKitchenPhotoReader>();
 }
 
-// --- Care logging HomeHub owns ---
+// --- Care logging, which is now the whole of the panel's baby data ---
 //
-// Ten types against the Huckleberry integration's four, a real timestamp where its writes have none,
-// and entries that can be corrected — none of which that integration can offer, verified against the
-// live install rather than taken from a document. The import beside it is a bridge with an end date:
-// it reads the household's own history out of Huckleberry's calendar until they have switched over.
+// Ten types where the integration this replaced could log four, a real timestamp where its writes
+// had none, and entries that can be corrected. The bridge that read the household's history out of
+// that integration's calendar was removed with it on 2026-08-30, once the migration it existed for
+// was complete.
 //
 // DB-gated, like every other store here: this app is designed to serve its shell without a database
 // at all, and a service that demands one would take the whole panel down rather than the one tab
@@ -658,13 +657,6 @@ if (imageExtractor?.Configured != true)
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Services.AddScoped<HomeHub.Api.Care.CareLogService>();
-    // The Home Assistant client is registered only when one is configured, so it is resolved rather
-    // than required — a panel with no Home Assistant starts fine and reports an import of nothing.
-    builder.Services.AddScoped(sp => new HomeHub.Api.Care.CareImportService(
-        sp.GetRequiredService<HomeHub.Api.Data.HomeHubDbContext>(),
-        sp.GetService<HomeHub.Api.HomeAssistant.HomeAssistantClient>(),
-        sp.GetRequiredService<IOptions<HomeHub.Api.Baby.HuckleberryOptions>>(),
-        sp.GetRequiredService<ILogger<HomeHub.Api.Care.CareImportService>>()));
 }
 
 // --- Stage 5: tasks ---
@@ -684,33 +676,22 @@ builder.Services.Configure<HomeAssistantOptions>(builder.Configuration.GetSectio
 var homeAssistant = builder.Configuration.GetSection(HomeAssistantOptions.Section).Get<HomeAssistantOptions>();
 if (homeAssistant?.IsConfigured == true)
 {
-    // One HA client shared by every HA-backed provider (climate today, Huckleberry below).
+    // One HA client shared by every HA-backed provider — climate here, the Litter-Robot below.
     builder.Services.AddHttpClient<HomeAssistantClient>();
     builder.Services.AddScoped<HomeAssistantClimateProvider>();
 }
 
-// --- Stage H2: Huckleberry (baby tracking) via Home Assistant ---
-// Reads only, behind IHuckleberryProvider. Huckleberry is the system of record — no EF entities
-// here, just an in-memory display cache. Without HA config the section honestly reports "Not
-// connected" rather than simulating baby data. No database needed.
 // TimeProvider is not registered by the framework. Providers depend on the abstraction rather than
 // DateTime.UtcNow so cache-expiry logic is testable without sleeping.
+//
+// This sat inside the Huckleberry registration below it, which was where the first provider needing
+// it happened to be written. That whole block is gone — the integration was retired in favour of the
+// panel's own care log on 2026-08-30 — and the Litter-Robot cache still depends on this, so it is
+// registered on its own account now rather than as a side effect of a section that no longer exists.
 builder.Services.TryAddSingleton(TimeProvider.System);
 
-builder.Services.Configure<HuckleberryOptions>(builder.Configuration.GetSection(HuckleberryOptions.Section));
-var huckleberry = builder.Configuration.GetSection(HuckleberryOptions.Section).Get<HuckleberryOptions>() ?? new HuckleberryOptions();
-if (homeAssistant?.IsConfigured == true && huckleberry.Enabled)
-{
-    builder.Services.AddSingleton<HuckleberrySnapshotCache>();
-    builder.Services.AddScoped<IHuckleberryProvider, HuckleberryHomeAssistantProvider>();
-}
-else
-{
-    builder.Services.AddScoped<IHuckleberryProvider, NotConnectedHuckleberryProvider>();
-}
-
 // --- Litter-Robot (Cat section) via Home Assistant ---
-// Reads ride the same HA client as climate/Huckleberry. The write path is a separate seam
+// Reads ride the same HA client as climate. The write path is a separate seam
 // (ILitterRobotCommands) because HA can only reach two rungs of the recovery ladder — a full reset and
 // a clean cycle — while the Whisker cloud API also accepts a short reset press and discrete power
 // commands. Splitting them means a direct-Whisker implementation can be dropped in later without the

@@ -11,7 +11,9 @@
       "Bash(ls /usr/share/dotnet /usr/lib/dotnet ~/.dotnet 2>/dev/null | head; which -a dotnet8 dotnet9 2>/dev/null)",
       "Read(//usr/share/**)",
       "Bash(npx eslint *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(./scripts/check.sh *)",
+      "Bash(scripts/check.sh *)"
     ]
   }
 }

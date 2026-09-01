@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { workerRegistration } from './registerServiceWorker'
-import { APPLIED_VISIBLE_MS, clearHandoff, outcomeOf, readHandoff, writeHandoff } from './appUpdate'
+import { APPLIED_VISIBLE_MS, clearHandoff, outcomeOf, readHandoff, worthOffering, writeHandoff } from './appUpdate'
 import type { UpdateStatus } from './appUpdate'
 
 /**
@@ -147,8 +147,34 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   /** A worker has installed behind the running one: the next build is on the device. */
   const offer = useCallback(async (worker: ServiceWorker) => {
-    waiting.current = worker
     const build = await askVersion(worker)
+
+    /*
+     * Nothing to offer: the page is already running the build this worker is waiting to install.
+     *
+     * See `worthOffering` for how a panel arrives in that state — briefly, the shell comes from the
+     * network while the old worker still controls the page, so the code is new before the worker
+     * is. Offering here is what produced "the changes are there but it says it didn't apply": the
+     * press reloads onto the build it started on, and the outcome check says so.
+     *
+     * <b>The worker is let through rather than left waiting.</b> It is the build already on screen,
+     * so its cache holds exactly the assets this page loads and there is no version skew to protect
+     * anybody from — the danger `sw.js` describes, a page running old code while the new worker
+     * deletes the cache underneath it, cannot arise when the two agree. No plate and no reload: the
+     * household is not told about a change they are already looking at. Left waiting instead, this
+     * would re-offer on every boot, and every one of them would end at the same failed plate.
+     */
+    if (!worthOffering(build, running)) {
+      try {
+        worker.postMessage({ type: 'SKIP_WAITING' })
+      } catch {
+        // A worker that cannot be spoken to stays waiting. It costs a stale cache until the next
+        // build supersedes it, and nothing the household can see.
+      }
+      return
+    }
+
+    waiting.current = worker
     setState((s) => (
       // Never over the top of an apply in flight: by then the plate is a gauge, and the standing
       // offer it came from is finished business.

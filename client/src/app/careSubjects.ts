@@ -3,7 +3,7 @@ import { useLitter } from './LitterProvider'
 import { useCatName } from './catName'
 import { useBabyName } from './babyName'
 import { useNow } from './useNow'
-import type { BabyHealthDto, BabyStateDto, LitterRobotDto } from '../api/types'
+import type { LitterRobotDto } from '../api/types'
 
 /**
  * The Care section's subjects, as one list.
@@ -79,54 +79,36 @@ function since(iso: string | null | undefined, now: number): string {
   return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`
 }
 
-/** `12 weeks` / `9 days` — the metadata beside Conrad's name. */
-export function ageLabel(birthday: string | null | undefined, now: number): string | null {
-  if (!birthday) return null
-  const days = Math.floor((now - new Date(`${birthday}T00:00:00`).getTime()) / 86_400_000)
-  if (days < 0) return null
-  if (days < 14) return `${days} day${days === 1 ? '' : 's'}`
-  const weeks = Math.floor(days / 7)
-  return `${weeks} week${weeks === 1 ? '' : 's'}`
-}
+/*
+ * `ageLabel` — `12 weeks` / `9 days`, the metadata beside Conrad's name — was removed with the
+ * Huckleberry integration on 2026-08-30. Its only input was that service's child record, and with
+ * no birthday held locally it had no argument to be called with. `design_handoff_baby` asks for
+ * `16 WEEKS` back in the header; that needs a household birthday setting first, and the function is
+ * eight lines to write again once there is one.
+ */
 
 /**
- * Conrad's sync line. Five states, deliberately distinguishable: "HA is down" and "the integration
- * isn't there" need different fixes, and `NotConfigured` is not an error. Lifted verbatim from the
- * screen that used to own it — the wording is the contract with whoever has to fix it.
+ * Conrad's sync line — one state, because there is no longer a service to be out of sync with.
+ *
+ * <b>This had five states and every one of them described the Huckleberry integration.</b> Two of
+ * them (`HomeAssistantUnreachable`, `IntegrationMissing`) were read as hard faults, and once that
+ * integration was retired the second became permanently true: `needsYou` promoted it to the
+ * dashboard's strongest row and told the household to `GO AND LOOK` at a system nobody was going to
+ * put back. The log is HomeHub's own now — it has no upstream, so it has no sync, and the honest
+ * line is that it is the panel's own record.
+ *
+ * Kept as a function rather than inlined because `mikaSync` beside it is a real one: the robot does
+ * have an upstream, and the two subjects have to produce the same shape.
  */
-export function conradSync(
-  health: BabyHealthDto | null,
-  state: BabyStateDto | null,
-  now: number,
-): CareSyncLine {
+export function conradSync(): CareSyncLine {
   /*
    * No right-hand meta, because Conrad no longer draws a sync line at all.
    *
    * It was the clock — before that, `8 feeds · 23 diapers`. Both are gone with the row: the Baby
-   * tab dates its own header, and a freshness stamp for the Huckleberry integration sitting over a
-   * log that does not read from it was a claim about the wrong thing (see `CareScreen`).
-   *
-   * The text survives because `needsYou` still reads it: on a *hard* fault the dashboard says
-   * `Conrad — home assistant unreachable` in these words. That is the one place the household is
-   * told, so the wording is still the contract with whoever has to go and fix it.
+   * tab dates its own header, and a freshness stamp over a log that is written here was a claim
+   * about the wrong thing (see `CareScreen`).
    */
-  const line = (text: string, tone: CareTone): CareSyncLine => ({ text, tone, meta: '' })
-  // No product name in this line. Care does not name the integration anywhere now — the pull that
-  // used to sit in the log's footer is in Config → Baby settings — and the wording here has to
-  // survive the day that integration is switched off regardless.
-  if (!health) return line('Reading…', 'muted')
-  switch (health.status) {
-    case 'NotConfigured':
-      return line('Not connected', 'muted')
-    case 'Ok':
-      return line(`Updated ${since(state?.fetchedUtc ?? null, now)}`, 'live')
-    case 'HomeAssistantUnreachable':
-      return line('Home Assistant unreachable', 'bad')
-    case 'IntegrationMissing':
-      return line('Integration not found', 'bad')
-    case 'Stale':
-      return line(`Showing last known · ${since(state?.fetchedUtc ?? null, now)}`, 'warn')
-  }
+  return { text: 'Logged here', tone: 'muted', meta: '' }
 }
 
 /**
@@ -167,7 +149,7 @@ export function mikaSync(robot: LitterRobotDto | null, now: number, connected: b
  * stable rather than sorting by state.
  */
 export function useCareSubjects(): CareSubjects {
-  const { health: babyHealth, child, state, loading: babyLoading } = useBaby()
+  const { loading: babyLoading } = useBaby()
   const { health: catHealth, robots, loading: catLoading } = useLitter()
   const cat = useCatName()
   const babyName = useBabyName()
@@ -176,21 +158,30 @@ export function useCareSubjects(): CareSubjects {
   const robot = robots[0] ?? null
   const catConnected = catHealth?.configured !== false
 
-  const conradFaulted = babyHealth?.status === 'HomeAssistantUnreachable'
-    || babyHealth?.status === 'IntegrationMissing'
   const mikaFaulted = robot?.faultClass === 'NeedsHuman'
 
   const subjects: CareSubject[] = [
     {
       id: 'conrad',
-      // The household's name first. The integration's is a fallback, not the source — see
-      // `useBabyName` for why a name that disappears when a service is unreachable is worse than
-      // no name at all.
-      name: babyName ?? child?.name ?? 'Baby',
-      meta: ageLabel(child?.birthday, now) ?? '',
-      faulted: conradFaulted,
-      configured: babyHealth?.configured !== false,
-      sync: conradSync(babyHealth, state, now),
+      // The household's word for the child, and now the only source of it — see `useBabyName`.
+      name: babyName ?? 'Baby',
+      /*
+       * No age.
+       *
+       * `16 WEEKS` came off the integration's child record, which is gone, and nothing local holds
+       * a birthday. It had already been blank for as long as that integration was returning
+       * nothing, so this is writing down what the screen was doing rather than changing it. The
+       * design asks for the age back; that needs a household birthday setting, which does not exist.
+       */
+      meta: '',
+      /*
+       * Conrad cannot fault. There is no upstream to lose — the log is written here, and a panel
+       * that cannot reach its own server is already saying so through `ConnectionProvider`. Mika
+       * still can, because a litter robot is a real device that really jams.
+       */
+      faulted: false,
+      configured: true,
+      sync: conradSync(),
     },
     {
       id: 'mika',

@@ -57,6 +57,96 @@ public class WeatherTests
         Assert.NotNull(raised.ExpiresAtUtc);
     }
 
+    /// <summary>
+    /// The CAP product has to survive the trip, because the statement sheet is the only thing that
+    /// reads it and it opens from stored state — an alert the household is reading about is exactly
+    /// the moment the network is least trustworthy.
+    /// </summary>
+    [Fact]
+    public async Task Refresher_stores_the_whole_nws_product_for_the_statement_sheet()
+    {
+        using var db = NewDb();
+        var now = new DateTime(2026, 8, 27, 19, 14, 0, DateTimeKind.Utc);
+        var alert = new ProviderWeatherAlert(
+            "urn:oid:2.49.0.1.840.0.abc", "Special Weather Statement", AlertSeverity.Warning,
+            "Strong storm near Edina", now.AddHours(1),
+            Description: "At 2:14 PM CDT, Doppler radar was tracking a strong thunderstorm.",
+            Instruction: "If outdoors, consider seeking shelter inside a building.",
+            AreaDesc: "Hennepin; Ramsey; Anoka",
+            SenderName: "NWS Minneapolis MN",
+            SentUtc: now,
+            OnsetUtc: null,
+            EffectiveUtc: now,
+            EndsUtc: now.AddHours(1),
+            Urgency: "Expected",
+            Certainty: "Likely",
+            SeverityText: "Minor");
+
+        await new WeatherRefresher(new FakeWeatherProvider(SampleWeather([alert])), new AlertEngine(), Options.Create(new WeatherOptions()))
+            .RefreshAsync(db, now);
+
+        var raised = await db.ActiveAlerts.SingleAsync(a => a.Type == "weather" && a.ClearedAtUtc == null);
+        Assert.Equal("Special Weather Statement", raised.Event);
+        Assert.Equal("At 2:14 PM CDT, Doppler radar was tracking a strong thunderstorm.", raised.Description);
+        Assert.Equal("If outdoors, consider seeking shelter inside a building.", raised.Instruction);
+        Assert.Equal("Hennepin; Ramsey; Anoka", raised.AreaDesc);
+        Assert.Equal("NWS Minneapolis MN", raised.SenderName);
+        Assert.Equal("Minor", raised.SeverityText);
+        Assert.Equal("Expected", raised.Urgency);
+        Assert.Equal("Likely", raised.Certainty);
+        Assert.Equal("urn:oid:2.49.0.1.840.0.abc", raised.ProductId);
+        // ALERT_SHEET.md: IN EFFECT starts at `onset ?? effective`, and NWS omits onset on products
+        // already in force when issued.
+        Assert.Equal(now, raised.OnsetUtc);
+        Assert.Equal(now.AddHours(1), raised.EndsUtc);
+    }
+
+    /// <summary>
+    /// NWS amends products in place under the same id. An amendment that drops the call to action
+    /// has to drop it here too, or the panel shows precautions for a warning that no longer carries
+    /// them — which is worse than showing none.
+    /// </summary>
+    [Fact]
+    public async Task Refresher_lets_an_amended_product_take_away_what_it_no_longer_says()
+    {
+        using var db = NewDb();
+        var now = DateTime.UtcNow;
+        var engine = new AlertEngine();
+        var options = Options.Create(new WeatherOptions());
+
+        var first = new ProviderWeatherAlert(
+            "urn:oid:7", "Severe Thunderstorm Warning", AlertSeverity.Severe, "Gusts to 60 mph", now.AddHours(1),
+            Description: "Quarter size hail.", Instruction: "Move to an interior room.");
+        await new WeatherRefresher(new FakeWeatherProvider(SampleWeather([first])), engine, options).RefreshAsync(db, now);
+
+        var amended = new ProviderWeatherAlert(
+            "urn:oid:7", "Severe Thunderstorm Warning", AlertSeverity.Severe, "Gusts to 60 mph", now.AddHours(1),
+            Description: "Hail no longer expected.", Instruction: null);
+        await new WeatherRefresher(new FakeWeatherProvider(SampleWeather([amended])), engine, options).RefreshAsync(db, now.AddMinutes(5));
+
+        var raised = await db.ActiveAlerts.SingleAsync(a => a.Type == "weather" && a.ClearedAtUtc == null);
+        Assert.Equal("Hail no longer expected.", raised.Description);
+        Assert.Null(raised.Instruction);
+    }
+
+    /// <summary>A sensor threshold has no product; its row must not gain a half-filled one.</summary>
+    [Fact]
+    public async Task Sensor_alerts_carry_no_product_so_their_banner_opens_nothing()
+    {
+        using var db = NewDb();
+        var now = DateTime.UtcNow;
+
+        await new AlertEngine().ReconcileAsync(
+            db, "sensor",
+            [new ExternalAlert("threshold:1", AlertSeverity.Warning, "Freezer above 0°F", "sensor:3", null)],
+            now);
+
+        var raised = await db.ActiveAlerts.SingleAsync(a => a.Type == "sensor" && a.ClearedAtUtc == null);
+        Assert.Null(raised.Event);
+        Assert.Null(raised.Description);
+        Assert.Null(raised.Instruction);
+    }
+
     [Fact]
     public async Task Refresher_clears_a_weather_alert_that_is_no_longer_active()
     {

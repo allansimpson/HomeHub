@@ -51,6 +51,17 @@ public record UpdateProfileRequest(
 /// — still compiles and still means the same thing.
 /// </para>
 /// </param>
+/// <summary>
+/// How a profile wants to be locked when the panel goes idle. <b>Its owner's setting alone.</b>
+/// </summary>
+/// <remarks>
+/// Separate from <see cref="UpdateProfileRequest"/> because the two answer to different people. A
+/// name, an initial and a running order are the household's to arrange and live behind the admin
+/// policy; whether <i>your</i> screen locks when you walk away is yours, and an administrator
+/// turning it off is the same act as unlocking your profile.
+/// </remarks>
+public record LockPreferenceRequest(bool RequirePinWhenIdle, bool StayLoggedIn);
+
 public record SetPinRequest(string Pin, string? CurrentPin = null);
 
 /// <summary>

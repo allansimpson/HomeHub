@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   cookedAgoLabel, cookedCountLabel, countWord, daysSinceCooked, durationLabel, entriesFor,
+  cookedAgoPhrase,
+  lastCookedSentence,
   formatAmount, matchesAtWordBoundary, nextComponent, nextFreeSlot, nightSchedule, plannedCount,
   scalableLines, scaleLine, schedulableEntries, startBy, unconfirmedPastDinner, weekLabel, weekStart,
 } from './mealsDomain'
@@ -302,8 +304,12 @@ describe('cookedAgoLabel', () => {
   /** Weeks, not days: nobody holds "are we sick of this yet" to the day. */
   it('reports whole weeks, and says so in words under one', () => {
     expect(cookedAgoLabel('2026-07-28', today)).toBe('THIS WEEK')
-    expect(cookedAgoLabel('2026-07-18', today)).toBe('2 WKS')
-    expect(cookedAgoLabel('2026-04-01', today)).toBe('17 WKS')
+    expect(cookedAgoLabel('2026-07-22', today)).toBe('LAST WEEK')
+    expect(cookedAgoLabel('2026-07-18', today)).toBe('2 WEEKS')
+    // Past two months it names the month rather than counting: `17 WKS` is arithmetic nobody does
+    // in their head, and at that distance the season is the useful fact (RECIPES R1, the handoff
+    // writes `not since May`).
+    expect(cookedAgoLabel('2026-04-01', today)).toBe('NOT SINCE APR')
   })
 })
 
@@ -377,5 +383,38 @@ describe('weekLabel', () => {
   it('names one month once, and both when the week straddles them', () => {
     expect(weekLabel('2026-08-03')).toBe('3 — 9 AUGUST')
     expect(weekLabel('2026-07-27')).toBe('27 JULY — 2 AUGUST')
+  })
+})
+
+describe('lastCookedSentence', () => {
+  const today = new Date('2026-08-01T09:00:00Z')
+
+  it('carries the two shapes in frames that each read', () => {
+    // The column value cannot do this: "Last made not since May" is what gluing a prefix onto
+    // `cookedAgoLabel` produced, on exactly the recipes worth mentioning.
+    expect(lastCookedSentence('2026-07-18', today)).toBe('Last made 2 weeks ago.')
+    expect(lastCookedSentence('2026-04-01', today)).toBe('Not made since April.')
+    expect(lastCookedSentence('2026-07-22', today)).toBe('Made last week.')
+    expect(lastCookedSentence(null, today)).toBe('Never made.')
+  })
+})
+
+describe('cookedAgoPhrase', () => {
+  const today = new Date('2026-08-01T09:00:00Z')
+
+  it('is the mixed-case clause the folder joins to a cuisine', () => {
+    // `Italian · NOT SINCE MAY` is what the caps column token produced in the middle of a
+    // lower-case supporting line.
+    expect(cookedAgoPhrase('2026-04-01', today)).toBe('not since April')
+    expect(cookedAgoPhrase('2026-07-18', today)).toBe('2 weeks ago')
+    expect(cookedAgoPhrase('2026-07-22', today)).toBe('made last week')
+    expect(cookedAgoPhrase(null, today)).toBe('never made')
+  })
+
+  it('spells the month where the column abbreviates it', () => {
+    // Same fact, three renderings: a column with no room, a clause, and a sentence.
+    expect(cookedAgoLabel('2026-02-10', today)).toBe('NOT SINCE FEB')
+    expect(cookedAgoPhrase('2026-02-10', today)).toBe('not since February')
+    expect(lastCookedSentence('2026-02-10', today)).toBe('Not made since February.')
   })
 })

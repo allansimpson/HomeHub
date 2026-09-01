@@ -9,7 +9,7 @@ is clever; it is just the small set of facts that were expensive to rediscover.
 
 ## The rules
 
-1. **One folder, a fixed set of files.** Everything below is one of five types. Do not add a file
+1. **One folder, a fixed set of files.** Everything below is one of six types. Do not add a file
    per conversation — that is the habit this replaces. A genuinely new *type* may earn a file, but
    add it to the index below in the same edit or nobody will read it.
 2. **Edit in place.** Correct a wrong line rather than appending a newer one underneath it. Two
@@ -40,9 +40,9 @@ is clever; it is just the small set of facts that were expensive to rediscover.
 
 ## What does not go here
 
-- **Architecture, conventions, the provider-seam model** → `PROJECT.md`. That is the project's
+- **Architecture, conventions, the provider-seam model** → repository-root `PROJECT.md`. That is the project's
   knowledge base and predates this folder.
-- **Build and run commands** → `README.md`.
+- **Build and run commands** → repository-root `README.md`.
 - **Design intent for the Kitchen and other sections** → `design_handoff_*/specs/`. Those specs are
   the authority; this folder never restates them, because a restatement is a second source that can
   drift from the first.

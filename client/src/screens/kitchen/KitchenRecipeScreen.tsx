@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { useMeals } from '../../app/MealsProvider'
-import { cookedAgoLabel, cookedCountLabel } from '../../app/mealsDomain'
+import { cookedCountLabel, lastCookedSentence } from '../../app/mealsDomain'
+import { numberWord } from '../../app/pantryDomain'
 import { isFlagged } from '../../app/pantryDomain'
 import { isBuyable, stockVerdict } from '../../app/kitchenDomain'
 import { cuisineLabel, cuisineOf } from '../../app/mealsPrefs'
@@ -41,7 +42,7 @@ export function KitchenRecipeScreen() {
 
   if (!recipe) {
     return (
-      <ScreenShell header={<DrillInHeader title="" onBack={() => navigate('/kitchen/recipes')} />}>
+      <ScreenShell header={<KitchenDrillInHeader exit="BACK" onExit={() => navigate('/kitchen/recipes')} />}>
         <div className="ml-kitchen__emptyshelf">That recipe is not here.</div>
       </ScreenShell>
     )
@@ -58,17 +59,17 @@ export function KitchenRecipeScreen() {
   return (
     <ScreenShell
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           // The cuisine, not the title. The dish gets the page's own heading below, where it can
           // carry the source-and-servings line with it; repeating it in the header would spend the
           // one slot that tells you which shelf of the folder you are on (RECIPES §2).
-          title={
+          label={
             // `cuisineOf` takes the tags, so this works on the full recipe rather than needing the
             // folder's summary — a recipe opened by link may not be in that list at all.
             cuisineLabel(cuisineOf(recipe), settings.canonicalCuisines)?.toUpperCase() ?? 'RECIPE'
           }
-          onBack={() => navigate('/kitchen/recipes')}
-          backLabel="BACK"
+          onExit={() => navigate('/kitchen/recipes')}
+          exit="BACK"
         />
       }
     >
@@ -83,16 +84,14 @@ export function KitchenRecipeScreen() {
           ].filter(Boolean).join(' · ')}
         </div>
         {summary && (
-          <div className="ml-kitchen__askwhy">Last made {cookedAgoLabel(summary.lastCookedDate)}.</div>
+          <div className="ml-kitchen__askwhy">{lastCookedSentence(summary.lastCookedDate)}</div>
         )}
 
         {/*
           Above the ingredients on purpose. Recognition beats enumeration — you know the dish from
           the photograph before you have read a single line of it.
         */}
-        <div className="ml-band ml-band--quiet">
-          <span className="ml-band__label">MADE IT LOOK LIKE THIS</span>
-        </div>
+        <KitchenDivider label="Made it look like this" gap={false} />
         <div className="ml-kitchen__photostrip" data-hscroll>
           {recipe.hasImage && (
             <img
@@ -123,11 +122,8 @@ export function KitchenRecipeScreen() {
         */}
         {unmatched.length > 0 && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">CAN'T SAY YET</span>
-              <span className="ml-band__meta">{unmatched.length} OF {lines.length}</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="Can't say yet" count={`${unmatched.length} OF ${lines.length}`} amber />
+            <div>
               <div className="ml-kitchen__askwhy">
                 {unmatched.length === 1 ? 'One line matches' : `${unmatched.length} lines match`}
                 {' '}nothing on the shelves, so this stays out of <em>cook it tonight</em>.
@@ -144,7 +140,9 @@ export function KitchenRecipeScreen() {
                     `/kitchen/matching/sort?ingredient=${encodeURIComponent(unmatched[0].name)}`,
                   )}
                 >
-                  SORT THE {unmatched.length}
+                  {/* `SORT THE FOUR`, not `SORT THE 4` — the section words small counts on a
+                      control (see the item sheet's history and `FOUR ATE`). */}
+                  SORT THE {numberWord(unmatched.length).toUpperCase()}
                 </button>
                 <span className="ml-kitchen__askwhy">about a minute, and it never asks again</span>
               </div>
@@ -160,13 +158,16 @@ export function KitchenRecipeScreen() {
           </>
         )}
 
-        <div className={'ml-band' + (short.length > 0 ? ' ml-band--amber' : '')}>
-          <span className="ml-band__label">WHAT IT NEEDS</span>
-          <span className="ml-band__meta">{word}</span>
-        </div>
-        {/* 42px ingredient rows, 46px numbered steps — each group's cut derives from its own row
-            height. Reusing one panel's height on another puts the cut in the padding (RECIPES §6). */}
-        <CutGroup rows={7} rowHeight={42} className="ml-band-shade">
+        {/*
+          Amber only when something is actually short.
+
+          The handoff draws this divider neutral, with `ALL IN` beside it — which is the state where
+          there is nothing to be warm about. It says amber is for time pressure, and a recipe you
+          cannot cook tonight is exactly that, so the conditional is kept rather than flattened to
+          match the one case the design happened to draw.
+        */}
+        <KitchenDivider label="What it needs" count={word} amber={short.length > 0} />
+        <div>
           {recipe.ingredients.map((ing) => {
             // Paired by id, not by name. A line the parser could not name has a null `name`, so
             // matching on it would pair every unparsed ingredient with the first other unparsed
@@ -205,20 +206,17 @@ export function KitchenRecipeScreen() {
               </div>
             )
           })}
-        </CutGroup>
-
-        <div className="ml-band">
-          <span className="ml-band__label">HOW IT GOES</span>
-          <span className="ml-band__meta">{recipe.steps.length}</span>
         </div>
-        <CutGroup rows={4} rowHeight={46} className="ml-band-shade">
+
+        <KitchenDivider label="How it goes" count={recipe.steps.length} />
+        <div>
           {recipe.steps.map((s, i) => (
             <div key={s.id} className="ml-row ml-kitchen__stepline">
               <span className="ml-kitchen__stepnum">{i + 1}</span>
               <span className="ml-kitchen__steplinetext">{s.text}</span>
             </div>
           ))}
-        </CutGroup>
+        </div>
       </ScrollArea>
 
       <div className="ml-kitchen__errandactions">

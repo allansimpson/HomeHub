@@ -235,6 +235,9 @@ export function isRetryable(status: number): boolean {
   return status === 408 || status === 429 || status >= 500
 }
 
+/** How long one send may go unanswered before the op falls back into the queue. */
+const SEND_DEADLINE_MS = 20_000
+
 /** Execute one queued op against the API. `forceOverwrite` drops the version check (keep-mine). */
 export async function executeOp(
   op: QueuedOp,
@@ -253,6 +256,21 @@ export async function executeOp(
   const drained = new Promise<void>((resolve) => { markDrained = resolve })
   activeRequests.set(controller, drained)
 
+  /*
+   * A send that is never answered is offline, and has to be *called* offline.
+   *
+   * This controller existed only to be aborted from outside — a profile transition — so a request
+   * to a host with no route sat on an open socket for as long as the OS allowed, and `run` above it
+   * did not return, and the screen that awaited it kept its controls disabled the whole time. The
+   * op is already durable by then: timing out drops it back into the queue it was written to, which
+   * is where an unsent write belongs and where replay will find it.
+   *
+   * Longer than the read deadline in `api/client.ts` because this carries a body up a slow link
+   * rather than asking a question, and the household is not waiting on the answer.
+   */
+  let expired = false
+  const deadline = setTimeout(() => { expired = true; controller.abort() }, SEND_DEADLINE_MS)
+
   try {
     let outcome: ExecOutcome
     let res: Response
@@ -265,7 +283,9 @@ export async function executeOp(
         signal: controller.signal,
       })
     } catch {
-      outcome = controller.signal.aborted ? { kind: 'cancelled' } : { kind: 'offline' }
+      // Both are retained rather than forgotten, but they are not the same event: `cancelled` is a
+      // profile transition and `offline` is a server that is not there. A deadline is the latter.
+      outcome = controller.signal.aborted && !expired ? { kind: 'cancelled' } : { kind: 'offline' }
       beforeDrain?.(outcome)
       return outcome
     }
@@ -286,6 +306,7 @@ export async function executeOp(
     beforeDrain?.(outcome)
     return outcome
   } finally {
+    clearTimeout(deadline)
     activeRequests.delete(controller)
     markDrained()
   }

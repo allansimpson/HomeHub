@@ -12,7 +12,6 @@ import { useCareLog } from './useCareLog'
 import { CareSheet } from './CareSheet'
 import { CareRunning } from './CareRunning'
 import { CarePumpFinish } from './CarePumpFinish'
-import { PumpAlert } from './pumpPhases'
 import type { KnownMedicine } from './CareSheet'
 import type { CareEntryDto, CareEntryTypeName, CareTimerDto } from '../../api/types'
 
@@ -27,9 +26,9 @@ import type { CareEntryDto, CareEntryTypeName, CareTimerDto } from '../../api/ty
  * a 2am feed can be entered at 6am, and a mistyped amount is a row rather than a permanent record.
  *
  * <b>Nothing here needs a server.</b> The grid, the sheets and the timers all work offline, and the
- * one thing that could not — the pull out of Huckleberry's calendar — now lives in Config → Baby
- * settings. That was the only control on this screen with a connection to be gated on, and the only
- * place in Care that named the integration at all.
+ * one thing that could not — the pull out of the old integration's calendar — was removed with that
+ * integration on 2026-08-30. It was the only control on this screen with a connection to be gated
+ * on, and the only place in Care that ever named the integration.
  */
 export function CareLogView({ childKey, childName }: { childKey: string; childName?: string }) {
   const care = useCareLog(childKey)
@@ -90,9 +89,6 @@ export function CareLogView({ childKey, childName }: { childKey: string; childNa
    */
   const openHeld = session?.endedUtc ? session : null
   const openRunning = session && !openHeld ? session : null
-
-  /** The one type with boundaries to announce. See `PumpAlert` below. */
-  const pump = care.timers.find((t) => t.type === 'Pump') ?? null
 
   /*
    * Starting a session hands the open panel over to the running one — it does not close it.
@@ -218,27 +214,17 @@ export function CareLogView({ childKey, childName }: { childKey: string; childNa
       ))}
 
       {/*
-        The pump's two boundaries, felt rather than watched.
+        The pump's two boundaries are announced from `App`, not here.
 
-        <b>Mounted here rather than inside the running panel</b>, because the panel is the thing
-        somebody is not looking at. Nothing switches a pump session on anybody's behalf — the phase
-        changes when SWITCH NOW is pressed — so at 4am the alert has to survive the panel being
-        closed, and this row is what stays on screen while it is. Whether it is open or not, the
-        session is here and so is the buzz.
+        <b>This mount was the bug.</b> It survived the running *panel* being closed, which was the
+        case it was written for — but not the Baby *tab* being left, which unmounted it outright. So
+        the switch passed in silence for anyone who had walked away, and on a panel that idles on
+        the Dashboard that was most of the time. A haptic is for exactly the moment nobody is
+        looking at the screen, so the one place it must not live is inside a screen.
 
-        Alerting from anywhere in the app would mean lifting the care log into a provider, which is
-        a bigger change than this is worth; it alerts while the Baby tab is open.
-      */}
-      {pump && <PumpAlert timer={pump} />}
-
-      {/*
-        No bridge in this footer any more.
-
-        The pull out of Huckleberry stood here while the migration was live, on the reasoning that
-        the log is where its results land. But it is a one-off catch-up run by whoever set the panel
-        up, not a thing a household does at 3am, and it was the only control on a logging surface
-        that could fail for want of a connection. It is a Config concern, and it is in Config →
-        Baby settings — where the row beside it already reports whether the integration answers.
+        The note here used to say lifting it would mean putting the care log in a provider and was
+        "a bigger change than this is worth". `BabyProvider` polls the log for the Dashboard's
+        figures now, so it carries the running session too and `App` mounts the alert once.
       */}
 
       {/*

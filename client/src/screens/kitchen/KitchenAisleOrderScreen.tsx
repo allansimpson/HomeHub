@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import type { AisleOrderLineDto } from '../../api/types'
 
@@ -19,14 +19,22 @@ const STORES = ['Tesco', 'Butcher']
  *
  * **Empty aisles stay listed**, reading `empty` rather than vanishing, and anything the order does
  * not name sorts last under `ELSEWHERE`. An order you can only half see is one you cannot correct.
+ *
+ * **The order is held until `SAVE THE ORDER`**, unlike the check flow, which writes every answer as
+ * it is given. The two are different kinds of thing: a check records observations, each true on its
+ * own the moment it is made; an order is one arrangement, meaningful only whole. Half a
+ * rearrangement, saved because somebody walked away mid-drag, is an order nobody chose.
  */
 export function KitchenAisleOrderScreen() {
   const navigate = useNavigate()
   const [store, setStore] = useState(STORES[0])
   const [aisles, setAisles] = useState<AisleOrderLineDto[]>([])
   const [busy, setBusy] = useState(false)
+  /** Whether anything has been moved since the last save — what `SAVE THE ORDER` acts on. */
+  const [moved, setMoved] = useState(false)
 
   const load = useCallback(() => {
+    setMoved(false)
     void api.getAisleOrder(store).then((o) => setAisles(o.aisles)).catch(() => {})
   }, [store])
 
@@ -38,18 +46,31 @@ export function KitchenAisleOrderScreen() {
    * A drag reorders the list; replaying a sequence of deltas is how two people dragging at once end
    * up with an order neither of them chose.
    */
-  const move = async (index: number, by: number) => {
+  const move = (index: number, by: number) => {
     const next = [...aisles]
     const to = index + by
     if (to < 0 || to >= next.length) return
 
     ;[next[index], next[to]] = [next[to], next[index]]
     setAisles(next)
+    setMoved(true)
+  }
 
+  /**
+   * Commit the order.
+   *
+   * **Held until pressed**, which is the one place this panel differs from the check flow's write-
+   * it-as-you-answer rule — and the difference is what the two are. A check records observations
+   * about the world, each true on its own the moment it is given. An order is a single arrangement:
+   * it is only meaningful whole, and half a rearrangement saved because somebody walked away is an
+   * order nobody chose. The handoff draws the button for that reason.
+   */
+  const save = async () => {
     setBusy(true)
     try {
-      const saved = await api.setAisleOrder(store, next.map((a) => a.aisle))
+      const saved = await api.setAisleOrder(store, aisles.map((a) => a.aisle))
       setAisles(saved.aisles)
+      setMoved(false)
     } finally {
       setBusy(false)
     }
@@ -57,11 +78,11 @@ export function KitchenAisleOrderScreen() {
 
   return (
     <ScreenShell
-      header={<DrillInHeader title="Aisle order" onBack={() => navigate(-1)} backLabel="BACK" />}
+      header={<KitchenDrillInHeader title="Aisle order" onExit={() => navigate(-1)} exit="BACK" />}
     >
       <ScrollArea>
         {/* Store chips lead: the order belongs to a shop, so the shop is chosen first. */}
-        <div className="ml-kitchen__chips ml-cut" data-hscroll>
+        <div className="ml-kitchen__chips" data-hscroll>
           {STORES.map((name) => (
             <button
               key={name}
@@ -74,18 +95,15 @@ export function KitchenAisleOrderScreen() {
           ))}
         </div>
 
-        <div className="ml-band">
-          <span className="ml-band__label">FIRST TO LAST</span>
-          <span className="ml-band__meta">{aisles.length}</span>
-        </div>
+        <KitchenDivider label="First to last" count={aisles.length} gap={false} />
         {aisles.length === 0 ? (
-          <div className="ml-band-shade">
+          <div>
             <div className="ml-kitchen__emptyshelf">
               Nothing on the list has an aisle yet. The order learns itself as things get ticked off.
             </div>
           </div>
         ) : (
-          <CutGroup rows={5} rowHeight={56} className="ml-band-shade">
+          <div>
             {aisles.map((aisle, i) => (
               <div key={aisle.aisle} className="ml-row ml-kitchen__aislerow">
                 <span className="ml-kitchen__aislepos">{i + 1}</span>
@@ -127,24 +145,65 @@ export function KitchenAisleOrderScreen() {
                 </span>
               </div>
             ))}
-          </CutGroup>
+          </div>
         )}
 
-        <div className="ml-band ml-band--quiet">
-          <span className="ml-band__label">HOW IT WAS LEARNED</span>
+        {/*
+          Where everything the order does not name goes.
+
+          One fixed row rather than a list, because the server sends the aisles it knows and has no
+          separate word for the ones it does not. Saying it anyway is the point: an order whose foot
+          is unstated reads as complete, and then a thing that never appears in it looks like a bug
+          rather than the documented last place.
+        */}
+        <KitchenDivider label="Elsewhere" />
+        <div>
+          <div className="ml-row ml-kitchen__aislerow">
+            {/* Not an aisle, so not `__aislename`: this is a statement about where the unnamed go,
+                and the handoff sets it a step under the rows it is describing. */}
+            <span className="ml-kitchen__aislesaid ml-kitchen__aislesaid--infold">Anything unfiled</span>
+            <span className="ml-kitchen__aislecount">sorts last</span>
+          </div>
         </div>
-        <div className="ml-band-shade">
+
+        <KitchenDivider label="How it was learned" />
+        <div>
           <div className="ml-kitchen__askwhy">
             The order started from what got ticked off first. It is a guess — moving anything here
             replaces it for good, and nothing works it out again afterwards.
           </div>
         </div>
 
-        {/* The blast radius, as on every settings panel in this section. */}
-        <div className="ml-kitchen__askwhy">
-          This changes the order of the bands while shopping, in this shop only. Nothing about the
-          pantry, and nothing about what gets bought.
+        {/*
+          The blast radius, as on every settings panel in this section — and under its own label
+          rather than as a loose paragraph. It was the latter, which is how a statement about what a
+          setting *cannot* reach ends up reading as a footnote to the setting above it.
+        */}
+        <KitchenDivider label="What this changes" />
+        <div>
+          <div className="ml-row ml-kitchen__aislerow">
+            <span className="ml-kitchen__aislesaid">The order of bands while shopping</span>
+            {/* Verdigris: the one thing on the panel this setting *does* reach, and the section's
+                colour for a fact that is live rather than remembered. */}
+            <span className="ml-kitchen__aislecount ml-kitchen__aislecount--live">this shop only</span>
+          </div>
+          <div className="ml-kitchen__askwhy">
+            Nothing about the pantry, and nothing about what gets bought. Each shop keeps its own
+            order.
+          </div>
         </div>
+
+        <button
+          type="button"
+          className="ml-kitchen__shop"
+          disabled={busy || !moved}
+          onClick={() => void save()}
+        >
+          {/* The label does not change with state — the handoff writes one word for this control,
+              and a button that renames itself is a second thing to read on a settings panel. It
+              simply has nothing to do until something has moved. */}
+          SAVE THE ORDER
+        </button>
       </ScrollArea>
     </ScreenShell>
   )

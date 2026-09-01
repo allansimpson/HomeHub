@@ -187,7 +187,7 @@ public class HomeHubDbContext : DbContext
     /// Care logging HomeHub owns outright — ten types, a real time, and rows that can be corrected.
     /// </summary>
     /// <remarks>
-    /// The Huckleberry integration exposes services for four of the ten things a household logs, and
+    /// The integration this replaced exposed services for four of the ten things a household logs, and
     /// none of them takes a timestamp or can be undone. This table is the answer to all three limits
     /// at once; see <see cref="Care.CareEntry"/> for why it is one table rather than ten.
     /// </remarks>
@@ -301,6 +301,23 @@ public class HomeHubDbContext : DbContext
             entity.Property(a => a.Message).HasMaxLength(500).IsRequired();
             entity.Property(a => a.Source).HasMaxLength(80).IsRequired();
             entity.HasIndex(a => new { a.Type, a.ClearedAtUtc });
+
+            // The CAP product behind the banner (design_handoff_weather_alert/ALERT_SHEET.md §4).
+            // Description and Instruction are deliberately uncapped — an NWS description runs to a
+            // few thousand characters and the sheet shows it verbatim, so a cap here is a cap on
+            // what the household is allowed to read. The short fields are bounded to CAP's own
+            // vocabularies and NWS's office naming.
+            entity.Property(a => a.Event).HasMaxLength(120);
+            entity.Property(a => a.Description);
+            entity.Property(a => a.Instruction);
+            // areaDesc is a semicolon-joined county list; a multi-state warning is the long case.
+            entity.Property(a => a.AreaDesc).HasMaxLength(2000);
+            entity.Property(a => a.SenderName).HasMaxLength(160);
+            entity.Property(a => a.Urgency).HasMaxLength(20);
+            entity.Property(a => a.Certainty).HasMaxLength(20);
+            entity.Property(a => a.SeverityText).HasMaxLength(20);
+            // CAP id is a URN; NWS's run ~90 chars, and it is the DedupeKey's payload too.
+            entity.Property(a => a.ProductId).HasMaxLength(256);
         });
 
         // ---- Stage 3: Weather cache (singleton row, fixed id 1 — not identity) ----

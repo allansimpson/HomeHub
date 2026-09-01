@@ -213,7 +213,8 @@ Routing is four facts, none of them a guess about what the prompt *means*:
   and "log it later" does not happen. Three additions, all Care-specific:
   - **Entries are replay-safe by key, not by hope.** `CareEntryInput.ClientKey` is stored as
     `CareEntry.ExternalKey` under a `panel:` prefix, reusing the unique filtered index the
-    Huckleberry import already had (`hb:`). A second write of the same key **returns the first row**
+    Huckleberry import already had (`hb:` — that import was removed on 2026-08-30, but the index and
+    the rows it wrote remain). A second write of the same key **returns the first row**
     instead of creating a second, so the one failure a queue cannot diagnose — row landed, response
     lost — cannot duplicate a feed. `clientKey` comes back on the DTO so the client can match its
     own unsent rows against the server's; `mergeEntries` (`careOffline.ts`) is the only thing
@@ -357,8 +358,12 @@ architecture, seams and conventions; each doc owns its workstream's stages):
   is generated *from* its result. Nothing is written without a person confirming it on a sheet that
   marks every guessed value in amber. Also lands the first **`IsAllDay`** flag end to end — all-day
   events created by hand synced to Google wrong before E1.
-- **`huckleberry-integration.md`** — Huckleberry baby tracking via Home Assistant + BLE scale
-  capture. Stages H1–H4, S1–S3. Consumes the HA WebSocket live push listed above (H4 builds it).
+- ~~**`huckleberry-integration.md`**~~ — Huckleberry baby tracking via Home Assistant + BLE scale
+  capture, stages H1–H4, S1–S3. **Retired 2026-08-30.** The integration was phased out in favour of
+  the panel's own care log, and the code went with it: `Baby/*`, `BabyController`,
+  `CareImportService`, `HuckleberryCalendarParser` and the `Huckleberry` config section are gone.
+  Baby data is `Care/*` and `CareController` now. Entries imported before that date keep
+  `source = HuckleberryImport`, which is history rather than a live path.
 - **`voice-tts.md`** — voice *output*; companion to §6 above, which owns STT and assistant
   routing. Stage 8R (prosody/cache refactor of the shipped `ITextToSpeech` seam) and Stage 8.5
   (Chatterbox, deferred until a GPU is installed).

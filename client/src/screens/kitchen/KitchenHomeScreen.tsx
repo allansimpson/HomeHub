@@ -101,12 +101,12 @@ export function KitchenHomeScreen() {
           outside the content rather than pinning it inside. */}
       <ScrollArea>
         {/* ---- 1 · Tonight ---- */}
-      <div className="ml-band">
-        <span className="ml-band__label">TONIGHT</span>
-      </div>
+        <div className="ml-kitchen__homehead">
+          <span className="ml-kitchen__homelabel">TONIGHT</span>
+        </div>
 
       {tonight ? (
-        <div className="ml-band-shade">
+        <div>
           <div className="ml-kitchen__dish">{tonight.recipeTitle ?? tonight.freeText}</div>
           <div className="ml-kitchen__meta">
             {[recipe?.tags[0]?.toUpperCase() ?? null,
@@ -129,7 +129,7 @@ export function KitchenHomeScreen() {
               <div className="ml-kitchen__startwhen">
                 {/* Past the start time the label changes rather than turning amber: a late dinner
                     is information, not an alert (MEALS_BEHAVIOURS §8). */}
-                <span className="ml-band__meta">
+                <span className="ml-kitchen__startlabel">
                   {timing.lateBy > 0 ? 'START NOW' : 'START BY'}
                 </span>
                 <span className="ml-kitchen__startclock serif">
@@ -181,14 +181,24 @@ export function KitchenHomeScreen() {
       {/* ---- 2 · Use it or lose it. Absent entirely when nothing is turning. ---- */}
       {turning && (
         <>
-          <div className="ml-band ml-band--amber">
-            <span className="ml-band__label">USE IT OR LOSE IT</span>
-            <span className="ml-band__meta">{turning.count} THINGS</span>
+          {/*
+            A heading row, not a divider.
+
+            The answering page is the one Kitchen view the divider does not reach: its panel in
+            `design_handoff_kitchen_lists` is byte-identical to the previous handoff's, and it draws
+            these headings as a plain label with a door opposite — no rule, no serif. That is not an
+            oversight in a bundle whose whole subject is dividers; the file is listed as "unchanged,
+            for context". A rule across this page would also be wrong on its own terms: the sections
+            here are four different answers, not four groups of the same kind of row.
+          */}
+          <div className="ml-kitchen__homehead ml-kitchen__homehead--amber">
+            <span className="ml-kitchen__homelabel">USE IT OR LOSE IT</span>
+            <span className="ml-kitchen__homemeta">{turning.count} THINGS</span>
           </div>
-          {/* A bordered card, because it ends in a choice. The band above owns the problem; the
+          {/* A bordered card, because it ends in a choice. The heading above owns the problem; the
               card is the one thing you could do about it, and it has to look like a control. */}
           <div className="ml-kitchen__lead">
-            <div className="ml-band__meta">ONE MEAL CLEARS {turning.lead.uses.length} OF THEM</div>
+            <div className="ml-kitchen__leadclears">ONE MEAL CLEARS {turning.lead.uses.length} OF THEM</div>
             <div className="ml-kitchen__leadtitle serif">{turning.lead.title}</div>
             <div className="ml-kitchen__leadwhy">
               {usesSentence(turning.lead.uses)}. Nothing to buy.
@@ -216,13 +226,17 @@ export function KitchenHomeScreen() {
       )}
 
       {/* ---- 3 · The next few nights ---- */}
-      <div className="ml-band">
-        <span className="ml-band__label">THE NEXT FEW NIGHTS</span>
-        <button type="button" className="ml-band__meta" onClick={() => navigate('/kitchen/plan')}>
+      <div className="ml-kitchen__homehead">
+        <span className="ml-kitchen__homelabel">THE NEXT FEW NIGHTS</span>
+        <button
+          type="button"
+          className="ml-kitchen__banddoor"
+          onClick={() => navigate('/kitchen/plan')}
+        >
           PLAN ›
         </button>
       </div>
-      <div className="ml-band-shade">
+      <div>
         {upcoming.map((day) => {
           const night = entriesFor(day, 'Dinner')[0] as MealPlanEntryDto | undefined
           const word = night ? stockWord(night) : null
@@ -249,11 +263,11 @@ export function KitchenHomeScreen() {
       </div>
 
       {/* ---- 4 · What we need ---- */}
-      <div className="ml-band">
-        <span className="ml-band__label">WHAT WE NEED</span>
+      <div className="ml-kitchen__homehead">
+        <span className="ml-kitchen__homelabel">WHAT WE NEED</span>
         <button
           type="button"
-          className="ml-band__meta ml-kitchen__banddoor"
+          className="ml-kitchen__banddoor"
           onClick={() => navigate('/kitchen/list')}
         >
           {openLines == null ? 'GO SHOPPING ›' : `${openLines} OPEN · GO SHOPPING ›`}
@@ -261,7 +275,7 @@ export function KitchenHomeScreen() {
       </div>
       {/* Named, not just counted. A heading with a number behind it and nothing under it is a door
           with no sign on it — four names say whether the shop is worth making. */}
-      <div className="ml-band-shade">
+      <div>
         <div className="ml-kitchen__wanted">
           {wanted ?? 'Nothing on the list.'}
         </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pumpBoundaries, pumpMomentDue } from './pumpPhases'
+import { PUMP_PATTERNS, pumpBoundaries, pumpMomentDue } from './pumpPhases'
 import type { CareTimerDto } from '../../api/types'
 
 /**
@@ -118,5 +118,30 @@ describe('pump alert', () => {
     const nursing = pump({ type: 'Nursing', phase: null, phaseOneMinutes: null, phaseTwoMinutes: null })
     expect(pumpMomentDue(nursing, 99_999)).toBeNull()
     expect(pumpMomentDue(pump({ type: 'Sleep', phase: 1 }), 99_999)).toBeNull()
+  })
+})
+
+/**
+ * What the two moments feel like, counted rather than described.
+ *
+ * A vibration pattern is silent about its own intent: nothing renders it, no snapshot covers it,
+ * and a hand in the dark is the only thing that ever checks. Three pulses at the end is a stated
+ * requirement, so it is asserted here — the failure worth catching is a three that becomes a one in
+ * an edit about something else, which would read as working right up until somebody misses the end
+ * of a session.
+ */
+describe('pump buzz patterns', () => {
+  /* Odd length, vibrate-first: [buzz, gap, buzz, gap, buzz] is three, [buzz] is one. */
+  const pulses = (pattern: number[]) => Math.ceil(pattern.length / 2)
+
+  it('ends a session on three buzzes', () => {
+    expect(pulses(PUMP_PATTERNS.done)).toBe(3)
+  })
+
+  /* The switch is unchanged, and the two have to stay tellable apart without looking: a different
+     count, and a different pulse length behind it. */
+  it('keeps the switch as two shorter ones', () => {
+    expect(pulses(PUMP_PATTERNS.switch)).toBe(2)
+    expect(PUMP_PATTERNS.switch[0]).toBeLessThan(PUMP_PATTERNS.done[0])
   })
 })

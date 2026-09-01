@@ -5,11 +5,13 @@ import { Icon } from '../icons/Icon'
 import { useClock } from '../app/useClock'
 import { useSession } from '../app/SessionProvider'
 import { ApiError } from '../api/client'
+import { isEnrolled, isOfflineUnlockAvailable, OfflineUnlockError } from '../app/offlineUnlock'
 import { LockPinSheet } from './LockPinSheet'
 import {
   CLOSED, backspace, clearDigits, isComplete, openSheet, pinSubline, pressDigit,
   profileCount, rowAction, rowMeta,
 } from './lockGating'
+import type { PinCheck } from './lockGating'
 
 /**
  * Conditional per-profile Lock / PIN screen (`design_handoff_lock_pin`, superseding spec 06).
@@ -25,21 +27,39 @@ import {
 export function LockScreen() {
   const navigate = useNavigate()
   const { time, ampm, date } = useClock()
-  const { profiles, completeUnlock } = useSession()
+  const { profiles, completeUnlock, offline } = useSession()
 
   const [sheet, setSheet] = useState(CLOSED)
   const [shake, setShake] = useState(false)
   const [lockedFor, setLockedFor] = useState<number | null>(null)
   /** The PIN could not be checked at all — a different fact from its being wrong. */
   const [unreachable, setUnreachable] = useState(false)
+  /** This device was asked and had nothing stored to check against. */
+  const [notEnrolled, setNotEnrolled] = useState(false)
   const verifyingRef = useRef(false)
 
   const selected = profiles.find((p) => p.id === sheet.profileId) ?? null
+
+  /*
+   * Who will check these digits, decided before any are pressed.
+   *
+   * Read from what this device actually holds rather than assumed from being offline: a profile
+   * enrolled here is admitted by it, and one that has never signed in here cannot be, and those are
+   * different sentences for the person about to type. Only ever a display decision — the check
+   * itself is `completeUnlock`'s, and it re-decides from the same facts.
+   */
+  const reachable = !offline && !unreachable
+  const check: PinCheck = reachable
+    ? 'server'
+    : sheet.profileId != null && isOfflineUnlockAvailable() && isEnrolled(sheet.profileId)
+      ? 'device'
+      : 'unavailable'
 
   const close = useCallback(() => {
     setSheet(CLOSED)
     setLockedFor(null)
     setUnreachable(false)
+    setNotEnrolled(false)
   }, [])
 
   const choose = useCallback(
@@ -54,6 +74,7 @@ export function LockScreen() {
       setSheet(openSheet(id))
       setLockedFor(null)
       setUnreachable(false)
+      setNotEnrolled(false)
     },
     [profiles, completeUnlock, navigate],
   )
@@ -84,13 +105,38 @@ export function LockScreen() {
         navigate('/')
         return
       } catch (err) {
+        const wrong = () => {
+          setShake(true)
+          window.setTimeout(() => setShake(false), 400)
+        }
+
+        /*
+         * The device checked it and refused, which the server never saw.
+         *
+         * Three different refusals wearing one shape, and the screen has to tell them apart: wrong
+         * digits are worth another go, a wait is a wait, and a profile that has never signed in on
+         * this device cannot be admitted by it at all — that last one is the only state where
+         * trying again is pointless, so it is the only one that says so.
+         */
+        if (err instanceof OfflineUnlockError) {
+          setUnreachable(false)
+          if (err.failure.kind === 'not-enrolled') {
+            setNotEnrolled(true)
+          } else if (err.failure.kind === 'locked-out') {
+            setLockedFor(err.failure.retryAfterSeconds)
+            wrong()
+          } else {
+            wrong()
+          }
+          return
+        }
+
         if (!(err instanceof ApiError)) throw err
         // 401 is a wrong PIN; the body carries the cooldown when the lockout has started.
         if (err.status === 401) {
           const failure = err.body as { retryAfterSeconds?: number | null } | undefined
           if (failure?.retryAfterSeconds) setLockedFor(failure.retryAfterSeconds)
-          setShake(true)
-          window.setTimeout(() => setShake(false), 400)
+          wrong()
           setUnreachable(false)
         } else {
           /*
@@ -102,6 +148,10 @@ export function LockScreen() {
            * exactly like being told you are wrong, repeatedly, by a panel that will not say so.
            * The sheet's subline now says which of the two happened, and there is no shake, because
            * nothing was rejected.
+           *
+           * Reached far less often now: the unreachable server hands the PIN to the device, and
+           * only a profile with nothing stored here — or a browser with no WebCrypto — gets this
+           * far without an answer.
            */
           setUnreachable(true)
         }
@@ -174,7 +224,7 @@ export function LockScreen() {
           name={selected.name}
           initial={selected.initial}
           digits={sheet.digits}
-          subline={pinSubline({ unreachable, lockedFor })}
+          subline={pinSubline({ check, lockedFor, notEnrolled })}
           onPress={press}
           onBackspace={onBackspace}
           onClear={onClear}

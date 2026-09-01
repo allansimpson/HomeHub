@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import type { MatchingCoverageDto } from '../../api/types'
 
@@ -53,7 +53,7 @@ export function KitchenMatchingScreen() {
 
   if (state !== 'ready' || !coverage) {
     return (
-      <ScreenShell header={<Header onBack={() => navigate(-1)} />}>
+      <ScreenShell header={<Header onExit={() => navigate(-1)} />}>
         <ScrollArea>
           <div className="ml-kitchen__askwhy">
             {state === 'loading'
@@ -78,7 +78,7 @@ export function KitchenMatchingScreen() {
     .sort((a, b) => b[1] - a[1])
 
   return (
-    <ScreenShell header={<Header onBack={() => navigate(-1)} />}>
+    <ScreenShell header={<Header onExit={() => navigate(-1)} />}>
       <ScrollArea>
         <div className="ml-kitchen__coverage">
           <span className="ml-kitchen__coveragepct">{coverage.percent}%</span>
@@ -93,10 +93,8 @@ export function KitchenMatchingScreen() {
 
         {sources.length > 0 && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">HOW IT GOT LEARNED</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="How it got learned" gap={false} />
+            <div>
               {sources.map(([source, count]) => (
                 <div key={source} className="ml-row ml-kitchen__sourcerow">
                   <span className="ml-row__value">{SOURCE_LABELS[source] ?? source}</span>
@@ -109,14 +107,11 @@ export function KitchenMatchingScreen() {
 
         {coverage.worthSorting.length > 0 && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">WORTH SORTING</span>
-              <span className="ml-band__meta">{coverage.worthSorting.length}</span>
-            </div>
+            <KitchenDivider label="Worth sorting" count={coverage.worthSorting.length} amber />
             {/* Ranked, and it bisects rather than stopping at six: the tail is the point of a
                 ranked job — you work down it until you stop caring, and a hard slice decides that
                 for you. */}
-            <CutGroup rows={5} rowHeight={42} className="ml-band-shade">
+            <div>
               {/* Ordered by how many recipes each one unblocks — a ranked job, not a pile. */}
               {coverage.worthSorting.map((gap) => (
                 <button
@@ -136,17 +131,14 @@ export function KitchenMatchingScreen() {
                   </span>
                 </button>
               ))}
-            </CutGroup>
+            </div>
           </>
         )}
 
         {coverage.undone > 0 && (
           <>
-            <div className="ml-band ml-band--quiet">
-              <span className="ml-band__label">WHAT WE GET WRONG</span>
-              <span className="ml-band__meta">{coverage.undone}</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="What we get wrong" count={coverage.undone} />
+            <div>
               {/* A match undone is never suggested again for that pair. Saying so is what makes
                   "none of these" feel like it achieved something. */}
               <div className="ml-kitchen__emptyshelf">
@@ -162,6 +154,6 @@ export function KitchenMatchingScreen() {
 }
 
 /** The same header in every state — a failure is this screen, not a different one. */
-function Header({ onBack }: { onBack: () => void }) {
-  return <DrillInHeader title="What we know" onBack={onBack} backLabel="BACK" />
+function Header({ onExit }: { onExit: () => void }) {
+  return <KitchenDrillInHeader title="What we know" onExit={onExit} exit="BACK" />
 }

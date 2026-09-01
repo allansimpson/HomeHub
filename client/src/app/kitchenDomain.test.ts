@@ -4,11 +4,14 @@ import type {
   ShelfLifeDto, StockCheckDto, StockCheckLineDto, StockStatusName,
 } from '../api/types'
 import {
-  calendarDaysUntil, countdown, inHandLabel, ingredientsForStep, isBefore, isBuyable, neededSoon,
+  beliefLine, believedLabel, calendarDaysUntil, checkLede, checkQueue, countdown, inHandLabel,
+  ingredientsForStep, isBefore, isBuyable, isStale, neededSoon, runTally, settledChanged, settledLine,
   needsAPerson, nextNights, nightLine, nightsNeedingSomething, openItems, openLabel, planPutAway, servingsPlanned,
   missingTonight, sortImportLines, staleCount, stepTimerMinutes, stockNeedsAttention, stockVerdict, stockWord,
   collateWants, turningBand, usesSentence, wantedNames, weekBearing, weekShortfalls,
+  KITCHEN_SHELF_RUN, landingShelf,
 } from './kitchenDomain'
+import type { SettledRow } from './kitchenDomain'
 
 /**
  * The Kitchen's own wording rules.
@@ -216,6 +219,40 @@ describe('what is open', () => {
       item({ openedAtUtc: '2026-08-15T09:00:00Z', isArchived: true }),
     ], now)
     expect(sorted).toEqual([])
+  })
+})
+
+describe('the shelf the pantry opens on', () => {
+  const now = new Date('2026-08-17T12:00:00Z')
+
+  /**
+   * `SOON · FRIDGE · CUPBOARD · FREEZER`, and four of them.
+   *
+   * Four entries fit one line at the 540px canvas without the run scrolling sideways, which is the
+   * constraint that makes the switch readable at a glance (design_handoff_kitchen_lists §3).
+   */
+  it('runs Soon first and the places in walking order', () => {
+    expect(KITCHEN_SHELF_RUN).toEqual(['Soon', 'Fridge', 'Cupboard', 'Freezer'])
+  })
+
+  it('opens on Soon when something is turning', () => {
+    const shelf = landingShelf([
+      item({ id: 1, openedAtUtc: '2026-08-15T09:00:00Z' }),
+      item({ id: 2, location: 'Cupboard' }),
+    ], now)
+    expect(shelf).toBe('Soon')
+  })
+
+  /**
+   * The reason Soon is not simply the default: it is the one shelf that can be empty, and opening
+   * on it then answers "what is in the pantry" with a blank panel.
+   */
+  it('opens on the first place when nothing is turning', () => {
+    expect(landingShelf([item({ id: 1, location: 'Cupboard' })], now)).toBe('Fridge')
+  })
+
+  it('opens on the first place when the pantry is empty', () => {
+    expect(landingShelf([], now)).toBe('Fridge')
   })
 })
 
@@ -793,5 +830,97 @@ describe('inHandLabel', () => {
 
   it('says nothing when nothing is known', () => {
     expect(inHandLabel(line())).toBe('')
+  })
+})
+
+/**
+ * RUN A CHECK (PANTRY_SHELVES §3).
+ *
+ * The run's two halves answer different questions — *which* rows are worth asking about, and *what
+ * order* to ask them in — and the screen had them confused into one. These assertions are what keep
+ * them apart.
+ */
+describe('the check run', () => {
+  const now = new Date('2026-08-22T12:00:00Z')
+  const stale = '2026-07-08T10:00:00Z'   // six weeks
+  const fresh = '2026-08-21T10:00:00Z'   // yesterday
+
+  it('asks about stale rows only, so a settled pantry offers no cards', () => {
+    const queue = checkQueue([
+      item({ id: 1, name: 'Butter', lastSeenAtUtc: fresh }),
+      item({ id: 2, name: 'Flour', location: 'Cupboard', lastSeenAtUtc: stale }),
+    ], now)
+    expect(queue.map((i) => i.name)).toEqual(['Flour'])
+  })
+
+  it('never asks about a staple — nothing deducts it, so its number cannot have drifted', () => {
+    expect(isStale(item({ tracking: 'NotCounted', lastSeenAtUtc: null }), now)).toBe(false)
+    // A row nobody has ever confirmed is the stalest thing there is, not the freshest.
+    expect(isStale(item({ lastSeenAtUtc: null }), now)).toBe(true)
+  })
+
+  it('walks the house in shelf order, not in the order the numbers rotted', () => {
+    // Deliberately given oldest-last, so a staleness sort would reverse it.
+    const queue = checkQueue([
+      item({ id: 1, name: 'Rice', location: 'Cupboard', lastSeenAtUtc: '2026-01-01T10:00:00Z' }),
+      item({ id: 2, name: 'Peas', location: 'Freezer', lastSeenAtUtc: '2026-02-01T10:00:00Z' }),
+      item({ id: 3, name: 'Butter', location: 'Fridge', lastSeenAtUtc: stale }),
+    ], now)
+    // FRIDGE first (§1), then cupboard, then freezer — one trip across the kitchen.
+    expect(queue.map((i) => i.name)).toEqual(['Butter', 'Rice', 'Peas'])
+  })
+
+  it('states the size of the run before anyone commits to it', () => {
+    expect(checkLede(6)).toBe(
+      'Six numbers nobody has confirmed in two weeks. '
+      + 'Two minutes at the cupboard and they stop being guesses.')
+    // `nobody` takes the singular whatever it counts.
+    expect(checkLede(1)).toContain('One number nobody has confirmed')
+  })
+
+  it('says the belief and its age in one sentence, never as a caps token', () => {
+    expect(beliefLine(item({ quantity: 200, unit: 'g', lastSeenAtUtc: '2026-07-18T10:00:00Z' }), now))
+      .toBe('We think 200 g. Last confirmed five weeks ago.')
+    // Never a bare number: a count without an age is a lie told confidently.
+    expect(beliefLine(item({ quantity: 200, unit: 'g', lastSeenAtUtc: null }), now))
+      .toBe('We think 200 g. Never confirmed.')
+  })
+
+  it('marks the coming rows as beliefs, because that is all any of them are', () => {
+    expect(believedLabel(item({ quantity: 1, unit: 'bottle' }))).toBe('think 1 bottle')
+  })
+})
+
+describe('what a check run has settled', () => {
+  const settled = (over: Partial<SettledRow> = {}): SettledRow => ({
+    itemId: 1, eventId: 10, name: 'Oat milk', answer: 'confirmed', was: '2', now: '2', ...over,
+  })
+
+  it('shows both sides of a change, so a mis-tap is catchable at the cupboard', () => {
+    expect(settledLine(settled({ answer: 'changed', was: '2', now: '1' })))
+      .toBe('was 2, now 1')
+    expect(settledLine(settled({ answer: 'gone', was: 'some', now: 'none' })))
+      .toBe('was some, now none')
+  })
+
+  it('restates what a confirmation confirmed rather than saying nothing changed', () => {
+    expect(settledLine(settled({ was: '2 blocks', now: '2 blocks' }))).toBe('2 blocks · confirmed')
+  })
+
+  it("keeps couldn't-find-it as its own outcome, not as a change", () => {
+    const missing = settled({ answer: 'notfound' })
+    expect(settledLine(missing)).toBe("couldn't find it")
+    // Not verdigris: no number moved, which is the entire point of the answer.
+    expect(settledChanged(missing)).toBe(false)
+    expect(settledChanged(settled({ answer: 'gone' }))).toBe(true)
+  })
+
+  it('counts the run without naming the parts that are empty', () => {
+    expect(runTally([
+      settled({ itemId: 1 }), settled({ itemId: 2 }),
+      settled({ itemId: 3, answer: 'changed' }),
+    ])).toBe('Two confirmed, one corrected')
+    expect(runTally([settled({ answer: 'notfound' })])).toBe('One not found')
+    expect(runTally([])).toBe('Nothing settled yet')
   })
 })

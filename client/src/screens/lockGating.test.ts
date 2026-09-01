@@ -83,21 +83,40 @@ describe('row meta', () => {
 })
 
 describe('pin subline', () => {
+  const line = (over: Partial<Parameters<typeof pinSubline>[0]> = {}) =>
+    pinSubline({ check: 'server', lockedFor: null, notEnrolled: false, ...over })
+
   it('names the entry when nothing has gone wrong', () => {
-    expect(pinSubline({ unreachable: false, lockedFor: null })).toBe('FOUR DIGITS')
+    expect(line()).toBe('FOUR DIGITS')
   })
 
   it('counts down a cooldown', () => {
-    expect(pinSubline({ unreachable: false, lockedFor: 30 })).toBe('LOCKED · 30s')
+    expect(line({ lockedFor: 30 })).toBe('LOCKED · 30s')
   })
 
   it('leads with an unchecked PIN, which is not the same as a wrong one', () => {
-    expect(pinSubline({ unreachable: true, lockedFor: null }))
-      .toBe('NO CONNECTION · PIN CANNOT BE CHECKED')
+    expect(line({ check: 'unavailable' })).toBe('NO CONNECTION · PIN CANNOT BE CHECKED')
   })
 
-  it('keeps the connection message ahead of a stale cooldown', () => {
-    expect(pinSubline({ unreachable: true, lockedFor: 12 }))
-      .toBe('NO CONNECTION · PIN CANNOT BE CHECKED')
+  /*
+   * The state the offline work added: no connection, and the keypad still means something. Saying
+   * "cannot be checked" here would be a lie about a PIN that is about to be checked.
+   */
+  it('says where an offline PIN is going to be checked', () => {
+    expect(line({ check: 'device' })).toBe('NO CONNECTION · CHECKED ON THIS DEVICE')
+  })
+
+  /* A wait is a wait whoever imposed it, and it outranks describing where the check happens. */
+  it('keeps a cooldown ahead of the check it belongs to', () => {
+    expect(line({ check: 'device', lockedFor: 12 })).toBe('LOCKED · 12s')
+  })
+
+  /*
+   * The one terminal answer, so it leads. Somebody retyping a correct PIN into a device that has
+   * never seen this profile needs telling that before the fourth attempt, not after it.
+   */
+  it('leads with a profile this device cannot check at all', () => {
+    expect(line({ check: 'device', notEnrolled: true, lockedFor: 12 }))
+      .toBe('NO CONNECTION · NOT SET UP ON THIS DEVICE')
   })
 })

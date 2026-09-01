@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea, Stepper } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea, Stepper } from '../../components'
 import { inHandLabel } from '../../app/kitchenDomain'
 import { api } from '../../api/client'
 import { useMeals } from '../../app/MealsProvider'
 import { mainFor, shortDate } from '../../app/mealsDomain'
-import { isFlagged } from '../../app/pantryDomain'
+import { isFlagged, numberWord } from '../../app/pantryDomain'
 import type { StockCheckDto, StockCheckLineDto } from '../../api/types'
 
 /**
@@ -45,7 +45,7 @@ export function KitchenNightScreen() {
 
   if (!entry) {
     return (
-      <ScreenShell header={<DrillInHeader title="" onBack={() => navigate('/kitchen/plan')} />}>
+      <ScreenShell header={<KitchenDrillInHeader exit="BACK" onExit={() => navigate('/kitchen/plan')} />}>
         <div className="ml-kitchen__emptyshelf">Nothing is planned for this night.</div>
       </ScreenShell>
     )
@@ -68,12 +68,12 @@ export function KitchenNightScreen() {
   return (
     <ScreenShell
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           // The date names the night; the dish gets the page's own heading below. A header
           // carrying the recipe title would say the same thing twice and lose which night it is.
-          title={shortDate(entry.date)}
-          onBack={() => navigate('/kitchen/plan')}
-          backLabel="BACK"
+          label={shortDate(entry.date)}
+          onExit={() => navigate('/kitchen/plan')}
+          exit="BACK"
         />
       }
     >
@@ -114,12 +114,8 @@ export function KitchenNightScreen() {
 
         {short.length > 0 && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">
-                {short.length === 1 ? 'ONE THING SHORT' : `${short.length} THINGS SHORT`}
-              </span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label={shortLabel(short.length)} amber gap={false} />
+            <div>
               {short.map((line) => <ShortRow key={line.ingredientId} line={line} />)}
             </div>
           </>
@@ -127,14 +123,11 @@ export function KitchenNightScreen() {
 
         {inHand.length > 0 && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">ALREADY IN</span>
-              <span className="ml-band__meta">{inHand.length}</span>
-            </div>
+            <KitchenDivider label="Already in" count={inHand.length} />
             {/* Nine rows, then it bisects (PLAN_WEEK §2). The short band above deliberately does
                 not scroll — a shortfall you have to scroll to see all of is one you will act on
                 incompletely. */}
-            <CutGroup rows={9} rowHeight={42} className="ml-band-shade">
+            <div>
               {inHand.map((line) => (
                 <div key={line.ingredientId} className="ml-row ml-kitchen__shelfrow">
                   <span className="ml-kitchen__shelfname">{line.name}</span>
@@ -151,7 +144,7 @@ export function KitchenNightScreen() {
                   </span>
                 </div>
               ))}
-            </CutGroup>
+            </div>
           </>
         )}
 
@@ -202,4 +195,17 @@ function ShortRow({ line }: { line: StockCheckLineDto }) {
       </span>
     </div>
   )
+}
+
+/**
+ * `Three things short` — words up to ten, figures beyond, as the section does everywhere else.
+ *
+ * `numberWord` returns the word in lower case because it is usually read mid-sentence; a divider
+ * label is the start of one, so the capital is put back here rather than by changing a helper
+ * eleven other call sites depend on.
+ */
+function shortLabel(count: number): string {
+  if (count === 1) return 'One thing short'
+  const word = numberWord(count)
+  return `${word.charAt(0).toUpperCase()}${word.slice(1)} things short`
 }

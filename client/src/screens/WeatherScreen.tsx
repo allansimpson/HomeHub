@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { DrillInHeader, ScreenShell, ScrollArea, SectionLabel, AlertBanner, EmptyState } from '../components'
+import { useSearchParams } from 'react-router'
+import { DrillInHeader, ScreenShell, ScrollArea, SectionLabel, AlertBanner, EmptyState, WeatherAlertSheet } from '../components'
 import { Icon } from '../icons/Icon'
 import { useClock } from '../app/useClock'
 import { useWeather } from '../app/WeatherProvider'
 import { useSensors } from '../app/SensorsProvider'
 import { useConnection } from '../app/ConnectionProvider'
 import { alertHeadline } from '../app/needsYou'
+import { alertDetail, hasProduct, mostSevere } from '../app/weatherAlert'
 import type { WeatherSnapshotDto, DailyDto } from '../api/types'
 import { clockLabel } from '../app/dates'
 
@@ -26,8 +28,13 @@ export function WeatherScreen() {
 
   const [view, setView] = useState<View>('now')
   const [dayIndex, setDayIndex] = useState(0)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [params, setParams] = useSearchParams()
 
-  const weatherAlert = alerts.find((a) => a.source === 'weather')
+  // The most severe, not the first. NWS returns a statement and a warning together often enough,
+  // in no particular order, that taking the head of the list could leave a tornado warning behind
+  // a special weather statement on the one screen meant to surface it.
+  const weatherAlert = mostSevere(alerts.filter((a) => a.source === 'weather'))
   const hasData = !!weather?.current && weather.current.tempF != null
   const days = weather?.daily ?? []
   const openDay = (i: number) => {
@@ -35,13 +42,36 @@ export function WeatherScreen() {
     setView('hourly')
   }
 
-  // The dashboard banners this same alert on the same test, through the same headline — see
-  // `alertHeadline`. Not tappable here: this *is* the screen it would take you to.
+  /*
+   * `?alert=open` arrives from the Dashboard banner, which routes here and expects the statement to
+   * be up on arrival rather than needing a second tap on a banner the household has already tapped.
+   *
+   * The parameter is consumed immediately — replace, not push, so Back still leaves for the
+   * Dashboard rather than re-opening the sheet in place. After that the sheet is ordinary local
+   * state, and closing it does not touch the URL.
+   */
+  const wantsSheet = params.get('alert') === 'open'
+  useEffect(() => {
+    if (!wantsSheet) return
+    setSheetOpen(true)
+    const next = new URLSearchParams(params)
+    next.delete('alert')
+    setParams(next, { replace: true })
+    // `params`/`setParams` are deliberately out of the deps: this runs on the arriving parameter,
+    // and including the setter's own input would re-enter as soon as it clears it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantsSheet])
+
+  // Tapping opens the statement — this is already the screen a Dashboard tap routes to, so there is
+  // nowhere left to navigate. Only when there is a product to show: a sensor-threshold alert
+  // reaching this banner has no `event` and stays inert rather than opening an empty sheet.
+  const readable = hasProduct(weatherAlert)
   const banner = weatherAlert && (
     <AlertBanner
-      title={alertHeadline(weatherAlert)}
-      detail={weatherAlert.message}
+      title={weatherAlert.event ?? alertHeadline(weatherAlert)}
+      detail={alertDetail(weatherAlert)}
       severe={weatherAlert.severity === 'Severe'}
+      onClick={readable ? () => setSheetOpen(true) : undefined}
     />
   )
 
@@ -101,6 +131,24 @@ export function WeatherScreen() {
           {view === 'hourly' && <DayDetail weather={weather!} day={days[Math.min(dayIndex, days.length - 1)]} />}
           {view === 'radar' && <RadarView lat={weather!.latitude} lon={weather!.longitude} />}
         </div>
+      )}
+
+      {/* Outside the `hasData` branch: an alert is worth reading whether or not the forecast that
+          should sit behind it has loaded, and a storm is when that fetch is most likely to fail. */}
+      {sheetOpen && readable && (
+        <WeatherAlertSheet
+          alert={weatherAlert}
+          fetchedAtUtc={weather?.fetchedAtUtc ?? null}
+          onClose={() => setSheetOpen(false)}
+          onRadar={
+            hasData
+              ? () => {
+                  setSheetOpen(false)
+                  setView('radar')
+                }
+              : undefined
+          }
+        />
       )}
     </ScreenShell>
   )

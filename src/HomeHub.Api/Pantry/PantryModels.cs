@@ -129,7 +129,18 @@ public record PantryEventDto(
     string? ResultingState,
     DateTime AtUtc,
     string? ByName,
-    bool Undone);
+    bool Undone,
+    /// <summary>
+    /// What caused it, named — the dish a deduction cooked, the vendor a delivery came from.
+    /// </summary>
+    /// <remarks>
+    /// The item sheet reads `One used — Piccata` and `Tesco order` off this (PANTRY_SHELVES §2).
+    /// It is the difference between a history that says a tin left the shelf and one that says why:
+    /// "one used" invites the question the row exists to answer, and `SourceKind`/`SourceId` have
+    /// always known it. Null wherever the event had no cause worth naming — a hand correction is
+    /// caused by the person, who is already in <see cref="ByName"/>.
+    /// </remarks>
+    string? SourceLabel = null);
 
 // ---- 9c · scan ----
 
@@ -482,6 +493,73 @@ public record RefuseMatchInput(string Ingredient, int PantryItemId, int? Profile
 /// two things at seven in the evening costs more than one that admitted it did not know.
 /// </remarks>
 public record CookabilityDto(int RecipeId, string Band, int ShortCount, int UnmatchedCount);
+
+/// <summary>
+/// What a barcode turns out to be — identification only, writing nothing
+/// (ADD_TO_PANTRY §2).
+/// </summary>
+/// <remarks>
+/// <b>Distinct from <see cref="ScanResultDto"/> on purpose.</b> That one is the phone's tally path:
+/// it moves stock and writes a ledger row per pack. The add form is doing the opposite job —
+/// "scanning is identification, not tallying. One scan names the thing and fills its size; it never
+/// increments a count" — so it needs an answer with no side effect at all. Reusing the scan endpoint
+/// with a zero delta would have written a zero-delta event for every frame that decoded.
+/// </remarks>
+public record BarcodeLookupDto(
+    /// <summary>The normalised 13-digit form, which is what a later `NAME IT` must teach against.</summary>
+    string Barcode,
+    /// <summary>Whether the household or global catalogue already knows this pack.</summary>
+    bool Known,
+    string? Name,
+    string? Unit,
+    decimal? PackSize,
+    string? PackUnit,
+    string? Location,
+    string? Tracking,
+    /// <summary>
+    /// What an outside catalogue thinks it is, when the household's own does not know.
+    /// </summary>
+    /// <remarks>
+    /// Pre-fills the form and nothing more. Confirming it is what teaches the household entry —
+    /// the same gesture as typing the name, which is what keeps the household's words authoritative
+    /// over a stranger's database (DECISIONS PG4).
+    /// </remarks>
+    ProductSuggestionDto? Suggestion);
+
+/// <summary>
+/// A recipe that consumes this item, and how much of it the recipe asks for
+/// (PANTRY_SHELVES §2, <c>USED BY</c>).
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Recipes, not nights.</b> <see cref="ItemClaimDto"/> answers "what is this tin promised to";
+/// this answers "what is this tin <i>for</i>". The sheet needs the second question to be useful
+/// before the week is planned at all — a household looking at four tins wants to know what they
+/// cook, and a list that only appears once something is scheduled is empty exactly when somebody is
+/// deciding what to schedule.
+/// </para>
+/// <para>
+/// Ordered by title. A claim does not promote a row — see the ordering note on the action.
+/// </para>
+/// <para>
+/// <see cref="Packs"/> is the recipe's amount restated in the item's own containers, and it is null
+/// far more often than not: it needs both a pack size on the shelf and a unit conversion that
+/// <see cref="UnitConversion"/> is willing to make. Null means the sheet says <c>30 oz</c> and stops
+/// rather than guessing how many tins that is — the same rule the stock check follows.
+/// </para>
+/// </remarks>
+public record ItemUsageDto(
+    int RecipeId,
+    string Title,
+    /// <summary>What the line asks for, as the recipe wrote it. Null on a line the parser could not read.</summary>
+    decimal? Quantity,
+    string? Unit,
+    /// <summary>That amount in the item's own packs, when the two units can be compared at all.</summary>
+    decimal? Packs,
+    /// <summary>The container word the packs are counted in — <c>cans</c>, <c>pots</c>.</summary>
+    string? PackUnit,
+    /// <summary>The night holding this recipe's claim, when one does — the amber <c>claimed for Saturday</c>.</summary>
+    DateOnly? ClaimedForDate);
 
 /// <summary>
 /// A night that has spoken for this item (PANTRY_SHELVES §2, KITCHEN_LOOP_ADDENDUM §1).

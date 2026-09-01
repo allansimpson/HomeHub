@@ -5,7 +5,7 @@ interface AlertBannerProps {
   detail?: string
   /** Severe adds the hazard-stripe treatment beneath the banner. */
   severe?: boolean
-  /** Tapping navigates to the relevant screen. */
+  /** Tapping navigates to the relevant screen, or opens the statement sheet. */
   onClick?: () => void
 }
 
@@ -19,15 +19,27 @@ export function AlertBanner({ title, detail, severe, onClick }: AlertBannerProps
   return (
     <div>
       <div
-        className="ml-alert"
+        className={'ml-alert' + (onClick ? ' ml-alert--tap' : '')}
         onClick={onClick}
         role={onClick ? 'button' : undefined}
         tabIndex={onClick ? 0 : undefined}
+        // A div with role=button gets no key handling for free, and the banner is the whole hit
+        // target, so the keyboard needs both keys the platform would have given a real button.
+        onKeyDown={
+          onClick
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onClick()
+                }
+              }
+            : undefined
+        }
       >
         <span className="ml-alert__glyph" aria-hidden="true">
           <Icon id="ico-alert" size="1.25rem" />
         </span>
-        <div>
+        <div className="ml-alert__text">
           <div className="ml-alert__title">{title}</div>
           {detail && <div className="ml-alert__detail">{detail}</div>}
         </div>

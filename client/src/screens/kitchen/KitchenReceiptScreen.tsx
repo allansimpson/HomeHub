@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
-import { CutGroup, DrillInHeader, ScreenShell, ScrollArea } from '../../components'
+import { KitchenDivider, KitchenDrillInHeader, ScreenShell, ScrollArea } from '../../components'
 import { api } from '../../api/client'
 import { agoLabel, longWeekday, planDate } from '../../app/mealsDomain'
 import { calendarDaysUntil } from '../../app/kitchenDomain'
@@ -63,7 +63,7 @@ export function KitchenReceiptScreen() {
 
   if (!receipt) {
     return (
-      <ScreenShell nav={false} header={<DrillInHeader title="" onBack={() => navigate('/kitchen')} />}>
+      <ScreenShell nav={false} header={<KitchenDrillInHeader exit="BACK" onExit={() => navigate('/kitchen')} />}>
         <div className="ml-kitchen__emptyshelf">Nothing came off the shelves for this night.</div>
       </ScreenShell>
     )
@@ -107,10 +107,10 @@ export function KitchenReceiptScreen() {
     <ScreenShell
       nav={false}
       header={
-        <DrillInHeader
+        <KitchenDrillInHeader
           title="What that used"
-          onBack={undoAll}
-          backLabel="UNDO ALL"
+          onExit={undoAll}
+          exit="UNDO ALL"
         />
       }
     >
@@ -127,24 +127,18 @@ export function KitchenReceiptScreen() {
         {/* ---- Taken off, with the before beside the after ---- */}
         {taken.length > 0 && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">TAKEN OFF</span>
-              <span className="ml-band__meta">{taken.length}</span>
-            </div>
-            <CutGroup rows={7} rowHeight={42} className="ml-band-shade">
+            <KitchenDivider label="Taken off" count={taken.length} gap={false} />
+            <div>
               {taken.map((line) => <Line key={line.eventId} line={line} />)}
-            </CutGroup>
+            </div>
           </>
         )}
 
         {/* Named, not skipped. The one operation that could hide the pantry's honesty must not. */}
         {receipt.leftAlone.length > 0 && (
           <>
-            <div className="ml-band ml-band--quiet">
-              <span className="ml-band__label">LEFT ALONE</span>
-              <span className="ml-band__meta">{receipt.leftAlone.length}</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="Left alone" count={receipt.leftAlone.length} />
+            <div>
               {receipt.leftAlone.map((name) => (
                 <div key={name} className="ml-row ml-kitchen__waitingrow">
                   <span className="ml-row__value">{name}</span>
@@ -158,10 +152,8 @@ export function KitchenReceiptScreen() {
         {/* ---- The leftovers card ---- */}
         {receipt.produced && !decided && (
           <>
-            <div className="ml-band ml-band--amber">
-              <span className="ml-band__label">AND WHAT'S LEFT OVER</span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label="And what's left over" amber />
+            <div>
               <div className="ml-kitchen__leftovers">
                 <div className="ml-kitchen__leftoverhead">
                   <span className="ml-kitchen__recipename">{receipt.produced.suggestedName}</span>
@@ -178,7 +170,11 @@ export function KitchenReceiptScreen() {
                   <div className="ml-kitchen__fact">
                     <span className="ml-kitchen__factlabel">SPARE PORTIONS</span>
                     <span className="ml-kitchen__factvalue">
-                      {receipt.produced.suggestedPortions} of {receipt.servings}
+                      {receipt.produced.suggestedPortions}
+                      {/* `of 6` qualifies the figure rather than being part of it, so it is set
+                          as the caption the handoff draws — smaller and quieter, not another
+                          number in the same size beside the first. */}
+                      <span className="ml-kitchen__ofwhat"> of {receipt.servings}</span>
                     </span>
                   </div>
                 </div>
@@ -210,10 +206,8 @@ export function KitchenReceiptScreen() {
           a later night. C3's own build note says this space can only be closed with real content —
           the panel had 285px of void and the answer was this, not a bigger number somewhere.
         */}
-        <div className="ml-band">
-          <span className="ml-band__label">WHAT THIS SETTLES</span>
-        </div>
-        <div className="ml-band-shade">
+        <KitchenDivider label="What this settles" />
+        <div>
           {receipt.produced && decided && (
             <div className="ml-row ml-kitchen__waitingrow">
               <span className="ml-row__value">{receipt.produced.suggestedName}</span>

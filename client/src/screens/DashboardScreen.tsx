@@ -13,6 +13,7 @@ import { usePantry } from '../app/PantryProvider'
 import { useBaby } from '../app/BabyProvider'
 import { useCareSubjects } from '../app/careSubjects'
 import { useNeedsYou, alertTarget, alertHeadline, type NeedsRow } from '../app/needsYou'
+import { alertDetail, hasProduct, mostSevere } from '../app/weatherAlert'
 import { useNotifications } from '../app/NotificationsProvider'
 import { useNow } from '../app/useNow'
 import { Icon } from '../icons/Icon'
@@ -31,6 +32,19 @@ const NEXT_PREVIEW = 2
 const NEEDS_PREVIEW = 3
 /** Rooms rolled up into the house line before it stops naming them. */
 const HOUSE_ROLLUP = 2
+
+/**
+ * Add `alert=open` to an alert's destination, so the screen it lands on shows the statement without
+ * a second tap.
+ *
+ * Separator-aware because `alertTarget` already returns a query string for some sources
+ * (`/sensor?zone=3`). Those have no product today and so never take this branch — but the banner
+ * would break silently on the day one did, and the fix is one character.
+ */
+function withAlertOpen(target: string, open: boolean): string {
+  if (!open) return target
+  return target + (target.includes('?') ? '&' : '?') + 'alert=open'
+}
 
 /**
  * Dashboard — home AND idle screen. 540 × 960, and it **never scrolls**.
@@ -98,7 +112,7 @@ export function DashboardScreen() {
    * Severe still wins the slot outright, whatever its source: one banner, and the worst thing in the
    * house is the thing it should be naming.
    */
-  const weatherAlert = alerts.find((a) => a.source === 'weather')
+  const weatherAlert = mostSevere(alerts.filter((a) => a.source === 'weather'))
   const bannerAlert = severeAlert ?? weatherAlert
 
   const current = weather?.current
@@ -142,11 +156,24 @@ export function DashboardScreen() {
         <>
           <UpdatePlate />
           {bannerAlert && (
+            /*
+             * Routes to the alert's own screen, as it always has — and for an alert that carries an
+             * NWS product, opens the statement there on arrival.
+             *
+             * `ALERT_SHEET.md` §1 would have this banner only navigate, leaving the second tap to
+             * the Weather copy. Allan asked for the statement to open straight away, and keeping
+             * the navigation underneath it is what makes that work: the sheet closes onto the
+             * screen the alert is about, and SEE RADAR has a segment to switch. Opened in place
+             * here it would close onto the Dashboard and have no radar to offer.
+             *
+             * Not "so Back still works" — `backGuard` refuses a pop off a tab root, and `/weather`
+             * is one. The way home from there is the nav bar, as it is from every other tab.
+             */
             <AlertBanner
-              title={alertHeadline(bannerAlert)}
-              detail={bannerAlert.message}
+              title={bannerAlert.event ?? alertHeadline(bannerAlert)}
+              detail={alertDetail(bannerAlert)}
               severe={bannerAlert.severity === 'Severe'}
-              onClick={() => navigate(alertTarget(bannerAlert.source))}
+              onClick={() => navigate(withAlertOpen(alertTarget(bannerAlert.source), hasProduct(bannerAlert)))}
             />
           )}
         </>
@@ -357,7 +384,10 @@ function TonightBlock() {
  */
 function CareBlock() {
   const navigate = useNavigate()
-  const { state } = useBaby()
+  /* HomeHub's own log, not the retired integration. These three read `BabyState` off Huckleberry
+     until 2026-08-30, which is why all of them showed an em dash next to a `LOG ▸` button that
+     wrote to a different system entirely. */
+  const { lastBottleUtc, lastDiaperUtc, feedsToday } = useBaby()
   const { subjects } = useCareSubjects()
   const now = useNow(60_000)
   const conrad = subjects.find((s) => s.id === 'conrad')
@@ -369,9 +399,9 @@ function CareBlock() {
         status={conrad ? `${conrad.name}${conrad.meta ? ` · ${conrad.meta}` : ''}` : undefined}
       />
       <div className="ml-careline">
-        <Stat label="Bottle" value={sinceShort(state?.lastBottleUtc ?? null, now)} />
-        <Stat label="Diaper" value={sinceShort(state?.lastDiaperUtc ?? null, now)} />
-        <Stat label="Today" value={state?.feedsToday == null ? '—' : String(state.feedsToday)} unit="feeds" />
+        <Stat label="Bottle" value={sinceShort(lastBottleUtc, now)} />
+        <Stat label="Diaper" value={sinceShort(lastDiaperUtc, now)} />
+        <Stat label="Today" value={feedsToday == null ? '—' : String(feedsToday)} unit="feeds" />
         <button type="button" className="ml-careline__link" onClick={() => navigate('/care?subject=conrad')}>
           Log ▸
         </button>

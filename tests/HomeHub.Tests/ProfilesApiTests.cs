@@ -169,7 +169,9 @@ public class ProfilesApiTests
     {
         using var app = new HubAppFactory();
         var admin = app.CreateSeededClient();
-        await admin.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("4321"));
+        // Set by its owner — an administrator can no longer set somebody else's.
+        await app.CreateSeededClient(profileId: 2)
+            .PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("4321"));
 
         var attacker = app.CreateAnonymousClient();
         SignInFailure? last = null;
@@ -200,7 +202,9 @@ public class ProfilesApiTests
     {
         using var app = new HubAppFactory();
         var admin = app.CreateSeededClient();
-        await admin.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("4321"));
+        // Set by its owner — an administrator can no longer set somebody else's.
+        await app.CreateSeededClient(profileId: 2)
+            .PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("4321"));
 
         var attacker = app.CreateAnonymousClient();
         for (var i = 0; i < 5; i++)
@@ -277,11 +281,16 @@ public class ProfilesApiTests
     }
 
     /// <summary>
-    /// An administrator resetting somebody else's PIN is not asked for it — that is the household's
-    /// recovery path for a PIN nobody can remember.
+    /// <b>An administrator cannot reset somebody else's PIN</b>, and therefore cannot sign in as them.
     /// </summary>
+    /// <remarks>
+    /// This test used to assert the opposite, as the household's recovery path for a forgotten PIN.
+    /// Read back, it was a demonstration of the escalation: set the PIN, then use the PIN you set.
+    /// Recovery now costs a trip to the server, which is the asymmetry that makes the lock mean
+    /// something — the person who can re-key it is not the person standing at the kitchen wall.
+    /// </remarks>
     [Fact]
-    public async Task An_admin_can_reset_another_members_forgotten_pin()
+    public async Task An_admin_cannot_reset_another_members_pin_and_sign_in_as_them()
     {
         using var app = new HubAppFactory();
         var ragnar = app.CreateSeededClient(profileId: 2);
@@ -289,11 +298,15 @@ public class ProfilesApiTests
 
         var admin = app.CreateSeededClient(profileId: 1);
         var reset = await admin.PutAsJsonAsync("/api/profiles/2/pin", new SetPinRequest("1111"));
-        Assert.Equal(HttpStatusCode.NoContent, reset.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, reset.StatusCode);
 
+        // And the PIN it tried to overwrite is untouched.
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await app.CreateAnonymousClient().PostAsJsonAsync("/api/session", new { profileId = 2, pin = "1111" })).StatusCode);
         Assert.Equal(
             HttpStatusCode.OK,
-            (await app.CreateAnonymousClient().PostAsJsonAsync("/api/session", new { profileId = 2, pin = "1111" })).StatusCode);
+            (await app.CreateAnonymousClient().PostAsJsonAsync("/api/session", new { profileId = 2, pin = "4321" })).StatusCode);
     }
 
     /// <summary>
@@ -362,10 +375,15 @@ public class ProfilesApiTests
     public async Task Clearing_pin_removes_lock_requirement()
     {
         using var app = new HubAppFactory();
-        var client = app.CreateSeededClient();
+        var client = app.CreateSeededClient(profileId: 3);
         await client.PutAsJsonAsync("/api/profiles/3/pin", new SetPinRequest("1111"));
 
-        var clear = await client.DeleteAsync("/api/profiles/3/pin");
+        // Removing your own asks for it first, exactly as changing it does — and with the admin
+        // bypass gone, every clear is somebody's own.
+        var clear = await client.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/api/profiles/3/pin")
+        {
+            Content = JsonContent.Create(new ClearPinRequest("1111")),
+        });
         Assert.Equal(HttpStatusCode.NoContent, clear.StatusCode);
 
         var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");

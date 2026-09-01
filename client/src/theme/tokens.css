@@ -44,6 +44,13 @@
   --alert: #D08A2E;
   --alert-ink: #171207;
 
+  /* The amber section divider (design_handoff_kitchen_lists §1).
+     A divider is a rule and a count, not a fill, so the amber variant needs its own darkened rule
+     and its own deep-amber ink — `--alert` itself is far too loud for a count and `--rule-major`
+     is neutral, which would leave an amber label sitting on a grey line. */
+  --rule-amber: #3A2F1D;
+  --amber-deep: #8A6A34;
+
   /* The update plate's inks and gauge track (design_handoff_update_notice).
      One near-black per fill rather than one shared ink: each is chosen against the colour it sits
      on, and the brass one is the amber banner's `--alert-ink`, which is the same value doing the
@@ -78,6 +85,12 @@
      has to sit below its own preview text and above a read row's, and reusing either end collapsed
      the distinction the whole unread treatment depends on (ASSIST.md · Row anatomy). */
   --text-quiet: #9A917F;
+  /* The Baby row's time column (design_handoff_baby). Between --text-secondary and --text-quiet:
+     the time has to out-read the detail beside it without sitting level with the entry's own name,
+     and both existing steps failed one of those two tests. */
+  --text-time: #B8AE9A;
+  --bg-live-soft: #16211C;       /* the scan banner's fill, when the pack was recognised */
+  --border-live: #3D5147;        /* and its border — the teal pair to --bg-fault/--border-fault */
   --bg-fault: #1F1815;           /* Mika's fault banner fill */
   --border-fault: #5C4438;       /* Mika's fault banner border */
   --text-fault-meta: #8F6A55;    /* meta text inside the fault banner */
@@ -94,6 +107,10 @@
    */
   --bg-sheet: #191B1F;           /* the raised logging panel */
   --scrim-sheet: rgba(11, 12, 14, 0.68); /* over the peek of the day view behind it */
+  /* Darker than --scrim-sheet on purpose (design_handoff_weather_alert/ALERT_SHEET.md §2). The
+     logging panel dims a screen you are still working against; the statement sheet is the only
+     thing that matters while it is open, and the forecast behind it is not a reference for it. */
+  --scrim-alert: rgba(10, 11, 13, 0.74);
   --handle-bar: #6B6250;         /* the 78 × 4 grab bar */
   --border-swatch: #4A4438;      /* frame around a diaper colour block */
 
@@ -226,6 +243,14 @@
   --text-fault-meta: #B08770;
   --bg-disabled: #22252A;
   --text-faintest: #6C6860;
+  /* The amber divider lifts with `--rule-major` and `--brass-meta` respectively: it is the same
+     pair of jobs (a rule you must still see, a count you must still read) in the amber register. */
+  --rule-amber: #4C3F28;
+  --amber-deep: #B0894A;
+  /* Lifted with the rest, and it has to keep its gap to `--text-secondary` above and the detail
+     line below — a time column that converges with either under daylight is one nobody can pick
+     out, which is the whole reason it became a column. */
+  --text-time: #CBC2AE;
   /* The panel rises with the screen it covers, or it stops reading as a layer above it. The scrim
      lightens too: at 0.68 over a brightened peek it goes from "dimmed context" to "black band". */
   --bg-sheet: #22252A;

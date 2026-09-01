@@ -4,7 +4,7 @@ import { ScreenShell, DrillInHeader, ScrollArea } from '../../components'
 import { Icon } from '../../icons/Icon'
 import { useMeals } from '../../app/MealsProvider'
 import {
-  GROUPING_THRESHOLD, cookedAgoLabel, cookedCountLabel, countWord, daysSinceCooked,
+  GROUPING_THRESHOLD, cookedAgoLabel, cookedCountLabel, countWord, daysSinceCooked, lastCookedSentence,
   durationLabel, matchesAtWordBoundary, normaliseForSearch, panelAddress, planDate, todayKey,
 } from '../../app/mealsDomain'
 import { cuisineLabel, cuisineNameOf, plainTags, type FolderSort } from '../../app/mealsPrefs'
@@ -649,7 +649,7 @@ function AttendantRow() {
         <span className="ml-attendantrow__text">
           {never
             ? `${suggestion.title} has never been cooked. There's a free night this week.`
-            : `${suggestion.title} hasn't been cooked in ${cookedAgoLabel(suggestion.lastCookedDate).toLowerCase()}.`}
+            : `${suggestion.title}: ${lastCookedSentence(suggestion.lastCookedDate).toLowerCase()}`}
         </span>
         <span className="ml-attendantrow__by">THE ATTENDANT</span>
       </span>

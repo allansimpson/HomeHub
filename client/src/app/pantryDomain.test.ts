@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest'
 import {
   ageLabel,
   agoWords,
+  countHow,
   amountLabel,
   onHand,
   emptyShelfLine,
+  packLabel,
+  pluralUnit,
   evidenceLine,
+  eventWho,
+  eventWords,
   groupByLocation,
   grocerySections,
   hedgeLine,
@@ -19,9 +24,11 @@ import {
   tailLine,
   tallyLine,
   trimNumber,
+  usageAmount,
 } from './pantryDomain'
 import type {
-  GroceryLineDto, MealWeekDto, MirrorStatusDto, PantryItemDto, StockCheckLineDto,
+  GroceryLineDto, ItemUsageDto, MealWeekDto, MirrorStatusDto, PantryEventDto, PantryItemDto,
+  PantryEventKindName, StockCheckLineDto,
 } from '../api/types'
 
 /**
@@ -428,5 +435,180 @@ describe('trimNumber', () => {
     expect(trimNumber(2.5)).toBe('2.5')
     expect(trimNumber(0.25)).toBe('0.25')
     expect(trimNumber(3.0001)).toBe('3')
+  })
+})
+
+/**
+ * The item sheet's history (PANTRY_SHELVES §2).
+ *
+ * The whole block exists so a wrong number is **traceable rather than arguable**, and that is a
+ * claim about wording rather than about data: `Deducted −2` has to be decoded before anyone can
+ * disagree with it, and `Two used — Piccata` can be disagreed with on sight. These assertions are
+ * what stop the block drifting back into a log.
+ */
+describe('eventWords', () => {
+  const event = (over: Partial<PantryEventDto> = {}): PantryEventDto => ({
+    id: 1, pantryItemId: 1, kind: 'Scanned', delta: null, resultingQuantity: null,
+    resultingState: null, atUtc: '2026-08-22T09:00:00Z', byName: null, undone: false,
+    sourceLabel: null, ...over,
+  })
+
+  it('says what changed in words, not in signed integers', () => {
+    expect(eventWords(event({ kind: 'Scanned', delta: 4, resultingQuantity: 4 })))
+      .toBe('Four added')
+    expect(eventWords(event({ kind: 'Deducted', delta: -1, resultingQuantity: 3 })))
+      .toBe('One used')
+    expect(eventWords(event({ kind: 'Imported', delta: 2, resultingQuantity: 6 })))
+      .toBe('Two added')
+  })
+
+  it('names what a deduction was for, because that is the question "one used" provokes', () => {
+    expect(eventWords(event({ kind: 'Deducted', delta: -1, sourceLabel: 'Piccata' })))
+      .toBe('One used — Piccata')
+    // An addition does not: what a delivery was for is the delivery, and the right-hand cell
+    // already names it.
+    expect(eventWords(event({ kind: 'Imported', delta: 2, sourceLabel: 'Tesco' })))
+      .toBe('Two added')
+  })
+
+  it('reads a correction as the count it set, not the delta it happened to be', () => {
+    expect(eventWords(event({ kind: 'Corrected', delta: -5, resultingQuantity: 1 })))
+      .toBe('Counted at 1')
+  })
+
+  it('keeps the digits on a fractional pack rather than inventing a word for it', () => {
+    expect(eventWords(event({ kind: 'Deducted', delta: -1.33, resultingQuantity: 3.67 })))
+      .toBe('1.33 used')
+  })
+
+  it('still says something true about a kind it does not know', () => {
+    const unknown = 'SomethingLater' as PantryEventKindName
+    expect(eventWords(event({ kind: unknown, delta: 0, resultingQuantity: 4 })))
+      .toBe('Changed to 4')
+  })
+
+  it('reads an estimate as a state rather than a count', () => {
+    expect(eventWords(event({ kind: 'MarkedLow', resultingState: 'Low' }))).toBe('Now low')
+  })
+})
+
+describe('eventWho', () => {
+  const event = (over: Partial<PantryEventDto> = {}): PantryEventDto => ({
+    id: 1, pantryItemId: 1, kind: 'Scanned', delta: null, resultingQuantity: null,
+    resultingState: null, atUtc: '2026-08-22T09:00:00Z', byName: null, undone: false,
+    sourceLabel: null, ...over,
+  })
+
+  it('never drops the method, because the method is what says whether to trust the number', () => {
+    expect(eventWho(event({ kind: 'Scanned', byName: 'Aiden' }))).toBe('Aiden · scan')
+    expect(eventWho(event({ kind: 'Corrected', byName: 'Eleanor' }))).toBe('Eleanor · check')
+    // Nobody stood at the cupboard for a deduction, and the row says so without a name.
+    expect(eventWho(event({ kind: 'Deducted' }))).toBe('cooked')
+  })
+
+  it('names the vendor a delivery came from rather than the word "delivery"', () => {
+    expect(eventWho(event({ kind: 'Imported', sourceLabel: 'Tesco' }))).toBe('Tesco order')
+    expect(eventWho(event({ kind: 'Imported' }))).toBe('delivery')
+  })
+})
+
+describe('usageAmount', () => {
+  const usage = (over: Partial<ItemUsageDto> = {}): ItemUsageDto => ({
+    recipeId: 1, title: 'Chicken Piccata', quantity: null, unit: null,
+    packs: null, packUnit: null, claimedForDate: null, ...over,
+  })
+
+  it('leads with what the recipe asks for, and adds the packs it works out to', () => {
+    expect(usageAmount(usage({ quantity: 30, unit: 'oz', packs: 2.5, packUnit: 'cans' })))
+      .toBe('30 oz · 2.5 cans')
+  })
+
+  it('does not say the same thing twice because of a plural', () => {
+    // The recipe already speaks in the item's own containers, so `1 can · 1 cans` is one fact
+    // rendered as two.
+    expect(usageAmount(usage({ quantity: 1, unit: 'can', packs: 1, packUnit: 'cans' })))
+      .toBe('1 can')
+  })
+
+  it('stops rather than guessing when the units will not convert', () => {
+    expect(usageAmount(usage({ quantity: 2, unit: 'tbsp', packs: null, packUnit: 'cans' })))
+      .toBe('2 tbsp')
+  })
+
+  it('has nothing to say about a line the parser could not read', () => {
+    expect(usageAmount(usage())).toBeNull()
+  })
+})
+
+describe('the item sheet facts strip', () => {
+  const item = (over: Partial<PantryItemDto> = {}): PantryItemDto => ({
+    id: 1, name: 'Premium Sauce Caramel', location: 'Cupboard', tracking: 'Counted',
+    quantity: 454, unit: 'g', estimateState: null, packSize: null, packUnit: null,
+    lastSeenAtUtc: null, lastSeenByName: null, catalogueRef: null, isArchived: false,
+    version: 1, openedAtUtc: null, goodUntil: null, ...over,
+  })
+
+  it('has no answer for ONE IS on a loose row, and says so rather than naming the unit', () => {
+    // `ONE IS · g` was the old fallback. 454 g of sauce is not 454 of anything you can pick up,
+    // and ADD_TO_PANTRY §3 says a blank size means the row counts in whole units.
+    expect(packLabel(item())).toBeNull()
+    expect(packLabel(item({ packSize: 12, packUnit: 'oz' }))).toBe('12 oz')
+    expect(packLabel(item({ packSize: 0 }))).toBeNull()
+  })
+
+  it('says how the number is known as a sentence, not as a column heading', () => {
+    const now = new Date('2026-08-22T12:00:00Z')
+    expect(countHow(item({ lastSeenAtUtc: '2026-08-22T09:00:00Z' }), now))
+      .toBe('seen today · counted, not guessed')
+    // `seen 2 wk` was `ageLabel` lowercased — a caps token standing in the middle of a clause.
+    expect(countHow(item({ lastSeenAtUtc: '2026-08-04T18:00:00Z' }), now))
+      .toBe('seen two weeks ago · counted, not guessed')
+    expect(countHow(item(), now)).toBe('never seen · counted, not guessed')
+  })
+
+  it('does not claim an estimated row was counted', () => {
+    expect(countHow(item({ tracking: 'Estimated', estimateState: 'Low' }), new Date()))
+      .toContain('estimated, not counted')
+  })
+})
+
+describe('pluralUnit', () => {
+  it('agrees the unit with the number, because the pantry stores singulars', () => {
+    // `UnitRegistry` folds `cans` to `can` on the way in, so every quantity in the section read
+    // `4 can` until this existed.
+    expect(pluralUnit(4, 'can')).toBe('cans')
+    expect(pluralUnit(1, 'can')).toBe('can')
+    expect(pluralUnit(2, 'carton')).toBe('cartons')
+  })
+
+  it('leaves symbols alone — nobody writes 200 gs', () => {
+    for (const u of ['g', 'kg', 'ml', 'L', 'oz', 'lb', 'tbsp']) {
+      expect(pluralUnit(200, u)).toBe(u)
+    }
+  })
+
+  it('handles the container words a shelf actually holds', () => {
+    expect(pluralUnit(2, 'box')).toBe('boxes')
+    expect(pluralUnit(2, 'bunch')).toBe('bunches')
+    expect(pluralUnit(2, 'loaf')).toBe('loaves')
+    expect(pluralUnit(2, 'dash')).toBe('dashes')
+  })
+
+  it('leaves a unit that is already plural alone', () => {
+    // Rows predating the canonical fold still hold `tins`, and a rule that is not idempotent
+    // renders them `tinses` the first time anybody opens the shelf.
+    expect(pluralUnit(3, 'tins')).toBe('tins')
+    expect(pluralUnit(2, 'cans')).toBe('cans')
+  })
+
+  it('says nothing when there is no unit', () => {
+    expect(pluralUnit(3, null)).toBe('')
+    expect(pluralUnit(3, '  ')).toBe('')
+  })
+
+  it('pluralises a fraction, which is not one of anything', () => {
+    // "0.5 cans" is right; "0.5 can" reads as a typo.
+    expect(pluralUnit(0.5, 'can')).toBe('cans')
+    expect(pluralUnit(2.5, 'can')).toBe('cans')
   })
 })

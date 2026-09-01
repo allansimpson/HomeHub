@@ -34,9 +34,25 @@ let unlockNote: UnlockNote | null = null
  */
 export const TRUST_WINDOW_MS = 12 * 60 * 60_000
 
-/** Private persisted data is readable only behind a currently confirmed server session. */
-export function mayAccessPrivateCache(serverSessionConfirmed: boolean, locked: boolean): boolean {
-  return serverSessionConfirmed && !locked
+/**
+ * What is entitled to open the private cache right now.
+ *
+ * <b>`device-pin` is new, and it is the whole of the offline fix.</b> The rule used to be "a
+ * currently confirmed server session, or nothing", which was the right rule while the cache was
+ * plain text in `localStorage` — anything weaker would have been a check the device could talk
+ * itself out of. It is no longer plain text: the records are sealed under a key that only the PIN
+ * unwraps (see `offlineUnlock.ts`), so proving the PIN *is* the access. There is nothing left for a
+ * server round trip to add to that, and demanding one anyway is what locked the household out of
+ * their own log whenever the house was out of range.
+ *
+ * `server-session` still means what it always did, and remains the only thing that opens the write
+ * queue — local access to local data and permission to send are different questions.
+ */
+export type CacheAuthority = 'server-session' | 'device-pin' | 'none'
+
+/** Private persisted data is readable behind a proved identity and an unlocked screen. */
+export function mayAccessPrivateCache(authority: CacheAuthority, locked: boolean): boolean {
+  return authority !== 'none' && !locked
 }
 
 /** When this tab last saw somebody prove who they were, and which profile it was. */

@@ -1,7 +1,6 @@
 namespace HomeHub.Api.Care;
 
 using System.ComponentModel.DataAnnotations;
-using HomeHub.Api.Baby;
 
 /// <summary>
 /// One logged moment in a child's day, kept by HomeHub itself.
@@ -78,6 +77,29 @@ public class CareEntry
 
     [MaxLength(16)]
     public string? Unit { get; set; }
+
+    /// <summary>Bottle only: how much went in, and how much came back. Null on every other type.</summary>
+    /// <remarks>
+    /// <para>
+    /// <b><see cref="Amount"/> is what was taken — these two are what it was worked out from.</b>
+    /// The bottle sheet asks for the bottle and what was left in it and subtracts, because that is
+    /// what somebody standing at the sink actually knows: they poured four ounces and half an ounce
+    /// came back. Only the difference was ever stored, and the sheet warned about it in a comment —
+    /// so reopening a feed to correct it showed the *consumed* figure sitting in the OFFERED field
+    /// with REMAINING blank, which reads as a bottle nobody drank from and quietly loses how big the
+    /// bottle was.
+    /// </para>
+    /// <para>
+    /// Kept alongside the difference rather than replacing it. <see cref="Amount"/> stays the figure
+    /// every other surface reads — the day totals, the row on the log, the last-fed line — and none
+    /// of them should have to know that one type computes it. These two exist so a correction opens
+    /// on what was actually entered.
+    /// </para>
+    /// </remarks>
+    public double? Offered { get; set; }
+
+    /// <inheritdoc cref="Offered"/>
+    public double? Left { get; set; }
 
     /// <summary>Minutes, for the types that are a duration: nursing, pump, sleep, tummy time.</summary>
     public double? DurationMinutes { get; set; }
@@ -157,15 +179,22 @@ public class CareEntry
 
 /// <summary>Where a row came from.</summary>
 /// <remarks>
-/// HomeHub is the record now — the panel writes here and nowhere else. Huckleberry is a *source* to
-/// be drawn from while the household finishes switching over, never a destination.
+/// HomeHub is the record — the panel writes here and nowhere else.
 /// </remarks>
 public enum CareEntrySource
 {
-    /// <summary>Typed on the panel. The only kind that will exist once the switch is complete.</summary>
+    /// <summary>Typed on the panel. The only kind written since 2026-08-30.</summary>
     Panel,
 
-    /// <summary>Pulled in from the Huckleberry calendar by an import.</summary>
+    /// <summary>
+    /// Pulled in from the retired Huckleberry integration's calendar, by an import that no longer
+    /// exists.
+    /// </summary>
+    /// <remarks>
+    /// <b>Kept because rows still carry it.</b> The importer went with the integration, but the
+    /// entries it wrote are the household's own history; rewriting them to say <c>Panel</c> would be
+    /// falsifying the log to tidy up a value nothing branches on.
+    /// </remarks>
     HuckleberryImport,
 }
 
@@ -173,9 +202,10 @@ public enum CareEntrySource
 /// The ten things a household logs, as the design's tile grid names them.
 /// </summary>
 /// <remarks>
-/// Five of these can be recovered from Huckleberry's calendar by an import — bottle, nursing,
-/// diaper, sleep and medicine. The rest have never been recorded anywhere and start empty, which is
-/// the honest state for them: the integration has no service to write them and no sensor to read
+/// Five of these were recoverable from the retired integration's calendar by the import that ran
+/// during the migration — bottle, nursing, diaper, sleep and medicine. The rest had never been
+/// recorded anywhere and started empty, which was the honest state for them: it had no service to
+/// write them and no sensor to read
 /// them, so there is nothing to backfill.
 /// </remarks>
 public enum CareEntryType

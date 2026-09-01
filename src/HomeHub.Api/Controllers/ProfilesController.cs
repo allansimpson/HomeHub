@@ -84,6 +84,10 @@ public class ProfilesController : ControllerBase
     /// <remarks>
     /// The role field is what makes this an admin endpoint rather than a merely sensitive one:
     /// without the gate, any caller could promote themselves and the policy would mean nothing.
+    /// <para>
+    /// <b>The lock settings are the exception and belong to the profile</b>, not to whoever is
+    /// editing it — see the body. Everything else here is the household's to arrange.
+    /// </para>
     /// </remarks>
     [Authorize(Policy = Household.AdminPolicy)]
     [HttpPut("{id:int}")]
@@ -97,9 +101,25 @@ public class ProfilesController : ControllerBase
 
         profile.Name = name;
         profile.Initial = NormalizeInitial(req.Initial, name);
-        profile.RequirePinWhenIdle = req.RequirePinWhenIdle;
-        profile.StayLoggedIn = req.StayLoggedIn;
         profile.DisplayOrder = req.DisplayOrder;
+
+        /*
+         * **The lock settings are the profile owner's, even here.**
+         *
+         * This endpoint is administrator-only, and an administrator editing a member's name and
+         * order is ordinary household admin. Turning off *their* idle lock is not: it is the same
+         * act as unlocking their profile, one screen removed, and it would let an administrator
+         * silently drop another member's privacy without ever touching their PIN. An admin who
+         * genuinely needs a member's screen unlocked can ask them.
+         *
+         * A caller sending the fields is not an error — the client round-trips the whole row — so
+         * they are ignored rather than refused, except when it is your own profile you are editing.
+         */
+        if (User.ProfileId() == id)
+        {
+            profile.RequirePinWhenIdle = req.RequirePinWhenIdle;
+            profile.StayLoggedIn = req.StayLoggedIn;
+        }
         // Omitted means unchanged — see UpdateProfileRequest. A payload that never mentions
         // ageBand must not be able to un-child a profile.
         if (req.Role is { } role) profile.Role = role;
@@ -169,20 +189,20 @@ public class ProfilesController : ControllerBase
     }
 
     /// <summary>
-    /// Remove a member's PIN. Their own, or an administrator removing anyone's.
+    /// Remove a member's PIN. <b>Their own, and nobody else's.</b>
     /// </summary>
     /// <remarks>
     /// <b>This is the endpoint AUDIT A1 opens with.</b> Unauthenticated, it meant the lock screen
     /// was decorative: anything on the LAN could clear the PIN and then walk up to a panel that no
-    /// longer asked for one. It is now the same self-or-admin rule as setting one, behind a session
-    /// that the PIN itself is what mints — so clearing a PIN requires already having got past it.
+    /// longer asked for one. It is now the same self-only rule as setting one, behind a session that
+    /// the PIN itself is what mints — so clearing a PIN requires already having got past it.
     /// <para>
     /// <b>Removing your own PIN asks for it first, exactly as changing it does.</b> Without that the
     /// re-entry <see cref="SetPin"/> demands would be theatre: clear, then set, is a change of PIN
     /// with two taps and no PIN typed. The current one travels in the body — unusual on a
     /// <c>DELETE</c>, and preferable to a query string, which is the one place a PIN would end up in
-    /// a log. An absent body is allowed and means "none offered", which is all an administrator
-    /// resetting somebody else's needs to send.
+    /// a log. An absent body is allowed and means "none offered", which is all a profile that has no
+    /// PIN set needs to send.
     /// </para>
     /// </remarks>
     [HttpDelete("{id:int}/pin")]
@@ -205,8 +225,53 @@ public class ProfilesController : ControllerBase
         return NoContent();
     }
 
-    /// <summary>Whether the caller may change this profile's PIN: it is theirs, or they are admin.</summary>
-    private bool MaySetPinFor(int id) => User.ProfileId() == id || User.IsHouseholdAdmin();
+    /// <summary>
+    /// Set how this profile locks when the panel goes idle. <b>Your own only.</b>
+    /// </summary>
+    /// <remarks>
+    /// The self-service half of the rule that took these fields off <see cref="Update"/>. Without
+    /// it a member could not require a PIN on their own screen at all: editing a profile is
+    /// administrator-only, so the one setting that is nobody else's business was the one setting
+    /// only somebody else could change.
+    /// <para>
+    /// <b>Requiring a PIN when idle needs a PIN to exist.</b> Asking for the lock without one would
+    /// leave a profile that claims to be locked and opens to anyone who taps it.
+    /// </para>
+    /// </remarks>
+    [HttpPut("{id:int}/lock")]
+    public async Task<ActionResult<ProfileDto>> SetLockPreference(int id, LockPreferenceRequest req)
+    {
+        if (!MaySetPinFor(id)) return Forbid();
+
+        var profile = await _db.Profiles.FindAsync(id);
+        if (profile is null) return NotFound();
+
+        if (req.RequirePinWhenIdle && string.IsNullOrEmpty(profile.PinHash))
+            return BadRequest("Set a PIN before asking for it when idle.");
+
+        profile.RequirePinWhenIdle = req.RequirePinWhenIdle;
+        profile.StayLoggedIn = req.StayLoggedIn;
+        await _db.SaveChangesAsync();
+        return ProfileDto.From(profile);
+    }
+
+    /// <summary>
+    /// Whether the caller may change this profile's PIN. <b>Only if it is their own.</b>
+    /// </summary>
+    /// <remarks>
+    /// Administrators used to be included, as the household's recovery path for a forgotten PIN.
+    /// That is a real need, but it was paid for with a real hole: an administrator could set another
+    /// member's PIN to a value of their choosing <i>without knowing the old one</i> and then sign in
+    /// as them at the lock screen. The lock is supposed to hold against everybody in the house, and
+    /// a lock the administrator can silently re-key does not.
+    /// <para>
+    /// So recovery moves rather than disappearing. Nobody is locked out of the panel — a profile
+    /// with a forgotten PIN can still be signed in to by removing and re-adding it from the
+    /// database, which needs the server rather than a tap on the kitchen wall. That asymmetry is the
+    /// point.
+    /// </para>
+    /// </remarks>
+    private bool MaySetPinFor(int id) => User.ProfileId() == id;
 
     /// <summary>
     /// The refusal to return when somebody is changing their own PIN and has not proved they know
@@ -214,12 +279,13 @@ public class ProfilesController : ControllerBase
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Two cases pass straight through, and both are deliberate. A profile with no PIN has nothing
-    /// to ask for; and an <i>administrator acting on somebody else</i> is the household's only
-    /// recovery path for a PIN that has been forgotten, which is a real event in a house with a
-    /// child's tablet in it. What is closed is the case that made the lock advisory in practice: the
-    /// wall panel holds a persistent session, so "already signed in" was enough to overwrite the PIN
-    /// of the profile that was signed in — the one thing the PIN exists to stop.
+    /// One case passes straight through: a profile with no PIN has nothing to ask for. The other
+    /// exemption — an <i>administrator acting on somebody else</i>, as the recovery path for a
+    /// forgotten PIN — is gone with the permission it depended on, because being able to re-key
+    /// another member's lock without knowing the old PIN is the same as being able to open it. What
+    /// stays closed is the case that made the lock advisory in practice: the wall panel holds a
+    /// persistent session, so "already signed in" was enough to overwrite the PIN of the profile
+    /// that was signed in — the one thing the PIN exists to stop.
     /// </para>
     /// <para>
     /// Wrong attempts go through the same <see cref="PinLockout"/> as sign-in, so this is not a
@@ -232,7 +298,6 @@ public class ProfilesController : ControllerBase
     private IActionResult? RefuseWithoutCurrentPin(Profile profile, string? currentPin)
     {
         if (string.IsNullOrEmpty(profile.PinHash)) return null;
-        if (User.ProfileId() != profile.Id) return null;
 
         if (_lockout.RetryAfterSeconds(profile.Id) is { } cooldown)
             return Unauthorized(new SignInFailure("Too many attempts. Wait a moment.", cooldown));

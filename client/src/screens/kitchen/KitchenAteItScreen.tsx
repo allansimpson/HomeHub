@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import {
-  CutGroup, KitchenHeader, KitchenQuickRow, ScreenShell, ScrollArea, Stepper,
+  KitchenDivider, KitchenHeader, KitchenQuickRow, ScreenShell, ScrollArea, Stepper,
 } from '../../components'
 import { clockLabel } from '../../app/dates'
 import { useNow } from '../../app/useNow'
 import { useMeals } from '../../app/MealsProvider'
 import { entriesFor, longWeekday, shortDate, shortWeekday, todayKey } from '../../app/mealsDomain'
 import { isBefore, servingsPlanned } from '../../app/kitchenDomain'
+import { numberWord } from '../../app/pantryDomain'
 import type { MealPlanEntryDto } from '../../api/types'
 
 /**
@@ -73,12 +74,8 @@ export function KitchenAteItScreen() {
       <ScrollArea>
         {asking ? (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">
-                {shortWeekday(asking.date) === shortWeekday(today) ? 'LAST NIGHT' : longWeekday(asking.date).toUpperCase()}
-              </span>
-            </div>
-            <div className="ml-band-shade">
+            <KitchenDivider label={shortWeekday(asking.date) === shortWeekday(today) ? 'Last night' : longWeekday(asking.date)} gap={false} />
+            <div>
               <div className="ml-kitchen__dish">{asking.recipeTitle ?? asking.freeText}</div>
               {plannedFor != null && (
                 <div className="ml-kitchen__meta">PLANNED FOR {plannedFor}</div>
@@ -115,10 +112,8 @@ export function KitchenAteItScreen() {
             {/* ---- The partial case ---- */}
             {plannedFor != null && plannedFor > 1 && (
               <>
-                <div className="ml-band ml-band--amber">
-                  <span className="ml-band__label">OR SOME OF IT</span>
-                </div>
-                <div className="ml-band-shade">
+                <KitchenDivider label="Or some of it" amber />
+                <div>
                   <div className="ml-kitchen__askwhy">
                     If only some of it got eaten, say how many sat down.
                   </div>
@@ -147,7 +142,10 @@ export function KitchenAteItScreen() {
                       disabled={busy}
                       onClick={() => answer(asking, true, portions ?? plannedFor)}
                     >
-                      {portions ?? plannedFor} ATE
+                      {/* `FOUR ATE`, not `4 ATE`. The button is a sentence about people, and the
+                          section already words small counts — the item sheet's history says
+                          `Four added` off the same helper. */}
+                      {numberWord(portions ?? plannedFor).toUpperCase()} ATE
                     </button>
                   </div>
                 </div>
@@ -161,12 +159,9 @@ export function KitchenAteItScreen() {
         {/* ---- Other nights still unanswered ---- */}
         {rest.length > 0 && (
           <>
-            <div className="ml-band">
-              <span className="ml-band__label">STILL WAITING</span>
-              <span className="ml-band__meta">{rest.length}</span>
-            </div>
+            <KitchenDivider label="Still waiting" count={rest.length} />
             {/* 60px waiting rows — the figure §6 names for this panel. */}
-            <CutGroup rows={3} rowHeight={60} className="ml-band-shade">
+            <div>
               {rest.map((entry) => (
                 <div key={entry.id} className="ml-row ml-kitchen__waitingrow">
                   <span className="ml-kitchen__recipetext">
@@ -180,7 +175,7 @@ export function KitchenAteItScreen() {
                   </span>
                 </div>
               ))}
-            </CutGroup>
+            </div>
             {/* Older than a week stops being asked about — a guess about a night nobody remembers is
                 worse than a gap in the record. */}
             <div className="ml-kitchen__askwhy">Older than a week stops being asked about.</div>
@@ -189,11 +184,8 @@ export function KitchenAteItScreen() {
 
         {settled.length > 0 && (
           <>
-            <div className="ml-band ml-band--quiet">
-              <span className="ml-band__label">SETTLED</span>
-              <span className="ml-band__meta">{settled.length}</span>
-            </div>
-            <CutGroup rows={3} rowHeight={60} className="ml-band-shade">
+            <KitchenDivider label="Settled" count={settled.length} />
+            <div>
               {settled.map((entry) => (
                 <div key={entry.id} className="ml-row ml-kitchen__waitingrow">
                   <span className="ml-row__value">{entry.recipeTitle ?? entry.freeText}</span>
@@ -202,7 +194,7 @@ export function KitchenAteItScreen() {
                   </span>
                 </div>
               ))}
-            </CutGroup>
+            </div>
           </>
         )}
       </ScrollArea>

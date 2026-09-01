@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import {
-  CARE_ICONS, careTitle, clockLabel, countWord, dayLabel, elapsedParts, entriesLabel, kindLabel,
-  sinceDetail, sizeLabel, valueParts, whenLabel,
+  CARE_HISTORY_DAYS, CARE_ICONS, careTitle, careWindowFor, careWindowLabel, clockLabel, countWord,
+  dayLabel, elapsedParts, entriesLabel, kindLabel,
+  sinceDetail, sizeLabel, valueParts, whenLabel, windowTotals,
 } from '../../app/care'
 import type { SinceRowSpec, WindowTotal } from '../../app/care'
 import { Icon } from '../../icons/Icon'
@@ -103,17 +104,49 @@ export function SincePager({
   const [page, setPage] = useState(0)
   /** Live finger offset in px while a swipe is in flight; 0 at rest. */
   const [dx, setDx] = useState(0)
+  const [dy, setDy] = useState(0)
   const [releasing, setReleasing] = useState(false)
+  /*
+   * How many days before today the TODAY page is reporting on. Zero is today.
+   *
+   * <b>Deliberately not persisted, and not lifted any higher than this component.</b> Paging back
+   * is a question somebody asks in the moment — "did she take anything after the 2 AM one" — and
+   * not a place the panel should still be sitting when it is picked up again. Held here, it is
+   * gone when the Baby tab unmounts, and it is reset below the moment the pager leaves this page,
+   * so a swipe across to SINCE and back also lands on today. There is nothing to get stuck in.
+   */
+  const [daysBack, setDaysBack] = useState(0)
 
   const frame = useRef<HTMLDivElement | null>(null)
   const startX = useRef<number | null>(null)
   const startY = useRef(0)
   const startedAt = useRef(0)
   const dragging = useRef(false)
+  /** Which axis the live gesture was claimed on. Null until one of them wins. */
+  const axis = useRef<'x' | 'y' | null>(null)
   const settle = useRef<number | null>(null)
 
   const selecting = selection.size > 0
-  const width = frame.current?.getBoundingClientRect().width ?? 0
+  const box = frame.current?.getBoundingClientRect()
+  const width = box?.width ?? 0
+  const height = box?.height ?? 0
+
+  /*
+   * Only TODAY has days to walk through, and only in the directions there is something in.
+   *
+   * SINCE reports how long since each type, and ENTRIES is already a week in one list — neither has
+   * a second day to go to. Refusing the claim at the ends rather than rubber-banding is what keeps
+   * a swipe past the last day from reading as a page that failed to arrive: nothing moves, because
+   * nothing was going to.
+   */
+  const onToday = PAGE_ORDER[page] === 'today'
+  const canGoBack = onToday && daysBack < CARE_HISTORY_DAYS
+  const canGoForward = onToday && daysBack > 0
+
+  /* Back to today whenever the pager leaves this page — see `daysBack`. */
+  useEffect(() => {
+    if (!onToday && daysBack !== 0) setDaysBack(0)
+  }, [onToday, daysBack])
 
   useEffect(() => () => { if (settle.current) window.clearTimeout(settle.current) }, [])
 
@@ -126,6 +159,7 @@ export function SincePager({
     startX.current = e.clientX
     startY.current = e.clientY
     startedAt.current = Date.now()
+    axis.current = null
     setReleasing(false)
   }
 
@@ -152,6 +186,24 @@ export function SincePager({
       const across = Math.abs(moved)
       const down = Math.abs(drift)
 
+      /*
+       * Vertical, where vertical means something.
+       *
+       * Asked before the give-up below and not after, because `GIVE_UP_PX` is three times
+       * `CLAIM_PX`: a day swipe would otherwise be handed back to the scroller a good 16px before
+       * it was ever offered the chance to claim. The direction is already known from the sign of
+       * the drift, so a swipe towards a day that is not there is simply never claimed — see
+       * `canGoBack` / `canGoForward`. On every page but TODAY both are false and this is dead,
+       * which leaves the horizontal decision below exactly as it was.
+       */
+      if (down >= CLAIM_PX && down > across * AXIS_LEAD && (drift < 0 ? canGoBack : canGoForward)) {
+        dragging.current = true
+        axis.current = 'y'
+        e.currentTarget.setPointerCapture(e.pointerId)
+        setDy(drift)
+        return
+      }
+
       // Plainly a scroll: hand it back and stop watching.
       if (down > GIVE_UP_PX && across < down * AXIS_LEAD) {
         startX.current = null
@@ -161,10 +213,12 @@ export function SincePager({
       if (across < CLAIM_PX || across < down * AXIS_LEAD) return
 
       dragging.current = true
+      axis.current = 'x'
       e.currentTarget.setPointerCapture(e.pointerId)
     }
 
-    setDx(moved)
+    if (axis.current === 'y') setDy(drift)
+    else setDx(moved)
   }
 
   /**
@@ -179,6 +233,42 @@ export function SincePager({
       startX.current = null
       return
     }
+
+    /*
+     * A day, rather than a page.
+     *
+     * The same two ways of meaning it the pages use — a quick flick, or a slow drag taken far
+     * enough — measured against the block's height instead of its width. Up goes back: the content
+     * travels up the way a page of older entries would, and the day arriving comes in from below.
+     */
+    if (axis.current === 'y') {
+      const flicked = Date.now() - startedAt.current < FLICK_MS && Math.abs(dy) > FLICK_PX
+      const dragged = height > 0 && Math.abs(dy) > height * SETTLE_FRACTION
+      const step = dy < 0 ? 1 : -1
+
+      startX.current = null
+      dragging.current = false
+      setReleasing(true)
+
+      if (height === 0 || (!flicked && !dragged)) {
+        setDy(0)
+        settle.current = window.setTimeout(() => setReleasing(false), SETTLE_MS)
+        return
+      }
+
+      setDy(step > 0 ? -height : height)
+      settle.current = window.setTimeout(() => {
+        // Clamped again on the way in. The claim already refused a direction with nothing in it,
+        // but the ends are the one place an off-by-one would show as a blank day rather than a
+        // wrong number, and the guard costs nothing.
+        setDaysBack((d) => Math.min(CARE_HISTORY_DAYS, Math.max(0, d + step)))
+        setDy(0)
+        setReleasing(false)
+        axis.current = null
+      }, SETTLE_MS)
+      return
+    }
+
     const flick = Date.now() - startedAt.current < FLICK_MS && Math.abs(dx) > FLICK_PX
     const far = width > 0 && Math.abs(dx) > width * SETTLE_FRACTION
 
@@ -209,7 +299,30 @@ export function SincePager({
   const live = width > 0 && Math.abs(dx) > width / 2 ? incoming : page
   const easing = releasing ? ' ml-sincepager__track--releasing' : ''
 
-  const pageProps = { since, totals, entries, loading, selection, onSelection, selecting }
+  /* The day arriving from above or below, while a vertical swipe is in flight. */
+  const incomingDay = Math.min(CARE_HISTORY_DAYS, Math.max(0, daysBack + (dy < 0 ? 1 : -1)))
+
+  /*
+   * A day's totals, counted from the same rows the pages are already holding.
+   *
+   * <b>Today is the figure that was handed in, not one worked out again here.</b> `useCareLog`
+   * derives it from a clock that ticks, which is what rolls the window over at 6 AM with no
+   * refetch; recomputing it on this side would quietly opt out of that for the sake of symmetry.
+   * Every other day is settled history and can be counted from `entries` — the same week the LOG
+   * page lists, so paging back needs no request and works with no server.
+   */
+  const totalsFor = (back: number) => {
+    if (back === 0) return totals
+    const { from, to } = careWindowFor(back)
+    const start = from.getTime()
+    const end = to.getTime()
+    return windowTotals(entries.filter((e) => {
+      const at = Date.parse(e.atUtc)
+      return at >= start && at < end
+    }))
+  }
+
+  const pageProps = { since, entries, loading, selection, onSelection, selecting }
 
   return (
     <>
@@ -217,7 +330,10 @@ export function SincePager({
         ref={frame}
         /* The block, not the list, carries the selecting state: its `min-height` is what actually
            holds the height, so shrinking only the list inside it moved nothing. */
-        className={'ml-sincepager' + (selecting ? ' ml-sincepager--selecting' : '')}
+        className={'ml-sincepager'
+          + (selecting ? ' ml-sincepager--selecting' : '')
+          /* Vertical belongs to the day swipe only where there are days — see the rule itself. */
+          + (onToday ? ' ml-sincepager--days' : '')}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -225,9 +341,16 @@ export function SincePager({
       >
         <div
           className={'ml-sincepager__track' + easing}
-          style={dx ? { transform: `translateX(${dx}px)` } : undefined}
+          style={dx || dy ? { transform: `translate(${dx}px, ${dy}px)` } : undefined}
         >
-          <Page index={page} active={live} onPage={setPage} {...pageProps} />
+          <Page
+            index={page}
+            active={live}
+            onPage={setPage}
+            totals={totalsFor(daysBack)}
+            dayLabel={careWindowLabel(daysBack)}
+            {...pageProps}
+          />
         </div>
         {/* The neighbour, drawn on the side it is coming from and carrying the same easing as the
             track — the two are one moving pair, and easing only half of it looks like a snap. */}
@@ -237,7 +360,29 @@ export function SincePager({
             style={{ transform: `translateX(${dx > 0 ? -100 : 100}%) translateX(${dx}px)` }}
             aria-hidden="true"
           >
-            <Page index={incoming} active={live} {...pageProps} />
+            <Page
+              index={incoming}
+              active={live}
+              totals={totalsFor(daysBack)}
+              dayLabel={careWindowLabel(daysBack)}
+              {...pageProps}
+            />
+          </div>
+        )}
+        {/* The day arriving, above or below — the same pair-travels-as-a-unit trick, turned 90°. */}
+        {dy !== 0 && (
+          <div
+            className={'ml-sincepager__peeking' + easing}
+            style={{ transform: `translateY(${dy > 0 ? -100 : 100}%) translateY(${dy}px)` }}
+            aria-hidden="true"
+          >
+            <Page
+              index={page}
+              active={live}
+              totals={totalsFor(incomingDay)}
+              dayLabel={careWindowLabel(incomingDay)}
+              {...pageProps}
+            />
           </div>
         )}
       </div>
@@ -286,6 +431,8 @@ interface PageProps {
   selection: Set<number>
   onSelection: (next: Set<number>) => void
   selecting: boolean
+  /** What the day being counted is called — `Today`, `Yesterday`, or its own date. */
+  dayLabel: string
 }
 
 function Page({
@@ -294,9 +441,17 @@ function Page({
   const name = PAGE_ORDER[index]
   /* Selection only ever happens on the entries list, so only its head becomes a selection head. */
   const selectingHere = rest.selecting && name === 'entries'
+  /*
+   * TODAY says which day it means.
+   *
+   * It is the one page whose subject moves, so it is the one page that cannot be titled by a
+   * constant. `Today` on day zero is the same word `PAGE_LABELS` held, so nothing reads differently
+   * until somebody swipes — and the two after it, YESTERDAY and the date itself, are the same words
+   * the LOG page puts on its day headings rather than a second way of naming a day.
+   */
   const label = selectingHere
     ? (rest.selection.size === 1 ? 'One selected' : `${countWord(rest.selection.size)} selected`)
-    : PAGE_LABELS[name]
+    : name === 'today' ? rest.dayLabel : PAGE_LABELS[name]
 
   return (
     <>
@@ -393,11 +548,15 @@ function SincePage({ since, loading }: { since: SinceRow[]; loading: boolean }) 
               {/* Rows say the full name — `Breast feeding`. Only the tile abbreviates it, because
                   a tile is twelve characters of letterspaced caps in a 2-up grid. */}
               <span className="ml-since__name">{label}</span>
-              {/* What it was, then when — `3.5 oz breast milk · 8:33 PM`. */}
+              {/* What it was. The when has its own column now — see `.ml-since__time`. */}
               <span className="ml-since__detail">
-                {entry ? `${sinceDetail(spec, entry)} · ${whenLabel(entry.atUtc)}` : 'Never logged'}
+                {entry ? sinceDetail(spec, entry) : 'Never logged'}
               </span>
             </span>
+            {/* `4:14 AM` today, `Aug 26` before that — `whenLabel` makes that switch, because a
+                clock reading on something three days old looks precise and answers nothing. A row
+                with nothing logged renders no column at all. */}
+            {entry && <span className="ml-since__time">{whenLabel(entry.atUtc)}</span>}
             {/* Measured in days the row recedes — past a day the question has stopped being
                 "how long" and become "has it happened at all". */}
             <span className={'ml-since__ago serif' + (ago?.stale ? ' ml-since__ago--stale' : '')}>
@@ -426,9 +585,21 @@ function TotalsPage({ totals }: { totals: WindowTotal[] }) {
             <span className="ml-since__name">{careTitle(row.type)}</span>
             <span className="ml-since__detail">{row.detail}</span>
           </span>
+          {row.time && <span className="ml-since__time">{row.time}</span>}
           <span className="ml-since__ago serif">
-            {row.value}
-            {row.unit && <span className="ml-since__unit">{row.unit}</span>}
+            {/*
+              A ring or a rule where a numeral would overstate what is known — see `WindowTotal.mark`.
+              Both are drawn rather than written: there is no character that means "nothing was
+              recorded" as distinct from zero, and `0` is the wrong claim.
+            */}
+            {row.mark === 'ring' && <span className="ml-since__ring" aria-label="Nothing recorded" role="img" />}
+            {row.mark === 'rule' && <span className="ml-since__rule" aria-label="Never measured" role="img" />}
+            {!row.mark && (
+              <>
+                {row.value}
+                {row.unit && <span className="ml-since__unit">{row.unit}</span>}
+              </>
+            )}
           </span>
         </div>
       ))}
@@ -509,14 +680,15 @@ function EntriesPage({
         const day = days[i]
         const heading = i === 0 || days[i - 1] !== day ? day : null
         /*
-         * What it was, not where it came from.
+         * What it was, not where it came from, and not what has happened to it since.
          *
          * `imported` used to ride along on every pulled row, which on a household mid-migration is
          * most of them — a badge that says "normal" on nearly everything is noise, and it described
-         * the panel's own plumbing rather than anything about the feed. `edited` stays: that one is
-         * about the record.
+         * the panel's own plumbing rather than anything about the feed. `edited` went the same way:
+         * a correction is the row doing its job, and flagging it only invited a second look at a
+         * figure that is already the right one.
          */
-        const detail = [kindLabel(entry.kind), sizeLabel(entry), entry.side, entry.edited ? 'edited' : null]
+        const detail = [kindLabel(entry.kind), sizeLabel(entry), entry.side]
           .filter(Boolean).join(' · ')
 
         const figure = valueParts(entry)
@@ -605,14 +777,12 @@ function EntriesPage({
                   */}
                   {entry.pending && <span className="ml-since__unsent">Not sent yet</span>}
                 </span>
-                {/* Time first: on a chronological list it is what the eye scans for, and it is the one
-                    thing the column used to carry. The clock alone — the day is the heading above the
-                    block this row sits in, and saying it again on every row was what made the
-                    boundaries invisible in the first place. */}
-                <span className="ml-since__detail">
-                  {[clockLabel(new Date(entry.atUtc)), detail].filter(Boolean).join(' · ')}
-                </span>
+                {/* What it was — the contents or the side. The when is its own column now. */}
+                <span className="ml-since__detail">{detail}</span>
               </span>
+              {/* The clock alone: the day is the heading above the block this row sits in, and
+                  repeating it on every row is what made those boundaries invisible before. */}
+              <span className="ml-since__time">{clockLabel(new Date(entry.atUtc))}</span>
               <span className="ml-since__ago serif">
                 {figure.value}
                 {figure.unit && <span className="ml-since__unit">{figure.unit}</span>}

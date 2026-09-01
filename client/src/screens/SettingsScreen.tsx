@@ -15,6 +15,7 @@ import {
 import { Icon } from '../icons/Icon'
 import type { IconId } from '../icons/Icon'
 import { useSession } from '../app/SessionProvider'
+import { asConfigView, CONFIG_TITLES } from './configViews'
 import { useSensors } from '../app/SensorsProvider'
 import { useTasks } from '../app/TasksProvider'
 import { useCalendar } from '../app/CalendarProvider'
@@ -23,7 +24,6 @@ import { getShowToday, getShowAll, setShowToday, setShowAll } from '../app/todoP
 import { RETENTION_OPTIONS, DEFAULT_RETENTION_DAYS, NEVER, retentionLabel } from '../app/assistPrefs'
 import { useAssist } from '../app/AssistProvider'
 import { useShowThinking } from '../app/useShowThinking'
-import { useBaby } from '../app/BabyProvider'
 import { useCatName } from '../app/catName'
 import { useLongPress } from '../app/useLongPress'
 import { useBabyName } from '../app/babyName'
@@ -81,25 +81,6 @@ const PROFILE_ROLES: ProfileRole[] = ['Member', 'Admin']
  * rebuilding it. `devices` is the one addition, and it is a route rather than a view here: it
  * renders `LitterSettingsScreen` unchanged, which is where `/litter/settings` now redirects.
  */
-type ConfigView =
-  | 'index' | 'lists' | 'calendars' | 'privacy' | 'thresholds' | 'display' | 'household' | 'member'
-  | 'assist' | 'weather' | 'notifications'
-const CONFIG_TITLES: Record<ConfigView, string> = {
-  index: 'Config',
-  lists: 'Lists',
-  calendars: 'Calendars',
-  privacy: 'Privacy & Lock',
-  thresholds: 'Alert Thresholds',
-  display: 'Display',
-  household: 'Household',
-  member: 'Member',
-  assist: 'Assist',
-  weather: 'Weather',
-  notifications: 'Notifications',
-}
-function asConfigView(section: string | undefined): ConfigView {
-  return section && section in CONFIG_TITLES && section !== 'index' ? (section as ConfigView) : 'index'
-}
 
 /** Display name of the active profile, or a prompt when none is chosen yet. */
 function session_activeName(profiles: ProfileDto[], activeId: number | null): string {
@@ -116,7 +97,6 @@ export function SettingsScreen() {
   const navigate = useNavigate()
   const { section } = useParams()
   const { search } = useLocation()
-  const view = asConfigView(section)
   /*
    * `activeProfileId` here is the *session's* — who this device is signed in as — and is deliberately
    * not the `settings.activeProfileId` read below. That one is the household's shared display value
@@ -124,7 +104,9 @@ export function SettingsScreen() {
    * change; it is the wrong thing to decide "is this my own PIN" with, and the server would refuse
    * the request anyway (AUDIT A1).
    */
-  const { profiles, settings, refresh, offline, signOut, activeProfileId: sessionProfileId, isAdmin } = useSession()
+  const { profiles, settings, refresh, offline, signOut, isAdmin, activeProfileId: sessionProfileId } = useSession()
+  /* Reads the session, so it is resolved below it: an admin-only section collapses to the index. */
+  const view = asConfigView(section, isAdmin)
 
   const { refresh: refreshSensors } = useSensors()
   const { refresh: refreshTasks } = useTasks()
@@ -143,9 +125,6 @@ export function SettingsScreen() {
     setSource: setNotificationSource,
     openDrawer: openNotifications,
   } = useNotifications()
-  // Only for the Devices group's Huckleberry row — Config states what is connected, it does not
-  // configure it. The connection itself is made in Home Assistant.
-  const { health: babyHealth } = useBaby()
   // For the Devices group's Litter row — Config says what the cat is called without making anyone
   // drill in to find out. Straight from the setting; nothing infers it.
   const cat = useCatName()
@@ -691,13 +670,10 @@ export function SettingsScreen() {
         return
       }
       try {
-        await api.updateProfile(profile.id, {
-          name: profile.name,
-          initial: profile.initial,
-          requirePinWhenIdle: next,
-          stayLoggedIn: !next,
-          displayOrder: profile.displayOrder,
-        })
+        // The lock preference has its own endpoint because it is the profile's own setting rather
+        // than the household's — `updateProfile` is administrator-only and now ignores these two
+        // fields for anybody but the caller.
+        await api.setLockPreference(profile.id, next, !next)
         await refresh()
       } catch (err) {
         if (!(err instanceof ApiError)) throw err
@@ -853,6 +829,17 @@ export function SettingsScreen() {
     )
   }
 
+  /*
+   * The profile these settings are *about* — the one signed in on this device.
+   *
+   * Deliberately `sessionProfileId` and not `activeId`. `activeId` is the household's shared display
+   * value, the avatar in the corner of the wall panel, which anybody may change; using it here would
+   * show somebody else's lock settings to whoever is signed in and let them alter them by changing
+   * whose face is on the panel. Same distinction, and the same reason, as the note on the session
+   * read above.
+   */
+  const me = profiles.find((p) => p.id === sessionProfileId) ?? null
+
   const activeName = session_activeName(profiles, activeId)
   const activeInitial = profiles.find((p) => p.id === activeId)?.initial ?? '?'
   const pinRequiredHere = profiles.find((p) => p.id === activeId)?.requirePinWhenIdle ?? false
@@ -918,13 +905,28 @@ export function SettingsScreen() {
             */}
             <SectionLabel label="Household" />
             <div className="ml-config-index">
-              <ConfigLink
-                icon="ico-group"
-                label="Members"
-                sub="Who uses this panel"
-                meta={`${profiles.length} ${profiles.length === 1 ? 'member' : 'members'}`}
-                onClick={() => navigate('/settings/household')}
-              />
+              {/*
+                Administrators only, and hidden rather than disabled.
+
+                Everything behind this row is a write the server refuses to a Member — add, rename,
+                delete, clear a PIN (AUDIT A1.4). A greyed-out row would advertise a capability and
+                then explain it away on every visit, and the count in its meta ("four members") is
+                itself household roster detail. Nothing else in Config depends on it, so the group
+                simply starts at NOTIFICATIONS for everyone else.
+
+                A Member signed in on this device still sees the roster where it is theirs to see —
+                the lock screen's picker and the name in the corner — which is drawn from the same
+                `profiles` and is not gated here.
+              */}
+              {isAdmin && (
+                <ConfigLink
+                  icon="ico-group"
+                  label="Members"
+                  sub="Who uses this panel"
+                  meta={`${profiles.length} ${profiles.length === 1 ? 'member' : 'members'}`}
+                  onClick={() => navigate('/settings/household')}
+                />
+              )}
               {/*
                 This said THIS PANEL and opened the inbox — a row whose title named no subject and
                 whose destination was a list rather than a setting. The badge on the account avatar
@@ -970,7 +972,7 @@ export function SettingsScreen() {
               <ConfigLink
                 icon="ico-baby"
                 label="Baby settings"
-                sub="What the panel calls the child, and the pull from Huckleberry"
+                sub="What the panel calls the child"
                 meta={babyName ?? 'No name set'}
                 onClick={() => navigate('/settings/baby')}
               />
@@ -992,18 +994,13 @@ export function SettingsScreen() {
                 meta={weatherPlace ?? 'Not resolved yet'}
                 onClick={() => navigate('/settings/weather')}
               />
-              {/* Leads to Baby settings, where the pull out of Huckleberry now lives. It used to
-                  open the Care tab, which was right while the pull chip sat in that tab's footer
-                  and is a dead end now that it does not — nothing in Care names the integration
-                  any more. The meta still states what is connected; the connection itself is
-                  still made in Home Assistant, not here. */}
-              <ConfigLink
-                icon="ico-bottle"
-                label="Huckleberry"
-                sub="Baby tracking, through Home Assistant"
-                meta={babyHealth?.configured === false ? 'Not connected' : babyHealth?.status ?? '—'}
-                onClick={() => navigate('/settings/baby')}
-              />
+              {/* A `Huckleberry · Baby tracking, through Home Assistant` row stood here, reporting
+                  that integration's health and leading to Baby settings. It is gone with the
+                  integration rather than renamed: it existed because there was a device-shaped
+                  service to report on, and with that retired the only thing left behind the link is
+                  the child's name — which the Care group's own `Baby settings` row already carries,
+                  where the CARE split says it belongs. A second door to one screen, filed under
+                  Devices, would have re-made the claim that the child is a device. */}
             </div>
 
             <SectionLabel label="Lists" />
@@ -1325,40 +1322,63 @@ export function SettingsScreen() {
               A member tapping it on somebody else's row would get a 403 from the server, which is a
               correct answer to a question the screen should not have offered.
             */}
-            {profiles.map((p) => {
-              const mayChange = p.id === sessionProfileId || isAdmin
-              return (
-                <LedgerRow
-                  key={p.id}
-                  title={`${p.name} — require PIN when idle`}
-                  sub={p.hasPin ? `Locks after ${timeoutMin} minutes` : 'Set a PIN to enable'}
-                  right={
-                    <div className="ml-rowactions">
-                      {p.hasPin && mayChange && (
-                        <button
-                          type="button"
-                          className="ml-linkbtn"
-                          onClick={() => setPinFlow({ profile: p, task: 'set' })}
-                        >
-                          Change PIN
-                        </button>
-                      )}
-                      <Toggle
-                        on={p.requirePinWhenIdle && p.hasPin}
-                        onChange={(next) => setRequirePin(p, next)}
-                        label={`${p.name} require PIN when idle`}
-                      />
-                    </div>
-                  }
-                />
-              )
-            })}
+            {/*
+              One row: your own.
+
+              <b>This was the whole roster, and every name on it was somebody else's business.</b>
+              Each member could read, from a screen of their own settings, who else has an account
+              on this panel and which of them locks when idle — a small map of the household's
+              security, drawn for anybody signed in. The controls had already been narrowed to self,
+              so the rows beyond this one were read-only by then; what they still leaked was the
+              reading itself.
+
+              <b>Unnamed, because there is nothing to tell it apart from.</b> A list needs to say
+              which row is whose. A single row on your own configuration page does not, and
+              `Ellen — require PIN when idle` on the only row there is reads as though a second one
+              is expected. The name is already in the corner of this screen and on the account above.
+
+              Nobody is signed in — a panel sitting on the picker — and there is no *your own* to
+              draw. The section's other rows still stand.
+            */}
+            {me && (
+              <LedgerRow
+                title="Require PIN when idle"
+                sub={me.hasPin ? `Locks after ${timeoutMin} minutes` : 'Set a PIN to enable'}
+                right={
+                  <div className="ml-rowactions">
+                    {me.hasPin && (
+                      <button
+                        type="button"
+                        className="ml-linkbtn"
+                        onClick={() => setPinFlow({ profile: me, task: 'set' })}
+                      >
+                        Change PIN
+                      </button>
+                    )}
+                    <Toggle
+                      on={me.requirePinWhenIdle && me.hasPin}
+                      onChange={(next) => setRequirePin(me, next)}
+                      label="Require PIN when idle"
+                    />
+                  </div>
+                }
+              />
+            )}
             {/* Said up front rather than discovered at the keypad: being signed in is not proof of
                 knowing the PIN — the wall panel is signed in all day. */}
+            {/*
+              `under Household` only where Household can be opened.
+
+              That section is the roster and is an administrator's alone, so pointing a Member at it
+              is directions to a door they cannot see — and the sentence is about the one thing they
+              might come to this screen to do. Said without the route for them, which is honest:
+              removing a PIN is not currently reachable from here. See the note in `ADMIN_VIEWS`.
+            */}
             <div className="ml-settings__footnote">
               Changing your own PIN asks for the current one first, even here, even signed in. So
-              does removing it, under Household. An administrator can reset another member’s without
-              it, which is how a forgotten PIN is recovered.
+              does removing it{isAdmin ? ', under Household' : ''}. Nobody can set, clear or unlock
+              another member’s — not even an administrator — so a forgotten PIN is recovered at the
+              server, not here.
             </div>
             <LedgerRow
               title="Microphone indicator"

@@ -101,7 +101,7 @@ export function MealDetailScreen() {
           {cuisine && <span className="ml-recipe__cuisine">{cuisine.toUpperCase()}</span>}
           <span className="ml-recipe__times">
             {meal.timesCooked > 0
-              ? `${cookedCountLabel(meal.timesCooked)} · LAST ${cookedAgoLabel(meal.lastCookedDate)}`
+              ? `${cookedCountLabel(meal.timesCooked)} · ${cookedAgoLabel(meal.lastCookedDate)}`
               : 'NEVER COOKED'}
           </span>
         </div>
