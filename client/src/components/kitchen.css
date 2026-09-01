@@ -658,7 +658,9 @@
   justify-content: center;
   background: none;
   border: 1px solid var(--border-inactive);
-  color: var(--brass-bright);
+  /* Brass-meta, not brass-bright. These move the week; they are not the subject of it, and at
+     `--brass-bright` two arrows outshone the dates they were paging through. */
+  color: var(--brass-meta);
   font-size: 0.9375rem;
   cursor: pointer;
 }
@@ -683,10 +685,19 @@
   color: var(--text-primary);
 }
 
+/*
+ * The pager's week label sits *under* the arrows it belongs to, not level with them.
+ *
+ * The handoff draws 10px at 0.16em in `--text-muted`; this was 9px at 0.3em in `--brass-meta`, which
+ * is the section's *label* register — brass, widely tracked, shouted. That made `THIS WEEK` read as a
+ * heading for the plan beneath it rather than as the caption of the two arrows either side, and the
+ * tracking is most of why: 0.3em on nine pixels is the widest text on the panel and the eye goes
+ * there first, which is precisely backwards for a control that says where you already are.
+ */
 .ml-kitchen__pagerwhen {
-  font-size: 0.5625rem; /* 9px */
-  letter-spacing: 0.3em;
-  color: var(--brass-meta);
+  font-size: 0.625rem; /* 10px */
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
 }
 
 /* Four segments, and the one you are on is brass. Not a scrollbar: the plan has no end to be near. */
@@ -3016,10 +3027,12 @@
   height: 7.5rem;
   flex: 0 0 auto;
   background: none;
-  border: 1px dashed var(--control-border);
-  color: var(--brass-bright);
+  border: var(--control-border) dashed var(--border-inactive);
+  /* The empty slot is an invitation, not an action — brass-dim at 20px, as drawn. At brass-bright
+     and 24px it was the loudest thing in a strip of photographs. */
+  color: var(--brass-dim);
   font: inherit;
-  font-size: 1.5rem;
+  font-size: 1.25rem; /* 20px */
   cursor: pointer;
 }
 
@@ -3339,7 +3352,7 @@
   width: 6rem;
   height: 8rem;
   background: none;
-  border: 1px dashed var(--control-border);
+  border: var(--control-border) dashed var(--border-inactive);
   color: var(--brass-bright);
   font: inherit;
   font-size: 0.6875rem;
@@ -3632,6 +3645,47 @@
  */
 .ml-kitchen__nightbody .ml-row__value {
   font-size: 1.0625rem; /* 17px */
+}
+
+/*
+ * The day column on the Kitchen home's week strip.
+ *
+ * <b>`ml-row__label` had no rule anywhere in the app.</b> It is written on exactly one element —
+ * `KitchenHomeScreen`'s `WED` — and never styled, so it inherited: 16px, no tracking, and
+ * `--text-primary`. The handoff draws a 44px column of 11px brass-meta at 0.16em, which is the
+ * quietest thing on the row. A day label rendered at the same size and brightness as the dish beside
+ * it competes with the one word the strip exists to show, and the whole column reads as content.
+ *
+ * The width is the part that is not cosmetic: a fixed column is what makes five dish names start at
+ * the same x, and without it every row began wherever its weekday happened to end — `WED` and
+ * `THU` are three characters, `TUE` is three, but the proportional face gives them different
+ * advances, so the names stepped in and out down the strip.
+ *
+ * Worth noting for the next sweep: this is the inverse of the failure recorded in `STATE.md` for
+ * 2026-08-23, where three rules were written whose selectors matched nothing. Here the selector was
+ * in the markup and the rule was the thing that never existed, which no amount of grepping the CSS
+ * would reveal — only rendering it does.
+ */
+.ml-row__label {
+  flex: 0 0 auto;
+  width: 2.75rem; /* 44px */
+  font-size: 0.6875rem; /* 11px */
+  letter-spacing: 0.16em;
+  color: var(--brass-meta);
+}
+
+/*
+ * An empty night is written quietly, unlike the dish that replaces it.
+ *
+ * `ml-row__value` carries the dish name and is bright because that is the thing being looked for.
+ * `＋ Nothing planned` occupies the same slot and is the absence of one, and the handoff draws it in
+ * `--text-muted` at weight 300 for that reason. Left on the value class in general and given a
+ * modifier here: the same span is a recipe title on four other screens, and dimming all of them to
+ * suit the empty case would be the shared-value mistake this file has already made once.
+ */
+.ml-row__value--empty {
+  font-weight: 300;
+  color: var(--text-muted);
 }
 
 /*

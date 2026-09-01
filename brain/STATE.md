@@ -255,6 +255,12 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   brass label in place of the serif question, three ruled rows with a brass glyph and a chevron
   instead of three bordered cards, and the first row's brass fill dropped — `One thing` leads by
   being first, which is the whole of its precedence.
+- **Two more `var(--control-border)`-as-a-colour borders found on 2026-09-01**, making five in all.
+  `.ml-kitchen__photoadd` and the strip beside it both read `1px dashed var(--control-border)`, so
+  both rendered with no border whatever — the recipe photo `＋` was an invitation drawn as nothing.
+  The 2026-08-22 sweep below found three and stopped; these two are dashed rather than solid, which
+  is why grepping for the solid form missed them. **Grep for `var(--control-border)` in any position
+  other than the width, not for a particular shorthand.**
 - **`1px solid var(--control-border)` is invalid CSS and appeared three times.** `--control-border`
   is a *width* (`max(1px, 0.0625rem)`), so putting it where the colour goes voids the whole
   declaration and the element renders borderless. It hit the P4 rows, `.ml-kitchen__card` and
@@ -359,12 +365,29 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
      and named rather than dropped quietly. **The obvious implementation of that filter is wrong**:
      regexing `sweep-fixtures.js` for quoted literals desynchronises on the first apostrophe in a
      comment, and it silently caught `Plain flour` while silently missing `Chicken Piccata`.
-     **23 → 20**: R3's three source chips fixed, below.
-     Of the remaining 20, **six are known non-defects**: three `size 24 → 22` destination titles are
-     the recorded 22px ruling, and three button labels resolving to `rgb(95, 88, 75)` are
-     `--text-disabled` — the fixtures never put those screens in a state that enables the button.
-     Four more are bare digits and are almost certainly ambiguous matches. That leaves roughly ten
-     worth looking at, none yet examined.
+     **23 → 15**: eight real defects fixed — R3's three source chips, the Kitchen home week strip's
+     day column and empty night, the plan pager's label and arrows, and the recipe photo `＋`.
+     **All 15 that remain are explained, and none is a defect.** Worked through one at a time on
+     2026-09-01, re-running after each change; the diff never showed a new finding.
+     - **Six are adjudicated rulings**, all of the same shape — the design draws one component at
+       several sizes and the build picks one. Three `24 → 22` destination titles (the recorded 22px
+       ruling); `NEXT STEP` and `ADD IT · NEXT ONE` at `12 → 11` and `PUT THEM BACK` at `10 → 11`
+       (the 11/12 ruling, which **survives re-measurement**: the current design draws 19 primary
+       buttons at 11px, 15 at 12px and 10 at 10px, so 11 is still the plurality).
+     - **`›` at `13 → 14` is the same ruling**, newly established: the design draws it at 11, 12, 13,
+       14 and 15px across fifteen instances. 13 is the plurality at six. One component, one size.
+     - **Three are disabled-state artefacts.** `ADD IT · NEXT ONE`, `SAVE IT ROUGH` and
+       `SAVE THE ORDER` all resolve to `rgb(95, 88, 75)`, which is `--text-disabled`: the fixtures
+       never put those screens in a state that enables the button.
+     - **`What it needs` in amber is a deliberate departure**, already reasoned in a comment at
+       `KitchenRecipeScreen.tsx:160` — the handoff reserves amber for time pressure, and a recipe you
+       cannot cook tonight was judged to be exactly that.
+     - **`Baby` is a false match**: the design's 17px aisle name was compared against the *bottom
+       nav's* `Baby` tab label at 9px. Different element, different screen furniture.
+     - **Four are bare digits** (`1`, `2`, `2`, `6`) — counts and step numbers the matcher cannot
+       place safely.
+     So the honest figure is **zero unexplained geometry findings**, which is not the same as zero
+     mismatches and should not be written down as if it were.
   4. 41 geometry findings remained as of 2026-08-23 (was 156). Worked through one at a time. Fixed in
      that pass: the aisle-order panel end to end (position column 16px serif → 12px mono, the two
      hand-built rows, the blast-radius blurb, `this shop only` in verdigris); the decision card's

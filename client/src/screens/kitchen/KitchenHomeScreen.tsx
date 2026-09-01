@@ -243,7 +243,7 @@ export function KitchenHomeScreen() {
           return (
             <div key={day.date} className="ml-row">
               <span className="ml-row__label">{shortWeekday(day.date)}</span>
-              <span className="ml-row__value">
+              <span className={'ml-row__value' + (night ? '' : ' ml-row__value--empty')}>
                 {night ? (night.recipeTitle ?? night.freeText) : '＋ Nothing planned'}
               </span>
               {word && (
