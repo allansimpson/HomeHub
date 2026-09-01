@@ -325,12 +325,17 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
 - **Ruling: the Kitchen drill-in title is 22px.** The handoff draws it at 22 on nine panels and 24
   on three, with nothing distinguishing them. One component, one size; 22 is the majority and the
   one that fits `How long things last`. Recorded in the CSS so it is not re-measured every sweep.
-- **Blocked, not deferred: `WHERE IT LIVES`, `CUPBOARD · MIDDLE SHELF` and `EDIT` cannot be built
-  from this machine.** They need a schema change (`PantryItem.Shelf`, `PantryEvent.Location`, a
-  `Moved` kind) and `dotnet ef migrations add` cannot run here — user-secrets is empty,
-  `/etc/homehub-test/homehub-test.env` is root-only and agents have no `sudo`, and
-  `HomeHubDbContextFactory` refuses to guess a connection string by design. Supply
-  `ConnectionStrings__HomeHub` in the environment and the work is otherwise ready to do.
+- **Not blocked after all: `WHERE IT LIVES`, `CUPBOARD · MIDDLE SHELF` and `EDIT`.** This entry said
+  for weeks that they could not be built from this machine, because they need a schema change
+  (`PantryItem.Shelf`, `PantryEvent.Location`, a `Moved` kind) and `dotnet ef migrations add`
+  supposedly could not run here — user-secrets empty, `/etc/homehub-test/homehub-test.env` root-only,
+  no `sudo`, and `HomeHubDbContextFactory` refusing to guess a connection string.
+  **That last step is where the reasoning went wrong.** `dotnet ef` builds the `DbContext` at design
+  time and never connects, so *any* well-formed connection string satisfies it — which is exactly
+  what `ENVIRONMENT.md` has documented since 2026-08-28, when `AddWeatherAlertProduct` was added by
+  precisely that route. The two files have contradicted each other since, and this one was believed.
+  Verified 2026-09-01: `dotnet ef migrations list --no-build` with a throwaway string enumerates all
+  seven migrations. The work is unblocked and unstarted; nothing about it needs Hermes or a password.
 - **Still open after the 2026-08-23 sweeps, in priority order.** Nothing below is unknown; each is
   a decision or a dependency rather than a miss.
   1. **A dead session now locks.** Closed: any 401 from a data call fires `SESSION_LOST_EVENT` from
