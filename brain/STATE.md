@@ -3,22 +3,21 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-08-31T21:05Z by Claude and Geist. Deployment facts were live-verified by Geist; code
-work-in-flight notes remain Claude's._
+_Updated: 2026-09-01 by Claude. Deployment facts below were live-verified by Geist on 2026-08-31 and
+are unchanged; the code notes are Claude's._
 
-**Everything previously marked "working tree only" is now committed as `9eed27e` and pushed.** It is
-still unshipped — nothing deploys on push, so the household has none of it until Geist promotes a
-build. The notes below are unchanged apart from that status; they describe what is built, not what is
-running.
+**Nothing here is running yet.** Everything below is committed and pushed and none of it is deployed —
+nothing deploys on push, so the household has none of it until Geist promotes a build. These notes
+describe what is *built*.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` / `origin/main` | `9eed27e` / `9eed27e` (0 ahead, 0 behind) |
-| Working tree at verification | Clean. The 151 paths that had accumulated were committed as `9eed27e` at Allan's direction — one commit rather than eight, deliberately |
-| Verified at that commit | `./scripts/check.sh all` green: typecheck, lint, 872 client tests across 45 files, 1121 backend tests, and the production build. No visual verification was run — the client suite renders nothing |
+| `HEAD` / `origin/main` | `0527f3f` / `0527f3f` (0 ahead, 0 behind) |
+| Working tree | Clean |
+| Verified at `0527f3f` | `./scripts/check.sh all` green: typecheck, lint, **47 client test files**, **1145 backend tests**. The security work was additionally verified in a browser at 540×1169 — the client suite renders nothing, and three of this session's defects were only visible rendered |
 | Coordination state | `.git/index` restored to `simpson:geist-dev` (UID 1000/GID 989), mode 0660, after the promotion workflow exposed and corrected its direct-gitdir ownership defect. |
 
 ## Deployed
@@ -34,9 +33,15 @@ running.
 Nothing deploys on push. Claude hands a verified code state to Geist; Geist snapshots and promotes it
 through the process in `DEPLOYMENT.md`. `scripts/deploy.sh` is not the active route.
 
-**`9eed27e` is the state being handed over**, and it is the first one that is a commit rather than a
-dirty tree — eight pieces of work, listed under In flight below. The production gate still stands:
-the five High source findings under Blocked have not been touched, so this is a TEST candidate.
+**`0527f3f` is the state being handed over.** The production gate still stands, but for a different
+reason than it did yesterday: all five High findings are remediated on the application side, and what
+remains is Hermes's — rotating the deprecated MCP key out of the deployed environments, exercising the
+three new startup refusals deliberately in TEST, and the fresh full-source review of the changed
+candidate. See Blocked.
+
+**Three startup gates will refuse to boot** without valid `Server:RequiredSans` and `Server:CaPath`,
+or with `Mcp:ApiKey` still set. That is intended. **H2 also signs the household out once**: every
+cookie predating it carries no security-version claim and is refused.
 
 TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded one-release exception; its original manifest remains TEST-only.
 
