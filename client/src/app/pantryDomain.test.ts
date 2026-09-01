@@ -428,13 +428,37 @@ describe('agoWords', () => {
 })
 
 describe('trimNumber', () => {
-  it('drops trailing zeros without dressing a count up as a fraction', () => {
-    // Deliberately not the recipe screens' fraction formatting: a pantry count is a number of packs
-    // read off a shelf, and rendering 2.5 as "2 1/2" would make it look like a recipe amount.
+  it('writes a clean fraction the way the shelf drawing does', () => {
+    // Reversed on 2026-09-01 at Allan's direction: PANTRY_SHELVES §2 and both Pantry drawings write
+    // "½ pot", and the build was writing "0.5 pot".
+    expect(trimNumber(0.5)).toBe('½')
+    expect(trimNumber(0.25)).toBe('¼')
+    expect(trimNumber(0.75)).toBe('¾')
+    expect(trimNumber(0.333)).toBe('⅓')
+    expect(trimNumber(0.667)).toBe('⅔')
+  })
+
+  it('sets a mixed number tight, as the handoff draws 1½', () => {
+    expect(trimNumber(2.5)).toBe('2½')
+    expect(trimNumber(1.25)).toBe('1¼')
+  })
+
+  it('leaves a decimal alone when it is not a clean fraction', () => {
+    // 0.667 is two-thirds; 0.67 is a number somebody typed. A quantity written as a decimal does not
+    // acquire a fraction it was never given, and nothing is forced to the nearest eighth.
+    expect(trimNumber(0.67)).toBe('0.67')
+    expect(trimNumber(0.4)).toBe('0.4')
+    expect(trimNumber(1.1)).toBe('1.1')
+  })
+
+  it('still drops trailing zeros and floating-point dust', () => {
     expect(trimNumber(3)).toBe('3')
-    expect(trimNumber(2.5)).toBe('2.5')
-    expect(trimNumber(0.25)).toBe('0.25')
     expect(trimNumber(3.0001)).toBe('3')
+  })
+
+  it('keeps a negative sign off the fraction', () => {
+    expect(trimNumber(-0.5)).toBe('-½')
+    expect(trimNumber(-2.5)).toBe('-2½')
   })
 })
 
@@ -519,8 +543,11 @@ describe('usageAmount', () => {
   })
 
   it('leads with what the recipe asks for, and adds the packs it works out to', () => {
+    // The pack figure goes through `trimNumber`, so it picked up the shelf's fraction notation when
+    // that was reversed on 2026-09-01. Left that way deliberately: this is the same count on the
+    // same shelf as the row above it, and half a can is exactly what `½` is for.
     expect(usageAmount(usage({ quantity: 30, unit: 'oz', packs: 2.5, packUnit: 'cans' })))
-      .toBe('30 oz · 2.5 cans')
+      .toBe('30 oz · 2½ cans')
   })
 
   it('does not say the same thing twice because of a plural', () => {

@@ -420,17 +420,44 @@ export function agoWords(iso: string | null | undefined, now: Date = new Date())
 
 // ---- shared formatting ----
 
+/** The vulgar fractions the pantry will write, keyed by their value rounded to three places. */
+const PANTRY_FRACTIONS: Record<string, string> = {
+  '0.125': '⅛', '0.25': '¼', '0.375': '⅜', '0.333': '⅓', '0.5': '½',
+  '0.625': '⅝', '0.667': '⅔', '0.75': '¾', '0.875': '⅞',
+}
+
 /**
- * `3`, `2.5`, `0.25` — a count without trailing zeros.
+ * `3`, `½`, `2½`, `0.4` — a count without trailing zeros, in the shelf's own notation.
  *
- * Deliberately *not* the fraction formatting the recipe screens use. A pantry count is a number of
- * packs read off a shelf, and rendering `2.5` as `2 1/2` would dress a stock figure up as a recipe
- * amount.
+ * <b>This reverses a decision that used to live in this docblock</b>, at Allan's direction on
+ * 2026-09-01. The rule was that a pantry count is a number of packs read off a shelf, so rendering
+ * `2.5` as a fraction would dress a stock figure up as a recipe amount. `PANTRY_SHELVES` §2 and both
+ * Pantry drawings write `½ pot`, and the build wrote `0.5 pot` — so the decision was costing the
+ * section the one notation a person actually uses out loud about a half-full jar.
+ *
+ * <b>Only exact fractions convert, and exactness is judged at three decimal places</b> — which is
+ * the precision the value was already rounded to before this ever ran. So `0.667` is `⅔` and `0.67`
+ * stays `0.67`: a quantity written as a decimal does not acquire a fraction it was never given, the
+ * same reasoning `mealsDomain.formatAmount` applies to a scaled ingredient. Anything without a clean
+ * fraction stays a decimal rather than being forced to the nearest eighth, because a shelf count has
+ * no equivalent of a recipe's "near enough".
+ *
+ * Mixed numbers are set tight — `1½`, not `1 ½` — which is what the handoff draws (`1½ c`).
  */
 export function trimNumber(value: number): string {
   if (!Number.isFinite(value)) return '0'
   const rounded = Math.round(value * 1000) / 1000
-  return Number.isInteger(rounded) ? String(rounded) : String(rounded)
+  if (Number.isInteger(rounded)) return String(rounded)
+
+  // Sign is carried separately so `-0.5` cannot become `-0½` via a floor that rounds the wrong way.
+  const sign = rounded < 0 ? '-' : ''
+  const magnitude = Math.abs(rounded)
+  const whole = Math.floor(magnitude)
+  const rest = Math.round((magnitude - whole) * 1000) / 1000
+
+  const fraction = PANTRY_FRACTIONS[String(rest)]
+  if (!fraction) return String(rounded)
+  return whole > 0 ? `${sign}${whole}${fraction}` : `${sign}${fraction}`
 }
 
 /** `needs 6`, `needs 4 tbsp` — the right-hand cell of a shortfall row. */

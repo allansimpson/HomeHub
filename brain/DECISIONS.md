@@ -181,3 +181,30 @@ than an exemption. `.ml-kitchen__homehead` exists for exactly those two.
 **What is now unbaselined:** `artifacts/handoff-sweep/`'s geometry passes measure against the old
 `.dc.html` files. Every band and cut finding in them is stale until they are pointed at the new
 bundle. The text pass is mostly unaffected; the geometry pass is not.
+
+## 2026-09-01 · The pantry writes `½ pot`, reversing the decision against it
+
+`trimNumber` carried an explicit decision in its own docblock: a pantry count is a number of packs
+read off a shelf, so rendering `2.5` as a fraction would dress a stock figure up as a recipe amount.
+`STATE.md` had listed the resulting `0.5 pot` as **open, needing a ruling rather than a quiet
+reversal** — because the code disagreeing with a signed-off spec is not something to fix by
+preference.
+
+Allan ruled on 2026-09-01: follow the spec. `PANTRY_SHELVES` §2 draws `½ pot`, and so do both Pantry
+drawings in `design_handoff_kitchen` and `design_handoff_kitchen_lists` — six occurrences across the
+two bundles, plus `½ pot turning` on the List panel. The old reasoning was defensible and was
+costing the section the one notation a person actually uses out loud about a half-full jar.
+
+**Only exact fractions convert, and exactness is judged at three decimal places** — the precision the
+value was already rounded to. `0.667` is `⅔`; `0.67` stays `0.67`. A quantity written as a decimal
+does not acquire a fraction it was never given, which is the same rule `mealsDomain.formatAmount`
+applies to a scaled ingredient, and nothing is forced to the nearest eighth: a shelf count has no
+equivalent of a recipe's "near enough". Mixed numbers are set tight (`1½`), as the handoff draws.
+
+**It reaches one place beyond the shelves, kept on purpose.** `usageAmount` renders a recipe's pack
+figure through the same helper, so `30 oz · 2.5 cans` is now `30 oz · 2½ cans`. That is the same
+count on the same shelf as the row above it, and half a can is exactly what `½` is for.
+
+Reversals are cheap to make and expensive to discover, so: the argument against fractions is
+recorded above rather than deleted, and it is still the right argument for anywhere a pantry figure
+is compared down a column rather than read aloud.

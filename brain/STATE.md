@@ -379,9 +379,12 @@ TEST release `20260831T105206Z-09cfd47e8477` is also running in production under
   its peer to a 40px sliver wherever `.ml-kitchen__shop` sat in a flex row; the grocery tick's
   target being the 24px box rather than the 44px its own comment promised; two 11px band doors;
   and shelves ordered Cupboard-first against `PANTRY_SHELVES` §1, which puts Fridge first.
-- **Open, not changed:** the pantry renders `0.5 pot` where the spec writes `½ pot`. `trimNumber`
-  carries an explicit contrary decision — a stock figure should not be dressed as a recipe amount —
-  so this needs a ruling rather than a quiet reversal.
+- **Closed by ruling (2026-09-01):** the pantry writes `½ pot`. `trimNumber` carried an explicit
+  contrary decision — a stock figure should not be dressed as a recipe amount — so this was held open
+  for a ruling rather than reversed quietly. Allan ruled for the spec. Only exact fractions convert,
+  judged at three decimal places, so `0.667` is `⅔` and `0.67` stays `0.67`; mixed numbers are set
+  tight (`2½`), as the handoff draws. It reaches `usageAmount` too (`30 oz · 2½ cans`), kept on
+  purpose. The superseded argument is preserved in `DECISIONS.md` rather than deleted.
 - **Closed:** the pantry renders `4 cans` again. `pluralUnit` in `pantryDomain` agrees the unit with
   the number at display time — the registry is right to store one canonical singular, and agreement
   is a display question. Symbols never inflect (`200 gs` is not a thing), which is a closed set: a
