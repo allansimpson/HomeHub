@@ -175,7 +175,22 @@ meaningful server authentication.
 - Reject self-signed leaves, unknown roots, invalid intermediates, missing SAN and wrong SAN.
 - Startup rejection tests for each.
 
-**Status at `0a717fc`: OPEN.** `ce9ebcd` added genuine fail-closed checks — credential presence,
+**Status: REMEDIATED 2026-09-01.** `Security/TlsIdentity.cs` requires every configured identity on
+the leaf and builds a chain with `CustomRootTrust`, the configured root in `CustomTrustStore`,
+`VerificationFlags = NoFlag` and `RevocationMode = NoCheck` — exactly the policy Hermes specified,
+including why revocation is skipped (this CA publishes no CRL and runs no OCSP responder). Identities
+come from `Server:RequiredSans` and the root from `Server:CaPath`, defaulting to the
+`/etc/homehub/tls/homehub-dev-ca.crt` contract. **An empty `RequiredSans` is a refusal, not a skip** —
+treating "none configured" as "nothing to check" would reinstate the finding on the first deployment
+that forgot the setting. Five negatives: missing identity, self-signed leaf, a leaf from an unknown
+root *with the same subject name as the household CA*, absent root file, absent identities.
+**Two things for Hermes.** The deployment must now set `Server:RequiredSans` and `Server:CaPath` or
+the panel will not start — intended, but exercise it in TEST first. And the root fingerprints supplied
+(`F1:1E:…07`, PEM `c6fa…1ef5`) are *not* pinned in the application: pinning would break CA rotation,
+and the trust decision is already narrowed to one configured root. Say if you want the fingerprint
+checked as well.
+
+Superseded detail: `ce9ebcd` added genuine fail-closed checks — credential presence,
 dates, key availability, EKU, key usage, non-CA — and those are the same checks the original review
 assessed. `Program.cs:88-137` still contains no SAN match and no `X509Chain` validation, and
 `ProductionStartupSecurityTests.cs` is byte-identical and still lacks the negatives.

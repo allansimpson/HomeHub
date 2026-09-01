@@ -1,5 +1,8 @@
 namespace HomeHub.Tests;
 
+using HomeHub.Api.Calendar.Capture;
+using Microsoft.Extensions.DependencyInjection;
+
 public class ProductionStartupSecurityTests
 {
     private static string CreateKeyRingDirectory()
@@ -10,10 +13,10 @@ public class ProductionStartupSecurityTests
         return path;
     }
 
-    private static Dictionary<string, string> ExtractorSettings()
+    private static Dictionary<string, string> ExtractorSettings(TestTlsCertificate.Chain? tls = null)
     {
-        var tls = TestTlsCertificate.Create();
-        return new()
+        tls ??= TestTlsCertificate.CreateChain();
+        var settings = new Dictionary<string, string>
         {
             ["ImageExtractor:Enabled"] = "true",
             ["ImageExtractor:BaseUrl"] = "http://127.0.0.1:8644",
@@ -21,7 +24,16 @@ public class ProductionStartupSecurityTests
             ["DataProtection:KeyPath"] = CreateKeyRingDirectory(),
             ["Server:CertPath"] = tls.CertificatePath,
             ["Server:KeyPath"] = tls.KeyPath,
+            // Identity, not just fitness. Every other production test in this file needs these to
+            // pass so it can reach the gate it is actually about — a deployment without them now
+            // fails at the listener, which is the whole point of H4.
+            ["Server:CaPath"] = tls.CaPath,
         };
+        for (var i = 0; i < TestTlsCertificate.RequiredSans.Length; i++)
+        {
+            settings[$"Server:RequiredSans:{i}"] = TestTlsCertificate.RequiredSans[i];
+        }
+        return settings;
     }
 
     [Fact]
@@ -40,12 +52,11 @@ public class ProductionStartupSecurityTests
     [Fact]
     public void Production_refuses_an_expired_tls_certificate()
     {
-        var expired = TestTlsCertificate.Create(
+        var expired = TestTlsCertificate.CreateChain(
             notBefore: DateTimeOffset.UtcNow.AddDays(-3),
             notAfter: DateTimeOffset.UtcNow.AddDays(-2));
-        var settings = ExtractorSettings();
-        settings["Server:CertPath"] = expired.CertificatePath;
-        settings["Server:KeyPath"] = expired.KeyPath;
+        // Its own chain, so the only thing wrong with this certificate is the property under test.
+        var settings = ExtractorSettings(expired);
 
         using var app = new HubAppFactory { EnvironmentName = "Production", Settings = settings };
 
@@ -56,12 +67,11 @@ public class ProductionStartupSecurityTests
     [Fact]
     public void Production_refuses_a_not_yet_valid_tls_certificate()
     {
-        var future = TestTlsCertificate.Create(
+        var future = TestTlsCertificate.CreateChain(
             notBefore: DateTimeOffset.UtcNow.AddDays(2),
             notAfter: DateTimeOffset.UtcNow.AddDays(3));
-        var settings = ExtractorSettings();
-        settings["Server:CertPath"] = future.CertificatePath;
-        settings["Server:KeyPath"] = future.KeyPath;
+        // Its own chain, so the only thing wrong with this certificate is the property under test.
+        var settings = ExtractorSettings(future);
 
         using var app = new HubAppFactory { EnvironmentName = "Production", Settings = settings };
 
@@ -72,10 +82,9 @@ public class ProductionStartupSecurityTests
     [Fact]
     public void Production_refuses_a_certificate_without_server_authentication_purpose()
     {
-        var wrongPurpose = TestTlsCertificate.Create(serverAuthentication: false);
-        var settings = ExtractorSettings();
-        settings["Server:CertPath"] = wrongPurpose.CertificatePath;
-        settings["Server:KeyPath"] = wrongPurpose.KeyPath;
+        var wrongPurpose = TestTlsCertificate.CreateChain(serverAuthentication: false);
+        // Its own chain, so the only thing wrong with this certificate is the property under test.
+        var settings = ExtractorSettings(wrongPurpose);
 
         using var app = new HubAppFactory { EnvironmentName = "Production", Settings = settings };
 
@@ -169,6 +178,130 @@ public class ProductionStartupSecurityTests
     /// refuses the legacy key but also refuses the replacement would be discovered by whoever
     /// migrates, at the worst possible moment. Both are asserted here so the refusal stays narrow.
     /// </remarks>
+    // ---- H4: the certificate must be *ours*, not merely well-formed ----
+
+    /// <remarks>
+    /// Each of these would have been served happily before, and every one of them is a certificate a
+    /// browser refuses. The household's response to a browser refusal is to click through it, at
+    /// which point the Secure cookie underneath has stopped meaning anything — which is why a
+    /// partially-checked certificate is a transport-boundary finding rather than hygiene.
+    /// </remarks>
+    [Fact]
+    public void Production_refuses_a_certificate_missing_a_required_identity()
+    {
+        // Covers the hostname and the address but not the mDNS name the deployment must answer to.
+        var wrongNames = TestTlsCertificate.CreateChain(
+            dnsNames: ["homehub-test.home.arpa"], ipAddresses: ["192.168.5.15"]);
+
+        using var app = new HubAppFactory
+        {
+            EnvironmentName = "Production",
+            Settings = ExtractorSettings(wrongNames),
+        };
+
+        var error = Assert.ThrowsAny<Exception>(() => app.CreateAnonymousClient());
+        // Named individually, because the alternative sends somebody to read a certificate by hand
+        // while the panel is down.
+        Assert.Contains("mar-server.local", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Production_refuses_a_self_signed_leaf()
+    {
+        var selfSigned = TestTlsCertificate.CreateChain(selfSigned: true);
+
+        using var app = new HubAppFactory
+        {
+            EnvironmentName = "Production",
+            Settings = ExtractorSettings(selfSigned),
+        };
+
+        var error = Assert.ThrowsAny<Exception>(() => app.CreateAnonymousClient());
+        Assert.Contains("chain", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The case that is invisible without actually building the chain: a leaf issued by a CA with the
+    /// *same subject name* as the household root, but a different key.
+    /// </summary>
+    [Fact]
+    public void Production_refuses_a_leaf_from_an_unknown_root()
+    {
+        var unknownRoot = TestTlsCertificate.CreateChain(issueFromUnrelatedRoot: true);
+
+        using var app = new HubAppFactory
+        {
+            EnvironmentName = "Production",
+            Settings = ExtractorSettings(unknownRoot),
+        };
+
+        var error = Assert.ThrowsAny<Exception>(() => app.CreateAnonymousClient());
+        Assert.Contains("chain", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Production_refuses_to_start_without_the_household_root_configured()
+    {
+        var settings = ExtractorSettings();
+        settings.Remove("Server:CaPath");
+
+        using var app = new HubAppFactory { EnvironmentName = "Production", Settings = settings };
+
+        var error = Assert.ThrowsAny<Exception>(() => app.CreateAnonymousClient());
+        // Falls back to the deployment contract path, which is absent on a dev box — so the failure
+        // names the file somebody has to go and put there.
+        Assert.Contains("homehub-dev-ca.crt", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Production_refuses_to_start_without_required_identities()
+    {
+        var settings = ExtractorSettings();
+        for (var i = 0; i < TestTlsCertificate.RequiredSans.Length; i++)
+        {
+            settings.Remove($"Server:RequiredSans:{i}");
+        }
+
+        using var app = new HubAppFactory { EnvironmentName = "Production", Settings = settings };
+
+        var error = Assert.ThrowsAny<Exception>(() => app.CreateAnonymousClient());
+        // An unconfigured list must fail closed. Treating "none required" as "nothing to check" would
+        // reinstate the finding by omission on the first deployment that forgot the setting.
+        Assert.Contains("Server:RequiredSans", error.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The seam, end to end: with the isolated reader configured, an image request resolves to it and
+    /// never to the tool-capable agent path.
+    /// </summary>
+    /// <remarks>
+    /// The startup negatives above prove a hardened deployment cannot boot *without* isolation. This
+    /// proves the other half — that when isolation is present it is actually what gets composed —
+    /// and together they close the route. Without this, a ladder reordered so that `EventCapture`
+    /// won when both were configured would pass every other test in this file.
+    ///
+    /// Asserted on the resolved implementation type rather than on behaviour because that is the
+    /// decision under test: the choice of reader is made once, at composition, and `HermesEventExtractor`
+    /// deliberately contains nothing that would refuse to run.
+    /// </remarks>
+    [Fact]
+    public void An_image_request_resolves_to_the_isolated_reader_not_the_household_agent()
+    {
+        var settings = ExtractorSettings();
+        // The legacy path configured as invitingly as possible: a household that had set it up, and
+        // then had the isolated reader switched on around it.
+        settings["EventCapture:Provider"] = "hermes";
+        settings["EventCapture:Agent"] = "barnaby";
+
+        using var app = new HubAppFactory { Settings = settings };
+        using var scope = app.Services.CreateScope();
+
+        var reader = scope.ServiceProvider.GetRequiredService<IEventExtractor>();
+
+        Assert.IsNotType<HermesEventExtractor>(reader);
+        Assert.IsType<ExtractorEventReader>(reader);
+    }
+
     [Fact]
     public void Production_refuses_the_deprecated_shared_mcp_key()
     {

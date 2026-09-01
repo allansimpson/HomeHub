@@ -20,18 +20,26 @@ public class EventCaptureApiTests
     [Fact]
     public void Production_refuses_to_start_without_the_isolated_image_extractor()
     {
-        var tls = TestTlsCertificate.Create();
+        // A full chain and the required identities, so this reaches the extractor gate it is about
+        // rather than stopping at the TLS identity gate that now runs before it.
+        var tls = TestTlsCertificate.CreateChain();
+        var settings = new Dictionary<string, string>
+        {
+            ["ConnectionStrings:HomeHub"] =
+                "Server=127.0.0.1,1;Database=unreachable;User Id=x;Password=x;Connect Timeout=1;TrustServerCertificate=true",
+            ["DataProtection:KeyPath"] = CreateKeyRingDirectory(),
+            ["Server:CertPath"] = tls.CertificatePath,
+            ["Server:KeyPath"] = tls.KeyPath,
+            ["Server:CaPath"] = tls.CaPath,
+        };
+        for (var i = 0; i < TestTlsCertificate.RequiredSans.Length; i++)
+        {
+            settings[$"Server:RequiredSans:{i}"] = TestTlsCertificate.RequiredSans[i];
+        }
         using var app = new HubAppFactory
         {
             EnvironmentName = "Production",
-            Settings = new()
-            {
-                ["ConnectionStrings:HomeHub"] =
-                    "Server=127.0.0.1,1;Database=unreachable;User Id=x;Password=x;Connect Timeout=1;TrustServerCertificate=true",
-                ["DataProtection:KeyPath"] = CreateKeyRingDirectory(),
-                ["Server:CertPath"] = tls.CertificatePath,
-                ["Server:KeyPath"] = tls.KeyPath,
-            },
+            Settings = settings,
         };
 
         var error = Assert.ThrowsAny<Exception>(() => app.CreateAnonymousClient());

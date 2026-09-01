@@ -134,6 +134,14 @@ var requiresDeploymentSafeguards =
                     throw new InvalidOperationException(
                         "The HTTPS listener requires an end-entity certificate, not a CA certificate.");
                 }
+
+                // Everything above establishes that the certificate is *fit*. None of it establishes
+                // that it is *ours* — see `TlsIdentity`, which is the difference between a browser
+                // accepting the panel and a household being trained to click through a warning.
+                HomeHub.Api.Security.TlsIdentity.Require(
+                    certificate,
+                    builder.Configuration.GetSection("Server:RequiredSans").Get<string[]>() ?? [],
+                    builder.Configuration.GetValue("Server:CaPath", HomeHub.Api.Security.TlsIdentity.DefaultCaPath)!);
             }
         }
         catch (Exception ex)
