@@ -192,6 +192,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try { return await work() } finally { release() }
   }, [])
 
+  /**
+   * The request layer's identity boundary — opened and closed here, and nowhere else.
+   *
+   * <b>A function rather than a line, because "nowhere else" was the bug.</b> The boundary used to be
+   * opened inside {@link refresh}, which reads as one place and is three: a cold boot and a sign-in
+   * both establish identity without going through it, and neither opened anything. A panel that
+   * rebooted with a valid cookie — the ordinary way this panel starts — refused every private call
+   * before the fetch, and because that refusal is deliberately shaped as `ApiError(0)`, drew offline
+   * states over a server that was answering. Nothing in the suites could see it; it took a browser.
+   *
+   * Both arguments are passed rather than read from state on purpose. `locked` is the reason the
+   * boundary closes, and a callback closing over a stale copy of it is the other way this goes
+   * wrong — quietly, and in the direction of opening.
+   *
+   * The condition itself is unchanged and is the point: the server has to have said who is signed
+   * in. `deviceOnly` is an unlocked panel whose identity nothing has confirmed, and it must not
+   * start private calls however plausible its stored profile looks.
+   */
+  const confirmIdentity = useCallback((isLocked: boolean, profileId: number | null) => {
+    setPrivateNetworkConfirmed(!isLocked && profileId != null)
+  }, [])
+
   const refresh = useCallback(async () => {
     try {
       /*
@@ -226,7 +248,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
        * new about identity, and the boundary should stay wherever it was rather than flapping on
        * every failed poll.
        */
-      setPrivateNetworkConfirmed(!locked && session.profileId != null)
+      confirmIdentity(locked, session.profileId)
 
       // Now that the boundary is open — or has stayed shut, in which case this returns null the same
       // way it does for a signed-out panel, and nothing private has been asked for.
@@ -248,7 +270,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [locked])
+  }, [locked, confirmIdentity])
 
   /*
    * Closed the moment the panel locks, before anything else reacts to it.
@@ -258,8 +280,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    * from the request layer's point of view, and revocations must not wait for a network round trip.
    */
   useEffect(() => {
-    if (locked) setPrivateNetworkConfirmed(false)
-  }, [locked])
+    if (locked) confirmIdentity(true, null)
+  }, [locked, confirmIdentity])
 
   /*
    * A data call came back 401: the cookie has expired under a panel that thinks it is signed in.
@@ -292,19 +314,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     ;(async () => {
       try {
-        // getSession is anonymous and never 401s, so a signed-out panel reaches this branch with
-        // profileId null rather than falling into the catch — which is what lets the shell tell
-        // "nobody is signed in" from "the server is not there". The roster is anonymous for the
-        // same reason: the picker has to be drawable before anybody is on it. Settings are not,
-        // hence the wrapper — see it for what a bare getSettings() did here.
-        const [nextProfiles, nextSettings, session] = await Promise.all([
+        /*
+         * getSession is anonymous and never 401s, so a signed-out panel reaches this branch with
+         * profileId null rather than falling into the catch — which is what lets the shell tell
+         * "nobody is signed in" from "the server is not there". The roster is anonymous for the
+         * same reason: the picker has to be drawable before anybody is on it.
+         *
+         * <b>Settings are not, and used to be fetched in this same batch.</b> They are private, the
+         * boundary is shut until identity is confirmed, and confirming it needs this session — so
+         * the settings read was refused on every boot and the panel came up on nulls. That is the
+         * same ordering mistake {@link refresh} documents; it was fixed there and not here, which is
+         * how a boot with a perfectly good cookie ended up as the broken path. Confirm who is
+         * asking, open the boundary, then read the things that needed it open.
+         */
+        const [nextProfiles, session] = await Promise.all([
           api.listProfiles(),
-          settingsOrNullWhenSignedOut(),
           api.getSession(),
         ])
         if (cancelled) return
         setProfiles(nextProfiles)
-        setSettings(nextSettings)
         setActiveProfileId(session.profileId)
         setIsAdmin(session.isAdmin)
         // Locked whenever nobody holds a session: a rebooted panel must land on the picker rather
@@ -320,6 +348,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
          * the window is twelve hours and it is a note about this device, not a credential.
          */
         const nextLocked = !session.signedIn || shouldAskForPin(active)
+        confirmIdentity(nextLocked, session.profileId)
+        // Now that the boundary is open — or has stayed shut, in which case this returns null the
+        // same way it does for a signed-out panel, and nothing private has been asked for.
+        const nextSettings = await settingsOrNullWhenSignedOut()
+        if (cancelled) return
+        setSettings(nextSettings)
         setQueueIdentity(nextLocked ? null : session.profileId)
         setDeviceOnly(false)
         /*
@@ -369,7 +403,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [confirmIdentity])
 
   /*
    * Get the last care write sealed and stored before the page goes quiet.
@@ -451,6 +485,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setIsAdmin(session.isAdmin)
     setDeviceOnly(false)
     /*
+     * The server has just said who this is, in the most direct way it ever does. Opening here is
+     * what lets the two private calls at the end of this function land — `setActiveProfile` and
+     * `getSettings` were both being refused, so signing in produced a panel that looked signed in
+     * and could read nothing.
+     *
+     * Not in the offline branch above, and that is the distinction the whole boundary exists for:
+     * that path admits somebody against this *device*, and nothing has confirmed them to the house.
+     */
+    confirmIdentity(false, session.profileId ?? id)
+    /*
      * The one moment this device holds a PIN the server has just agreed to — so the one moment it
      * may learn to check that PIN for itself. Enrolling anywhere else would be this device deciding
      * what the right PIN is; enrolling here is it remembering what it was told.
@@ -496,7 +540,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       if (!(err instanceof ApiError)) throw err
     }
-  }), [duringSessionTransition])
+  }), [duringSessionTransition, confirmIdentity])
 
   /*
    * Hand a device-proved session to the server the moment there is one to hand it to.
