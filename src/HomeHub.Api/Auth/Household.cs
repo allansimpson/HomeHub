@@ -65,17 +65,32 @@ public static class Household
     /// <summary>Whether this caller is a machine credential rather than a household member.</summary>
     public static bool IsService(this ClaimsPrincipal? user) => user?.IsInRole(ServiceRole) == true;
 
+    /// <summary>The claim carrying <see cref="Profile.SecurityVersion"/> as minted.</summary>
+    public const string SecurityVersionClaim = "homehub:sv";
+
     /// <summary>The claims a signed-in member carries.</summary>
+    /// <remarks>
+    /// <b>The role still travels in the cookie, and is now checked against the database on every
+    /// request.</b> The comment that used to sit here accepted delayed demotion as the price of not
+    /// doing a Profiles lookup per request — "acceptable here, where admin governs household settings
+    /// rather than anything dangerous". It was not: the same claims authorise deleting profiles and
+    /// editing roles, so a demoted administrator could keep both for the cookie's 400-day sliding
+    /// life, and so could anyone holding a copy of that cookie.
+    ///
+    /// The lookup that was being avoided is a single indexed read of one small table on a household
+    /// LAN, against a local database. Hermes ruled explicitly for strict per-request validation over
+    /// a cached interval: role change, PIN change, deletion and forced sign-out are revocation
+    /// operations, and a deliberate stale-authority window is not wanted at any width.
+    /// </remarks>
     public static ClaimsPrincipal PrincipalFor(Profile profile) =>
         new(new ClaimsIdentity(
             [
                 new Claim(ClaimTypes.NameIdentifier, profile.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 new Claim(ClaimTypes.Name, profile.Name),
-                // The role travels in the cookie rather than being re-read per request. That means a
-                // demotion does not take effect until the member's next sign-in — acceptable here,
-                // where "admin" governs household settings rather than anything dangerous, and the
-                // alternative is a Profiles lookup on every single request to every endpoint.
                 new Claim(ClaimTypes.Role, profile.Role.ToString()),
+                // What makes the three above revocable. Compared per request; a mismatch, or a
+                // profile that no longer exists, rejects the cookie.
+                new Claim(SecurityVersionClaim, profile.SecurityVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             ],
             CookieScheme));
 }

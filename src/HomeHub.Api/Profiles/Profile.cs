@@ -46,6 +46,28 @@ public class Profile
     public ProfileRole Role { get; set; } = ProfileRole.Member;
 
     /// <summary>
+    /// Bumped whenever this member's authority changes. Every issued cookie carrying an older value
+    /// stops being accepted at the next request.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is the revocation mechanism, and it exists because there was not one.</b> The role
+    /// used to travel in the cookie and be trusted for its whole 400-day sliding life, so demoting an
+    /// administrator changed the database and nothing else: the demoted principal kept administrator
+    /// access — including deleting profiles and editing roles — for as long as it kept using the
+    /// panel. A stolen cookie had the same property.
+    ///
+    /// A version rather than a revocation list: the question at request time is "is this cookie still
+    /// current for this member", which one integer answers without anything to prune, expire or keep
+    /// in sync. Role change, PIN change, deletion and forced sign-out all bump it, because all four
+    /// are the same operation from the cookie's point of view — the authority it was minted against
+    /// no longer holds.
+    ///
+    /// Starts at 1 so that a stored 0 is visibly "written before this existed" rather than a valid
+    /// version, and the two cannot be confused while old rows are still around.
+    /// </remarks>
+    public int SecurityVersion { get; set; } = 1;
+
+    /// <summary>
     /// Which agent Assist opens on for this member. Null means the household agent.
     /// </summary>
     /// <remarks>

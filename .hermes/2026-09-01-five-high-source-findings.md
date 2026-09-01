@@ -107,7 +107,17 @@ says their authority has ended.
 - Integration tests that mint an admin cookie, demote or delete that profile, and prove subsequent
   privileged requests fail.
 
-**Status at `0a717fc`: OPEN.** `Household.PrincipalFor` is byte-identical. `Program.cs:196-229` still
+**Status: REMEDIATED 2026-09-01.** `Profile.SecurityVersion` is minted into the cookie and compared
+against the roster on **every** request via `OnValidatePrincipal` — strict, as Hermes ruled, with no
+cached interval. A missing profile rejects (the deleted case), as does a version mismatch, as does a
+cookie carrying no version claim at all: every cookie issued before this exists is refused, so the
+household signs in once after the deploy. Bumped on role change and on setting or clearing a PIN;
+device sign-out deliberately does *not* bump, since it means "this device" rather than "everywhere".
+There is no forced-sign-out endpoint yet — the mechanism now supports one.
+**The acting device is re-issued.** Bumping revoked the cookie of the person performing the change,
+so changing your own PIN signed you out by your own successful action: 204, then 401. Found by the
+existing suite, not by design. Six tests, each holding a cookie minted *before* the revocation.
+Superseded detail: `Household.PrincipalFor` was byte-identical. `Program.cs:196-229` still
 has the 400-day sliding cookie and no revalidation; profile update/delete still does not invalidate
 existing cookies.
 

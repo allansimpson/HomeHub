@@ -2,6 +2,7 @@ namespace HomeHub.Api.Controllers;
 
 using System.Linq;
 using HomeHub.Api.Auth;
+using Microsoft.AspNetCore.Authentication;
 using HomeHub.Api.Data;
 using HomeHub.Api.Profiles;
 using Microsoft.AspNetCore.Authorization;
@@ -122,10 +123,46 @@ public class ProfilesController : ControllerBase
         }
         // Omitted means unchanged — see UpdateProfileRequest. A payload that never mentions
         // ageBand must not be able to un-child a profile.
-        if (req.Role is { } role) profile.Role = role;
+        var bumped = false;
+        if (req.Role is { } role && role != profile.Role)
+        {
+            profile.Role = role;
+            // A demotion that only changed the database was the whole of H2: the demoted principal
+            // kept administrator authority — profile deletion and role editing included — for the
+            // cookie's 400-day sliding life. Bumping the version revokes it on the next request.
+            // Promotions bump too: the cookie asserts a role, and a stale one is wrong in either
+            // direction.
+            profile.SecurityVersion++;
+            bumped = true;
+        }
 
         await _db.SaveChangesAsync();
+        if (bumped) await ReissueIfOwnSessionAsync(profile);
         return ProfileDto.From(profile);
+    }
+
+    /// <summary>
+    /// Re-issue this device's cookie after a revocation that included its own member.
+    /// </summary>
+    /// <remarks>
+    /// <b>Revoking every session must not mean revoking the one doing the revoking.</b> Bumping
+    /// `SecurityVersion` invalidates every cookie minted against the old value — which is the point,
+    /// and which includes the cookie of the person who just changed their own PIN. Without this they
+    /// are signed out by their own successful action, mid-flow, with no explanation: the request
+    /// succeeds and the next one 401s.
+    ///
+    /// So the acting device is re-signed with the new claims and everything else stays revoked, which
+    /// is the ordinary shape of "change your password, stay signed in here, sign out everywhere
+    /// else". It re-reads the *current* row, so an administrator who demotes themselves is re-issued
+    /// as a member rather than keeping the role they just gave up.
+    ///
+    /// Called after `SaveChangesAsync`, never before — a cookie minted from an unsaved version would
+    /// be rejected by the very next request.
+    /// </remarks>
+    private async Task ReissueIfOwnSessionAsync(Profile profile)
+    {
+        if (User.ProfileId() != profile.Id) return;
+        await HttpContext.SignInAsync(Household.CookieScheme, Household.PrincipalFor(profile));
     }
 
     /// <summary>Remove a household member. Administrators only.</summary>
@@ -178,12 +215,16 @@ public class ProfilesController : ControllerBase
         // answer different questions (see `lockGating.rowAction`), and only the first is implied.
         var creating = string.IsNullOrEmpty(profile.PinHash);
         profile.PinHash = PinHasher.Hash(req.Pin);
+        // Changing a PIN is a revocation: the usual reason to change one is that somebody else knows
+        // it, and a session opened with the old PIN must not outlive it.
+        profile.SecurityVersion++;
         if (creating)
         {
             profile.RequirePinWhenIdle = true;
             profile.StayLoggedIn = false;
         }
         await _db.SaveChangesAsync();
+        await ReissueIfOwnSessionAsync(profile);
         _lockout.Forget(id);
         return NoContent();
     }
@@ -220,7 +261,11 @@ public class ProfilesController : ControllerBase
         profile.PinHash = null;
         profile.RequirePinWhenIdle = false;
         profile.StayLoggedIn = true;
+        // Removing a PIN changes what the member's sessions were authenticated against, so existing
+        // ones are revoked for the same reason as setting one.
+        profile.SecurityVersion++;
         await _db.SaveChangesAsync();
+        await ReissueIfOwnSessionAsync(profile);
         _lockout.Forget(id);
         return NoContent();
     }

@@ -221,6 +221,61 @@ builder.Services
         // removed. Sliding, so a panel in daily use never reaches the end of it.
         options.ExpireTimeSpan = TimeSpan.FromDays(400);
         options.SlidingExpiration = true;
+        /*
+         * <b>Every request revalidates the principal against the roster.</b>
+         *
+         * The cookie carries the member's id, name, role and security version, and it lives for 400
+         * sliding days. Without this, demoting an administrator changed the database and nothing
+         * else: the demoted principal kept administrator authority — including deleting profiles and
+         * editing roles — for as long as it kept using the panel, and so did anyone holding a copy of
+         * that cookie. Deleting the profile did not help either; the claims outlived the row.
+         *
+         * <b>Strict, not a cached interval.</b> Hermes ruled on this directly: role change, PIN
+         * change, deletion and forced sign-out are revocation operations, and a deliberate window of
+         * stale authority is not wanted at any width. The cost being avoided was one indexed read of
+         * a small table against a local database on a household LAN — measured later if it ever
+         * matters, not assumed away now.
+         *
+         * <b>Rejects rather than refreshes.</b> A mismatch could in principle re-mint the cookie from
+         * the current row, and that would be wrong: the member's authority has changed, and the panel
+         * should ask again rather than quietly hand them a new cookie for a role they did not have a
+         * moment ago.
+         *
+         * No database at all is not a rejection. The app runs without one for design-system work, and
+         * `GetService` returning null there means "no roster to protect" — the same reading
+         * `HouseholdAdminHandler` already takes, rather than locking every request out of a
+         * configuration that has no profiles in the first place.
+         */
+        options.Events.OnValidatePrincipal = async ctx =>
+        {
+            var db = ctx.HttpContext.RequestServices.GetService<HomeHubDbContext>();
+            if (db is null) return;
+
+            var principal = ctx.Principal;
+            var idClaim = principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var versionClaim = principal?.FindFirst(Household.SecurityVersionClaim)?.Value;
+
+            // A cookie minted before this existed carries no version and cannot be shown to be
+            // current. It is refused rather than grandfathered: the whole finding is that old cookies
+            // outlive the authority they were issued against.
+            if (!int.TryParse(idClaim, out var profileId)
+                || !int.TryParse(versionClaim, out var version))
+            {
+                ctx.RejectPrincipal();
+                return;
+            }
+
+            // Indexed by primary key, and projected to the one column compared — this runs on every
+            // authenticated request, so it reads a single integer rather than materialising a row.
+            var current = await db.Profiles
+                .Where(p => p.Id == profileId)
+                .Select(p => (int?)p.SecurityVersion)
+                .FirstOrDefaultAsync(ctx.HttpContext.RequestAborted);
+
+            // Null covers the deleted profile, which is the case the original finding named
+            // explicitly: the row is gone and the cookie still asserts its name and role.
+            if (current is null || current != version) ctx.RejectPrincipal();
+        };
         // This is an API, not a server-rendered site: there is no /Account/Login to send anyone to,
         // and a 302 to a missing page turns an actionable 401 into an HTML body the client parses
         // as a failed request for JSON.
