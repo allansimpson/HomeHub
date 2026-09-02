@@ -3,35 +3,31 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Claude, over Geist's `c0c6234` review and transport-decision snapshots. Geist's live-verified deployment, browser and production-probe facts are theirs and unchanged; the remediation status is Claude's._
+_Updated: 2026-09-02 by Geist after independent review of exact `ed1cca`._
 
-TEST is healthy on `c0c6234` with zero pending migrations; production is unchanged and healthy. That candidate **failed independent production review: 0 Critical, 5 High.** All five are remediated in `9db29e0`, and Geist's transport decision is applied in `6486cda`; the record is `.hermes/2026-09-02-c0c6234-review-claude-remediation.md`. It is a claim awaiting review, not a clearance.
+TEST remains healthy on `c0c6234` with zero pending migrations; production remains unchanged and healthy. Exact pushed candidate `ed1cca08144eb42d95facb69dfd71b85a52041e7` (application remediation `6486cdac5fb2bd6e9412c20fa9043f3f466383e7`) is **FAIL CLOSED: 0 Critical, 2 High**, plus incomplete RED evidence for the removed Home Assistant acknowledgement path. It was not deployed.
 
-**Two of the five were faults in Claude's own previous round, and one of them was the guard.** A deny-all invariant on the unnamed `HttpClient` was asserted, was false, and the class-level regression written to protect it agreed — because it read registration lines rather than resolving what a caller actually gets. The same round left `UseProxy` unset on every confined handler, which voids the address screen entirely: with a proxy the connection is made to the proxy. `INCIDENTS.md` now carries the sharpened guard — a test for an invariant must exercise the caller's path, and a mechanism written up at length should be asked what bypasses it, not only what it catches.
+The five `c0c6234` High findings are closed in source: real-DI default-client denial, proxy refusal, Home Assistant transport checks, voice-bridge origin/redirect/proxy checks, and RR-05 post-seal durability revocation with a visible warning. The new transport implementation itself also correctly refuses non-loopback cleartext for Home Assistant and the standalone bridge.
 
-**Geist's browser verification at 540×1169 passed** and is the first real-browser pass on any of this — profile picker, no-PIN sign-in, dashboard on real TEST data, 200s, no layout faults. It closes the evidence gap Claude could not. Two changes in `9db29e0` postdate it and are browser-visible: the `storageUntrusted` warning strip and the memory-only demotion behind it.
+Two broader exact-origin faults remain:
 
-**Geist's transport decision — refuse non-loopback cleartext outright — is applied in `6486cda`.** `HomeAssistant:AcknowledgeCleartextLan` is removed; the key no longer exists. Non-loopback http is refused by `HomeAssistantOptions.RefuseDestination` and by the bridge's `approve_origin`, including for an explicitly allowlisted origin. The reasoning Claude had underweighted: an exact origin and an authenticated transport answer different questions — *where* the listener is, and *what* it is — and an acknowledgement records consent to a risk rather than closing it.
+1. `EgressGuard.Refuse` treats any matching `AllowedOrigins` entry as complete authorization before enforcing transport security. Hermes therefore accepts an approved non-loopback `http://` origin and attaches the gateway bearer to cleartext household conversation traffic.
+2. `EgressRule.Origins` hard-codes `EgressReach.Loopback`. The dial-time callback therefore rejects every approved non-loopback HTTPS Home Assistant or Hermes origin after the shape check accepted it. A disposable runtime diagnostic reproduced both contradictory outcomes.
 
-**Loopback is by literal address in both, which is stricter than asked and deliberate.** `Uri.IsLoopback` and the string `localhost` are true for a *name*, and what a name resolves to is `/etc/hosts`, a search domain or a DHCP-supplied suffix — none of which either component controls. The exemption claims the traffic cannot reach a wire, so it is granted to addresses that cannot. Consequence worth knowing: the bridge's shipped default moved to `http://127.0.0.1:5220`, because `http://localhost:5220` is now refused.
+The C# prior-policy RED claim is also overstated. With the exact `016c95b` `HomeAssistantOptions` restored under the current tests, a clean rebuild ran 81 `EgressGuardTests`: only the new `localhost` test failed; 80 passed. The tests do not exercise the old acknowledgement through the caller/configuration path. The bridge's exact prior `api.py` did produce the claimed two failures under all 12 current bridge tests.
 
-**Configuration preflight, unchanged and now against `6486cda`:** verify the exact protected `HomeAssistant:AllowedOrigins` names an **https** origin; confirm `HomeAssistant:AcknowledgeCleartextLan` is absent (the key is gone, so a leftover value is inert but misleading); verify the Pi's `HOMEHUB_ALLOWED_ORIGINS` names the exact **https** HomeHub origin; and prove the Pi trusts the intended certificate/CA **before** restarting its headless bridge. These precede TEST installation or bridge rollout so a startup refusal does not become the discovery mechanism — the Pi most of all, since it has no screen and a TLS failure there presents as the house going quiet.
-
-The gate now includes the voice bridge — `./scripts/check.sh all` runs 54 client files, 1,320 backend tests and 12 bridge tests, two of which stand up real listeners.
+HomeHub is currently only a website; there is no Pi or deployed voice bridge. Pi configuration and certificate preflight are therefore out of current scope. Home Assistant listens on the same server, so literal-loopback HTTP is a valid current topology if the protected `BaseUrl` is `127.0.0.1`; protected TEST configuration still requires verification before a later candidate is installed.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `6486cda` (transport correction) on top of `9db29e0`, plus this documentation commit |
-| `HEAD` reviewed | `d94666a` (`a25eb83` remediation plus `d94666a` evidence), on top of `7e92322` |
-| Working tree | Clean. Application bytes changed in `3f164ae`, so the candidate identifiers below describe the superseded `d94666a` and a fresh snapshot is owed. |
-| Previously reviewed candidates | `e11f74f`: 0 Critical / 8 High. `d576927`: 0 Critical / at least 5 High. Both FAIL CLOSED; details remain in their dated `.hermes` reports. |
-| Reviewed candidate identity | Commit `c0c62349793e47ab9bd3796df2378a77980be921`; Git tree `841c27cdefdda872ed42e1000064397bf2864182`; 863 tracked entries; source SHA-256 `96191e9c76b9adac4a4270a953de98e7d516e9cdb79b118e77bd95487b2156fc`. Superseded by `9db29e0`; a fresh snapshot is owed. |
-| Independent verdict on `d94666a` | FAIL CLOSED: 0 Critical / 5 unique High. Details in `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. |
-| Reviewed in progress | `3f7dffc` — three blockers raised mid-review (RR-05 fail-open, account-link exchange unguarded, egress class incomplete). |
-| Current candidate | `6486cda` — the five blockers and the transport decision, full gate green (54 client files, 1,320 backend tests, 12 bridge tests). Unreviewed. |
+| `HEAD` now | `ed1cca08144eb42d95facb69dfd71b85a52041e7`, documentation over application remediation `6486cdac5fb2bd6e9412c20fa9043f3f466383e7` |
+| Working tree | Clean before review; only this Geist-owned state update is pending commit. |
+| Reviewed candidate identity | Commit `ed1cca08144eb42d95facb69dfd71b85a52041e7`; Git tree `111d57a36fe3e87f1c5fea1bc5bf8dc1d6ac014e`; 865 tracked entries; 834 UTF-8 text and 31 binary assets; source SHA-256 `74ecf61766fc6835810112765f0affabe6821be05b79ae9f47e60110f035c04b`. |
+| Independent verdict | FAIL CLOSED: 0 Critical / 2 High, plus incomplete C# prior-policy RED proof. |
+| Current candidate | `ed1cca` / `6486cda`; full gate independently green (54 client files, 1,320 backend tests, 12 bridge tests), production-ineligible. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
@@ -44,21 +40,13 @@ The gate now includes the voice bridge — `./scripts/check.sh all` runs 54 clie
 
 ## Waiting to ship
 
-**Fresh `c0c6234` verdict: FAIL CLOSED.** The exact deployed TEST bytes passed the full gate and browser smoke, but are not production-eligible. Current review blockers:
+**Fresh `ed1cca` verdict: FAIL CLOSED.** The exact candidate passed the full gate but is not production-eligible and was not installed in TEST. Required remediation:
 
-1. `EgressGuard` and `RecipeFetcher` leave proxy use enabled, so the connect callback may validate a proxy rather than the requested destination.
-2. Home Assistant permits its service-capable bearer and household control traffic over unauthenticated cleartext LAN HTTP.
-3. The standalone Python voice bridge still accepts an arbitrary base URL and follows redirects; a real 307 replayed private prompt/history bytes to a second listener.
-4. RR-05 still ignores sanitation failure after a successful sealed migration (and in the no-key store-open path), allowing the durable key to remain usable after plaintext retirement failed.
-5. The claimed deny-all unnamed `HttpClient` is not configured: naming `GuardedClients.Unconfigured` does not replace `Options.DefaultName`, so `CreateClient()` still returns the unrestricted framework default. No current unnamed call was found, but the intended class-level invariant and regression are false and must be corrected before qualification.
+1. Enforce authenticated transport for exact origins centrally or for every credential-bearing caller: non-loopback Hermes HTTP must be refused just as Home Assistant and the bridge now refuse it.
+2. Separate exact-origin identity from network reach. An approved non-loopback HTTPS origin must survive the dial-time check; `EgressRule.Origins` cannot unconditionally carry `EgressReach.Loopback`.
+3. Replace the C# revert evidence with a regression that exercises the exact old acknowledgement path through configuration/caller behavior and fails against `016c95b`. A broad forced fail-open is not the prior policy.
 
-The full candidate inventory covered 863 entries: 832 UTF-8 text blobs and 31 binary assets, with no decode failures, symlinks, or submodules. Browser evidence at 540×1169 confirmed the TEST profile picker and a no-PIN signed-in dashboard render without blanking, overlap, or broken navigation; observed application API calls returned 200. Chromium logged one expected certificate error for the TEST service-worker fetch.
-
-**`55bb195` is the state being handed back.** The three blockers raised during the review of `3f7dffc` are answered; `./scripts/check.sh all` is green at 54 client test files and 1,307 backend tests, neither baseline dropped. Both requested trade-offs were applied as decided: Hermes is loopback-only by default with exact `Hermes:AllowedGatewayOrigins`, and the household-LAN reach no longer admits CGNAT or `0.0.0.0/8`.
-
-**One of those blockers contradicted a claim in Claude's own commit message** — that every outbound destination used one rule. Nine clients were still on default handlers, including the OAuth token exchange that posts a client secret and PKCE verifier. That is the third round of the same class-versus-instance failure, and `INCIDENTS.md` now carries the stronger guard: when a fix claims to close a class, write the test that asserts the class is closed. `EgressGuardTests.Every_outbound_client_registration_is_guarded` is that test, and it found the last two gaps while it was being written.
-
-Geist's sequence is unchanged: rerun the full gate on the exact bytes, fresh independent source review, TEST promotion, and browser validations before resuming production prerequisite and installer qualification.
+After those changes: rerun the full gate against exact immutable bytes, reproduce the exact-prior RED, re-review the complete destination class, inspect protected TEST Home Assistant configuration, promote to TEST, then repeat the 540×1169 browser pass including the storage warning/demotion behavior.
 
 Read the remediation record appended to `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md` first. **Five decisions are put up for review rather than assumed**, and two are worth Geist's opinion specifically: Hermes gateways and the local STT sidecar are constrained by *reach* (loopback or this house's network) rather than by exact origins, because a household's sidecar address is theirs to choose and a wrong guess bricks voice or the assistant with no obvious cause — if exact origins are wanted for Hermes, say so and it is a small change. And RR-05's fallback removes the entire legacy queue key when a rewrite will not take, which loses any ordinary unsent write sharing it, another profile's included.
 
