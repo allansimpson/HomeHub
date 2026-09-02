@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { api, ApiError, SESSION_LOST_EVENT, armSessionLostNotice, setPrivateNetworkConfirmed } from '../api/client'
+import { closeAndDrainPrivateNetwork } from '../api/privateNetwork'
 import { useConnection } from './ConnectionProvider'
 import {
   clearIdentity, clearUnlock, loadIdentity, mayAccessPrivateCache, saveIdentity, saveUnlock,
@@ -189,6 +190,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let release!: () => void
     sessionTransition.current = new Promise<void>((resolve) => { release = resolve })
     await previous
+    /*
+     * Shut the boundary and drain what is in flight before the transition touches the cookie.
+     *
+     * Every session transition passes through here — sign-in, sign-out, unlock, profile switch — so
+     * this is the one place that can promise no authenticated request is still running when the
+     * identity changes underneath it. Closing first stops anything new starting; aborting deals with
+     * what is already out; awaiting is the part that matters, because `abort()` returns before the
+     * request's own unwinding has happened, and a transition that proceeds into that gap is racing
+     * the teardown it just asked for.
+     *
+     * Sign-in still works with the boundary shut: `POST /session` is one of the four operations that
+     * may precede confirmation, which is what makes it able to re-open it.
+     */
+    await closeAndDrainPrivateNetwork()
     try { return await work() } finally { release() }
   }, [])
 
@@ -211,7 +226,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    * start private calls however plausible its stored profile looks.
    */
   const confirmIdentity = useCallback((isLocked: boolean, profileId: number | null) => {
-    setPrivateNetworkConfirmed(!isLocked && profileId != null)
+    // The profile is passed through so the boundary knows *who* it is open for, not merely that it
+    // is open. A request captures that subject and its epoch when it starts and is checked against
+    // them when it finishes, so a reply that outlived its identity is discarded rather than rendered.
+    setPrivateNetworkConfirmed(!isLocked && profileId != null, profileId)
   }, [])
 
   const refresh = useCallback(async () => {
@@ -293,7 +311,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    * from the request layer's point of view, and revocations must not wait for a network round trip.
    */
   useEffect(() => {
-    if (locked) confirmIdentity(true, null)
+    // Not awaited, and does not need to be: closing and aborting are synchronous inside it, so
+    // nothing new starts and everything running is cancelled the moment the panel locks. The promise
+    // is the settlement of those aborts, which only a transition has to wait on.
+    if (locked) void closeAndDrainPrivateNetwork()
   }, [locked, confirmIdentity])
 
   /*

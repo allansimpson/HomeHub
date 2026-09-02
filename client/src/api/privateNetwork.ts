@@ -144,6 +144,34 @@ export function isPreConfirmationOperation(method: string | undefined, path: str
  * and an audio stream need the same answer. `SessionProvider` owns the value and nothing else may
  * set it.
  */
+/**
+ * The confirmed subject, and the epoch its requests belong to.
+ *
+ * <b>A Boolean was not enough, and the gap it left is the finding.</b> `authorizedFetch` checked one
+ * module-global flag *at the moment it started* and never looked again, so a request begun under one
+ * identity could land under another: the flag says "somebody is confirmed", not "the same somebody
+ * who asked for this". Between a request starting and its body being read, a member can lock, sign
+ * out, switch profile, or be revoked — and the cookie sent with the reply is the new one.
+ *
+ * The epoch advances on every one of those transitions. A request captures it when it starts and is
+ * checked against it when it finishes, so a reply that outlived its identity is discarded rather than
+ * handed to a caller who will render it.
+ */
+let subject: { profileId: number | null; epoch: number } | null = null
+
+/** Advanced by every transition. Never reused, so a stale capture can only ever mismatch. */
+let currentEpoch = 0
+
+/**
+ * Every authenticated request in flight, so a transition can abort and await them.
+ *
+ * <b>Aborting is not enough on its own — the drain is the point.</b> `abort()` returns immediately
+ * and the request's own `catch`/`finally` has not run yet, so a caller that replaced the cookie right
+ * after aborting would still be racing the teardown it just asked for. Holding each request's
+ * settlement lets a transition wait until nothing is still processing a body.
+ */
+const inFlight = new Set<{ controller: AbortController; settled: Promise<void> }>()
+
 let confirmed = false
 
 /**
@@ -153,8 +181,42 @@ let confirmed = false
  * all close the boundary again, and the finding this exists to close was precisely that requests
  * outlived the identity they were issued for.
  */
-export function setPrivateNetworkConfirmed(next: boolean): void {
+export function setPrivateNetworkConfirmed(next: boolean, profileId: number | null = null): void {
+  // Every change of confirmation is a transition, including confirming: signing in replaces the
+  // cookie exactly as signing out does, and a request begun before it must not be honoured after.
+  currentEpoch += 1
   confirmed = next
+  subject = next ? { profileId, epoch: currentEpoch } : null
+}
+
+/**
+ * Close the boundary, abort everything in flight, and wait for it to finish unwinding.
+ *
+ * Awaited by `SessionProvider` before a sign-in, sign-out, lock, profile switch or revocation
+ * replaces the cookie. The order is the whole of it: close first so nothing new starts, abort what
+ * is already running, then wait — a transition that returns while a body is still being read has not
+ * actually transitioned.
+ */
+export async function closeAndDrainPrivateNetwork(): Promise<void> {
+  setPrivateNetworkConfirmed(false)
+  const pending = [...inFlight]
+  for (const entry of pending) entry.controller.abort()
+  await Promise.allSettled(pending.map((entry) => entry.settled))
+}
+
+/**
+ * Who the boundary is currently open for, and in which epoch. Null when it is shut.
+ *
+ * Read by the transport so a refusal can say *whose* request outlived *whose* session, which is the
+ * difference between a log line somebody can act on and one that only says a request was dropped.
+ */
+export function confirmedSubject(): { profileId: number | null; epoch: number } | null {
+  return subject
+}
+
+/** How many authenticated requests are in flight. For tests and for reasoning about a drain. */
+export function inFlightPrivateRequests(): number {
+  return inFlight.size
 }
 
 export function isPrivateNetworkConfirmed(): boolean {
@@ -181,12 +243,48 @@ export async function authorizedFetch(path: string, init?: RequestInit): Promise
   if (!isPrivateNetworkAllowed(method, path)) {
     throw new PrivateNetworkError(`${method} ${normalisePath(path)}`)
   }
-  const res = await fetch(`/api${path}`, {
-    // Since AUDIT A1 the session cookie is what authorises every one of these, so "cookies travel"
-    // stopped being an incidental property of relative fetches and became what the API depends on.
-    credentials: 'same-origin',
-    ...init,
-  })
-  noteAuthenticatedResponse(method, path, res.status)
-  return res
+  // Captured at the start and checked at the end. The identity that authorised this request is the
+  // only one it may be answered under.
+  const startedFor = subject
+  const startedIn = currentEpoch
+  const controller = new AbortController()
+  // The caller's own signal still works — the watchdog deadline in `request`, and the assist
+  // stream's Stop. Neither may be lost by being wrapped in this one.
+  const signal = init?.signal
+    ? AbortSignal.any([controller.signal, init.signal])
+    : controller.signal
+
+  let settle: () => void = () => {}
+  const entry = { controller, settled: new Promise<void>((resolve) => { settle = resolve }) }
+  inFlight.add(entry)
+
+  try {
+    const res = await fetch(`/api${path}`, {
+      // Since AUDIT A1 the session cookie is what authorises every one of these, so "cookies travel"
+      // stopped being an incidental property of relative fetches and became what the API depends on.
+      credentials: 'same-origin',
+      ...init,
+      signal,
+    })
+
+    /*
+     * The reply arrived under a different identity than the one that asked.
+     *
+     * Refused rather than returned, and refused *before* the body is read: the response was produced
+     * for whoever the cookie names now, and handing it back would render one member's data inside
+     * another's session. This is the race the epoch exists for — a lock or a profile switch that
+     * lands between a request starting and finishing.
+     */
+    if (startedIn !== currentEpoch) {
+      throw new PrivateNetworkError(
+        `${method} ${normalisePath(path)} outlived the session it was sent for `
+        + `(profile ${startedFor?.profileId ?? 'none'}, epoch ${startedIn}; now epoch ${currentEpoch})`)
+    }
+
+    noteAuthenticatedResponse(method, path, res.status)
+    return res
+  } finally {
+    inFlight.delete(entry)
+    settle()
+  }
 }

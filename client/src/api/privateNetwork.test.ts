@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   armSessionLostNotice,
   authorizedFetch,
+  closeAndDrainPrivateNetwork,
+  confirmedSubject,
+  inFlightPrivateRequests,
   isPreConfirmationOperation,
   isPrivateNetworkAllowed,
   normaliseMethod,
@@ -230,5 +233,82 @@ describe('a 401 closes the session boundary', () => {
 
     expect(seen).toHaveLength(1)
     stop()
+  })
+})
+
+
+/**
+ * Requests are bound to the identity that authorised them, and transitions drain — H2.
+ *
+ * <b>A Boolean checked at the start was the gap.</b> `authorizedFetch` asked "is somebody confirmed"
+ * when it began and never again, which is not the same as "the same somebody who asked for this".
+ * Between a request starting and its body being read, a member can lock, sign out, switch profile or
+ * be revoked — and the cookie sent with the reply is the new one.
+ */
+describe('subject and epoch binding', () => {
+  it('names who the boundary is open for, not merely that it is', () => {
+    setPrivateNetworkConfirmed(true, 7)
+    expect(confirmedSubject()?.profileId).toBe(7)
+
+    setPrivateNetworkConfirmed(false)
+    expect(confirmedSubject()).toBeNull()
+  })
+
+  it('discards a reply that arrived after the identity changed', async () => {
+    setPrivateNetworkConfirmed(true, 1)
+
+    // The response resolves only once the test releases it, so the transition can be made to land in
+    // the window between the request starting and its reply being handled — which is the race.
+    let release!: (r: Response) => void
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { release = resolve })))
+
+    const pending = authorizedFetch('/pantry')
+
+    // Somebody else unlocks while it is out.
+    setPrivateNetworkConfirmed(true, 2)
+    release(new Response('{"secret":"first member\'s"}'))
+
+    // Refused rather than returned, and refused before the body is read: that response was produced
+    // for whoever the cookie names now.
+    await expect(pending).rejects.toBeInstanceOf(PrivateNetworkError)
+  })
+
+  it('treats confirming as a transition too, because signing in also replaces the cookie', async () => {
+    setPrivateNetworkConfirmed(false)
+    setPrivateNetworkConfirmed(true, 1)
+    const first = confirmedSubject()?.epoch
+
+    setPrivateNetworkConfirmed(true, 1)
+    expect(confirmedSubject()?.epoch).not.toBe(first)
+  })
+})
+
+describe('draining a transition', () => {
+  it('aborts what is in flight and waits for it to unwind', async () => {
+    setPrivateNetworkConfirmed(true, 1)
+
+    // A request that never answers on its own — the state a panel is in when it has signal but no
+    // route to the house. Only the abort can end it.
+    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_res, rej) => {
+      init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+    })))
+
+    const pending = authorizedFetch('/pantry').catch(() => 'ended')
+    expect(inFlightPrivateRequests()).toBe(1)
+
+    await closeAndDrainPrivateNetwork()
+
+    // The claim is not "abort was called" — it is that nothing is still processing when the drain
+    // returns. A transition that proceeds into that gap is racing the teardown it asked for.
+    expect(inFlightPrivateRequests()).toBe(0)
+    expect(await pending).toBe('ended')
+  })
+
+  it('leaves the boundary shut afterwards, so nothing new starts', async () => {
+    setPrivateNetworkConfirmed(true, 1)
+    await closeAndDrainPrivateNetwork()
+    vi.stubGlobal('fetch', vi.fn())
+
+    await expect(authorizedFetch('/pantry')).rejects.toBeInstanceOf(PrivateNetworkError)
   })
 })
