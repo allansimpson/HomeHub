@@ -3,10 +3,10 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02T04:09Z by Claude and Geist. Deployment facts below were live-verified by Geist;
+_Updated: 2026-09-02T04:14Z by Claude and Geist. Deployment facts below were live-verified by Geist;
 the application handoff and code notes are Claude's._
 
-Current clean DEV through `8e75721` now runs in TEST. Production remains on the prior release. The detailed
+Current clean DEV through `e11f74f` now runs in TEST. Production remains on the prior release. The detailed
 In flight notes predate this promotion; application work they describe through this commit is now in TEST even
 where an older parenthetical still says “not deployed.”
 
@@ -15,18 +15,18 @@ where an older parenthetical still says “not deployed.”
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` / `origin/main` | `8e75721` / `dc7d026` (14 ahead, 0 behind; nothing pushed) |
+| `HEAD` / `origin/main` | `e11f74f` / `dc7d026` (15 ahead, 0 behind; nothing pushed) |
 | Working tree | Application tree clean at capture; only Geist's post-deploy `brain/DEPLOYMENT.md` and `brain/STATE.md` updates are uncommitted |
 | Verified at `HEAD` | Claude handoff records `./scripts/check.sh all` green: typecheck, lint, 50 client test files, 1157 backend tests; browser device-only/confirmed boundary pass at 540×1169. Geist independently verified the deployed artifact and live environment. |
 | Coordination state | `.git/index` restored to `simpson:geist-dev` (UID 1000/GID 989), mode 0660, after the promotion workflow exposed and corrected its direct-gitdir ownership defect. |
 
 ## Deployed
 
-| Environment | Live state at 2026-09-02T04:09Z |
+| Environment | Live state at 2026-09-02T04:14Z |
 |---|---|
-| TEST | Release `20260902T040711Z-1b8da9bb73f0`; artifact SHA-256 `4e3547e51b582062ec6bc560103c8fb5a780c7eb1015728403f92066b94ae58e`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `8e75721+ · 2026-09-02 04:07Z`; bundle `index-Cw6vvF9J.js`; live bundle and service worker exactly match the artifact |
+| TEST | Release `20260902T041152Z-620d8f13f2ca`; artifact SHA-256 `e9e7b563c3cb3bc814bddd7c387609ca84f360c52cb885d12eb8d64057a18a6d`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `e11f74f+ · 2026-09-02 04:12Z`; bundle `index-kcmVYEme.js`; live bundle and service worker exactly match the artifact |
 | Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle `index-D3pqF7Ee.js` |
-| Gap | TEST has current clean DEV. The H1/H2/H4/H5 changes postdate the prior review; production requires fresh exact-candidate qualification, production config/credential reconciliation, unpushed-commit publication coordination, and explicit approval. |
+| Gap | TEST has current clean DEV. Production qualification remains separate. |
 
 ## Waiting to ship
 
