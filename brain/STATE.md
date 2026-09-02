@@ -3,33 +3,26 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Claude, over Geist's post-re-review snapshot of the same day. Geist's live-verified deployment and production-probe facts below are theirs and unchanged; the remediation status is Claude's._
+_Updated: 2026-09-02 by Geist after independent review of the second remediation candidate._
 
-Current TEST remains healthy on the old exact `e11f74f` candidate. Production remains unchanged. The exact remediation candidate `d576927` (`2a82d53` application changes plus documentation) passed its existing full development gate but **failed independent production re-review** with **0 Critical and at least 5 High findings**. The complete-source pass also exhausted its review limit, so the count is not yet asserted exhaustive.
+Current TEST remains healthy on the old exact `e11f74f` candidate. Production remains unchanged. The exact second remediation candidate `d94666a` (`a25eb83` application changes plus evidence) passed its full development gate but **failed independent production review with 0 Critical and 5 unique High findings**.
 
-The authoritative re-review record is `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. The five independently supported blockers are: wrong-key Care-vault overwrite; destructive/non-atomic plaintext queue migration; lock/session-loss transport closure delayed until a React effect; unrestricted cloud-STT destination accepting household audio and a bearer credential; and private legacy queue data remaining plaintext indefinitely when no key-bearing session opens it.
+RR-01, RR-02, and RR-03 are closed. The immediate visible lock in RR-03 is accepted: network and queue admission close synchronously, old work becomes epoch-invalid, settlement drains, and stores close last. RR-05 remains partially open. RR-04 validates the initial cloud URL but automatic redirects escape the allowlist. A fresh exhaustive review also found unconstrained local-STT, Google/Microsoft provider, and Hermes gateway destinations.
 
-Existing tests were genuinely green under the release toolchain (Node `v24.13.0`, .NET SDK `10.0.110`): typecheck and lint pass, 53/53 client files with 997/997 tests, and 1,210/1,210 backend tests. Two disposable adversarial regressions nevertheless failed and directly demonstrated the Care-vault overwrite and destructive migration. No candidate was promoted.
+The authoritative second re-review is `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. Existing tests remain genuinely green under Node `v24.13.0` and .NET SDK `10.0.110`: typecheck and lint pass, 54/54 client files, 1,239/1,239 backend tests, and no npm/NuGet production vulnerabilities. Three disposable adversarial tests independently demonstrated the remaining RR-05 plaintext cases.
 
-**All five are now remediated in `a25eb83`**, each with a regression verified red-capable against the reverted fix in this checkout — including reproductions of Geist's two counterexamples. Claude's account is appended to the re-review record. It is a claim awaiting review, not a clearance, and the review that follows should be the exhaustive one the interrupted pass could not be.
-
-**RR-01 was my mistake and is worth naming.** It was the same wrong-key overwrite hazard I had already found and fixed in the write queue while writing its acceptance test — and did not carry back to the Care vault, which is opened under the same key and holds the same rows. The vault's existing wrong-key test stopped after the read, so it could not see it. Recorded in `INCIDENTS.md`.
-
-Production prerequisite observation, without secret disclosure: live SQL traffic is loopback-to-loopback on port 1433, but this does not prove the configured `Server=` token is one the validator treats as loopback, nor reveal `Encrypt`/`TrustServerCertificate`; privileged read-only preflight remains required. Authenticated production voice capabilities report no server, local, or cloud STT availability, so production is not operationally relying on cloud fallback. Exact protected environment-key presence likewise remains a privileged preflight item after source remediation passes.
+No candidate was built or promoted. Production prerequisite inspection remains deferred until source passes. Production currently reports no cloud STT availability; SQL's literal configured server/TLS policy still requires privileged read-only preflight later.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `a25eb83` (re-review remediation), on top of the reviewed `d576927` |
-| `HEAD` reviewed | `d576927` (`2a82d53` remediation plus `d576927` evidence), on top of `661f5a1` and `d6f1540` |
-| Working tree | Clean. Application bytes changed in `a25eb83`, so the candidate identifiers below describe the superseded `d576927` and a fresh snapshot is owed. |
-| Preconditions | Verified before any edit: `git diff --name-only e11f74f 661f5a1` returned only the handoff and two `brain/` files, so all eight cited surfaces were byte-identical to the reviewed commit. |
-| Previously reviewed application bytes | Commit `e11f74f`; source-tree SHA-256 `620d8f13f2ca863c0025f768f959a3fc8ccb04252f7a6fd5b10e3dc185347218`; verdict 0 Critical / 8 High, FAIL CLOSED. |
-| Current remediation candidate | Commit `d576927`; Git tree `63545e407c55d75b2a972085725339f4bdb560d2`; deterministic source SHA-256 `15bb3aeb7a9ac986b08ceca4b00043c1d500990fb595da61ec0f91fbd3a955c3`; 853 tracked paths. |
-| Independent verdict on `d576927` | FAIL CLOSED: 0 Critical and at least 5 High; complete-source review not yet exhaustive. Details in `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. |
-| Current candidate | `a25eb83` — all five remediated, full gate green, unreviewed. |
+| `HEAD` reviewed | `d94666a` (`a25eb83` remediation plus `d94666a` evidence), on top of `7e92322` |
+| Working tree | Contains only Geist's second re-review documentation updates; no application bytes changed. |
+| Previously reviewed candidates | `e11f74f`: 0 Critical / 8 High. `d576927`: 0 Critical / at least 5 High. Both FAIL CLOSED; details remain in their dated `.hermes` reports. |
+| Current candidate identity | Commit `d94666a086e4351bb5727fad2044f9e00a1764df`; Git tree `7d7e664addc13a0e3558e661e2288a67832667ba`; 858 tracked paths; deterministic source SHA-256 `31819e72f73d065242122e3e65404bec12f06b1a80b3835284c3f82dfb34b711`. |
+| Current independent verdict | FAIL CLOSED: 0 Critical / 5 unique High. Details in `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
@@ -38,17 +31,15 @@ Production prerequisite observation, without secret disclosure: live SQL traffic
 |---|---|
 | TEST | Release `20260902T041152Z-620d8f13f2ca`; artifact SHA-256 `e9e7b563c3cb3bc814bddd7c387609ca84f360c52cb885d12eb8d64057a18a6d`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `e11f74f+ · 2026-09-02 04:12Z`; bundle `index-kcmVYEme.js`; live bundle and service worker exactly matched the artifact |
 | Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged and last verified healthy; build `a66e80a+ · 2026-08-31 10:52Z` |
-| Gap | Production is blocked on the five known High re-review findings, completion of a fresh exhaustive review after remediation, a new exact TEST artifact, browser evidence, configuration and installer qualification, and Allan's explicit approval. |
+| Gap | Production is blocked on the second re-review's 5 High findings, then a corrected exact candidate, fresh zero-Critical/High review, new TEST artifact, browser evidence, configuration/installer qualification, and Allan's explicit approval. |
 
 ## Waiting to ship
 
-**`a25eb83` is the state being handed back.** All five re-review findings are remediated, each with a regression that fails against the reverted fix; `./scripts/check.sh all` is green at 54 client test files and 1,239 backend tests, neither baseline dropped.
+**`d94666a` failed independent review.** Claude's next input is `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. Do not build or promote it.
 
-Geist's sequence from here is unchanged and is the right one: rerun the full gate on the exact bytes, complete the **exhaustive** source review the interrupted pass could not be, build and promote exact bytes to TEST, run the real-browser validations against TEST's database-backed deployment, then resume privileged production prerequisite and installer qualification.
+The next candidate must close five items: remove all private/unowned legacy plaintext regardless of current profile and verify retirement; prevent cloud-STT redirect escape; constrain the local-STT endpoint to its declared local boundary; constrain Google/Microsoft OAuth and data endpoints; and constrain Hermes gateways to approved local origins. Each sink needs startup and request-time enforcement plus redirect handling.
 
-Two things to read first, both in the remediation record appended to `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. **Three decisions are put up for review rather than assumed** — including the one place the required fix was deliberately not followed exactly: RR-03's visible lock is not deferred behind the drain, because deferring it would leave private screens on a shared panel for the length of a teardown, and the epoch advancing in the same synchronous step is what makes that safe. And **RR-04 adds a fourth production prerequisite**, `Ai:OpenAiAllowedHosts`, alongside HH-07's SQL certificate and HH-08's egress acknowledgement.
-
-**The browser validations are Geist's to run against TEST, and that resolves the gap Claude could not close.** This checkout has no database credentials, so no path here has been observed in a real browser; RR-01 and RR-03 add a wrong-key vault session and a lock landing on a suspended body to the list worth watching.
+After a new exact commit: rerun the full gate, fresh independent source review, TEST promotion, and browser validations before resuming production prerequisite and installer qualification.
 
 Nothing deploys on push. Claude hands a verified code state to Geist; Geist snapshots and promotes it
 through the process in `DEPLOYMENT.md`. `scripts/deploy.sh` is not the active route.

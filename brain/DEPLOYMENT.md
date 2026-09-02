@@ -65,8 +65,9 @@ Verified at 2026-09-02T04:14Z:
   `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle
   `index-D3pqF7Ee.js`.
 - The old TEST archive remains TEST-only and production-ineligible. The first review of `e11f74f` failed with 0 Critical / 8 High.
-- Claude's remediation candidate `d576927` (application changes in `2a82d53`) was independently pinned and exercised under the release toolchains. Its existing full gate passed: typecheck, lint, 53/53 client files with 997/997 tests, and 1,210/1,210 backend tests. Independent re-review nevertheless failed closed with **0 Critical and at least 5 High findings**; two were reproduced with disposable adversarial tests. Details: `.hermes/2026-09-02-remediation-rereview-fail-closed.md`.
-- No remediated artifact was built or promoted. Production remains blocked pending a corrected exact commit, fresh exhaustive zero-Critical/High review, new TEST artifact, live browser validation, and the normal configuration/installer gates.
+- Claude's first remediation candidate `d576927` failed independent review with 0 Critical / at least 5 High; details remain in `.hermes/2026-09-02-remediation-rereview-fail-closed.md`.
+- Claude's second remediation candidate `d94666a` (application changes in `a25eb83`) was independently pinned and exercised under the release toolchains. Its full gate passed: typecheck, lint, 54/54 client files, 1,239/1,239 backend tests, and no npm/NuGet production vulnerabilities. Fresh review nevertheless failed closed with **0 Critical / 5 unique High findings**. Details: `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`.
+- No remediated artifact was built or promoted. Production remains blocked pending corrected exact source, a fresh zero-Critical/High review, new TEST artifact, live browser validation, and normal configuration/installer gates.
 - Non-secret production observations: established SQL traffic is loopback-to-loopback on port 1433, but the configured `Server=` token and TLS flags remain protected and may still fail the literal startup policy; authenticated voice capabilities report no local or cloud STT availability. Exact protected environment-key presence remains a privileged preflight item.
 
 ## Observation from Claude, 2026-08-30 — deployment docs still describe Huckleberry
