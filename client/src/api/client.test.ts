@@ -66,7 +66,7 @@ describe('the identity boundary', () => {
     // Gating these would make the boundary unopenable: the picker draws before anybody signs in, and
     // asking "who am I" is how the panel finds out it may open the boundary at all.
     void api.getSession()
-    void api.listProfiles()
+    void api.listProfilePicker()
 
     expect(calls).toHaveLength(2)
   })
@@ -227,7 +227,7 @@ describe('the raw-transport call sites', () => {
     setPrivateNetworkConfirmed(false)
     const calls = stubSilentFetch()
 
-    void api.listProfiles()
+    void api.listProfilePicker()
 
     expect(calls).toHaveLength(1)
   })

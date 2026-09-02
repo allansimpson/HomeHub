@@ -1356,7 +1356,11 @@ export function SettingsScreen() {
                       </button>
                     )}
                     <Toggle
-                      on={me.requirePinWhenIdle && me.hasPin}
+                      // `requirePinWhenIdle` is undefined until the authenticated roster has been
+                      // read — it is household policy and no longer travels on the anonymous picker.
+                      // Absent reads as off, which is the safe default and the state Settings would
+                      // show anyway before the full list lands.
+                      on={(me.requirePinWhenIdle ?? false) && me.hasPin}
                       onChange={(next) => setRequirePin(me, next)}
                       label="Require PIN when idle"
                     />
@@ -2164,7 +2168,9 @@ function CalendarMarkRow({
  * panel had no way to be right about.
  */
 function roleLabel(p: ProfileDto, activeId: number | null): string {
-  const parts: string[] = [p.role]
+  // Same reason: the role arrives with the authenticated roster, not the picker. Settings is a
+  // signed-in screen so it will have it, but the type is honest that it may not have arrived yet.
+  const parts: string[] = [p.role ?? 'Member']
   if (p.id === activeId) parts.push('Signed in')
   parts.push(p.hasPin ? 'PIN set' : 'No PIN')
   return parts.join(' · ')

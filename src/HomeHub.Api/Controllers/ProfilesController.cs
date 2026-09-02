@@ -47,6 +47,26 @@ public class ProfilesController : ControllerBase
     /// nothing about what any member has done. Everything the roster is a key *to* is authorised.
     /// </remarks>
     [AllowAnonymous]
+    [HttpGet("picker")]
+    public async Task<IReadOnlyList<ProfilePickerDto>> Picker() =>
+        await _db.Profiles
+            // Ordered here so the projection need not carry `DisplayOrder` — the picker draws the
+            // list it is given, and the household's arrangement of itself is not an anonymous fact.
+            .OrderBy(p => p.DisplayOrder)
+            .Select(p => new ProfilePickerDto(p.Id, p.Name, p.Initial, p.PinHash != null && p.PinHash != ""))
+            .ToListAsync();
+
+    /// <summary>
+    /// The full roster, with the policy fields. <b>Authenticated</b>, unlike the picker above.
+    /// </summary>
+    /// <remarks>
+    /// This used to be the anonymous endpoint, and the remarks above it argued the roster was not
+    /// worth protecting — no PIN hash, no role-bearing action, nothing about what anybody had done.
+    /// The argument missed what the shape itself says: `Role` names the account worth attacking, and
+    /// `HasPin`, `RequirePinWhenIdle` and `StayLoggedIn` together describe how well each one is
+    /// defended. That is a map, and it was being handed to anyone who could reach the panel.
+    /// </remarks>
+    [Authorize]
     [HttpGet]
     public async Task<IReadOnlyList<ProfileDto>> List() =>
         await _db.Profiles

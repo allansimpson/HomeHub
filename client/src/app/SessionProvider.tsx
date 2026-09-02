@@ -229,11 +229,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
        * who is asking, open the boundary, then fetch the things that needed it open. A batch cannot
        * express that, because the whole point is that one depends on the other.
        */
-      const [nextProfiles, session] = await Promise.all([
-        api.listProfiles(),
+      const [pickerProfiles, session] = await Promise.all([
+        api.listProfilePicker(),
         api.getSession(),
       ])
-      setProfiles(nextProfiles)
+      setProfiles(pickerProfiles)
       setActiveProfileId(session.profileId)
       setQueueIdentity(locked ? null : session.profileId)
       /*
@@ -250,15 +250,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
        */
       confirmIdentity(locked, session.profileId)
 
-      // Now that the boundary is open — or has stayed shut, in which case this returns null the same
-      // way it does for a signed-out panel, and nothing private has been asked for.
-      const nextSettings = await settingsOrNullWhenSignedOut()
+      /*
+       * Now that the boundary is open — or has stayed shut, in which case these return null and
+       * nothing private has been asked for.
+       *
+       * The roster is read twice on purpose, and the two reads are different endpoints rather than
+       * the same one twice. The picker's version is anonymous and carries four fields; the full shape
+       * carries the household's security policy — who is an administrator, who locks when idle — and
+       * is authenticated. Before confirmation the panel is entitled to the first and not the second,
+       * so it takes the first, confirms, and then upgrades.
+       */
+      const [nextSettings, fullProfiles] = await Promise.all([
+        settingsOrNullWhenSignedOut(),
+        api.listProfiles().catch(() => null),
+      ])
       setSettings(nextSettings)
+      // Only on success: a refusal must not blank a roster the picker is drawing from.
+      if (fullProfiles) setProfiles(fullProfiles)
       setIsAdmin(session.isAdmin)
       setOffline(false)
       // Re-remembered on every good read, so a renamed profile or a changed avatar is what the
       // next offline launch draws.
-      if (session.profileId != null) saveIdentity(session.profileId, nextProfiles)
+      if (session.profileId != null) saveIdentity(session.profileId, pickerProfiles)
     } catch (err) {
       // Unreachable API. The last known identity stays on screen — it was restored at boot and
       // nothing here has learned anything to replace it with.
@@ -328,7 +341,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
          * asking, open the boundary, then read the things that needed it open.
          */
         const [nextProfiles, session] = await Promise.all([
-          api.listProfiles(),
+          // The anonymous four-field shape. The full roster is authenticated and arrives below.
+          api.listProfilePicker(),
           api.getSession(),
         ])
         if (cancelled) return
@@ -351,9 +365,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         confirmIdentity(nextLocked, session.profileId)
         // Now that the boundary is open — or has stayed shut, in which case this returns null the
         // same way it does for a signed-out panel, and nothing private has been asked for.
-        const nextSettings = await settingsOrNullWhenSignedOut()
+        const [nextSettings, fullProfiles] = await Promise.all([
+          settingsOrNullWhenSignedOut(),
+          // Upgrades the picker's four fields to the full roster now that the boundary is open. A
+          // refusal leaves the picker's version standing rather than blanking it.
+          api.listProfiles().catch(() => null),
+        ])
         if (cancelled) return
         setSettings(nextSettings)
+        if (fullProfiles) setProfiles(fullProfiles)
         setQueueIdentity(nextLocked ? null : session.profileId)
         setDeviceOnly(false)
         /*

@@ -75,7 +75,8 @@ public class AuthBoundaryTests
     /// </remarks>
     [Theory]
     [InlineData("/api/health")]
-    [InlineData("/api/profiles")]
+    // The picker's four-field roster, not the full one — see the roster test below.
+    [InlineData("/api/profiles/picker")]
     [InlineData("/api/session")]
     public async Task The_endpoints_the_sign_in_screen_needs_stay_open(string path)
     {
@@ -161,20 +162,53 @@ public class AuthBoundaryTests
         Assert.NotEqual("text/html", res.Content.Headers.ContentType?.MediaType);
     }
 
-    /// <summary>The roster is readable anonymously, so it must carry nothing but names.</summary>
+    /// <summary>
+    /// The anonymous roster carries what signing in needs, and no security policy.
+    /// </summary>
+    /// <remarks>
+    /// <b>This test used to pass while the thing it claimed was false.</b> It asserted the roster
+    /// "leaks no secret" and checked only that the PIN hash was absent — which it was. Meanwhile the
+    /// same response carried `role`, `requirePinWhenIdle`, `stayLoggedIn` and `displayOrder` to any
+    /// unauthenticated caller: which member is an administrator, which have PINs, which lock when
+    /// idle, which stay signed in. No individual field is a secret and the set of them is a map of
+    /// who to attack and how well they are defended.
+    ///
+    /// Asserted on the wire text rather than a deserialised DTO on purpose: a property added to the
+    /// picker's record later would be invisible to a typed assertion and is exactly the way this
+    /// grows back.
+    /// </remarks>
     [Fact]
-    public async Task The_anonymous_roster_leaks_no_secret()
+    public async Task The_anonymous_roster_carries_no_security_policy()
     {
         using var app = new HubAppFactory();
         var admin = app.CreateSeededClient();
         await admin.PutAsJsonAsync("/api/profiles/1/pin", new SetPinRequest("1234"));
 
-        var raw = await app.CreateAnonymousClient().GetStringAsync("/api/profiles");
+        var raw = await app.CreateAnonymousClient().GetStringAsync("/api/profiles/picker");
 
         Assert.DoesNotContain("pinHash", raw, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("1234", raw, StringComparison.Ordinal);
-        // hasPin is the flag the lock screen needs; the hash behind it is not.
+        // What signing in genuinely needs: who to sign in as, how to draw them, and whether the
+        // keypad is required. The server demands the PIN of any profile that has one, so a picker
+        // that could not ask would simply fail.
         Assert.Contains("hasPin", raw, StringComparison.Ordinal);
+        Assert.Contains("initial", raw, StringComparison.Ordinal);
+        // And the policy that used to travel with it.
+        Assert.DoesNotContain("role", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("requirePinWhenIdle", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("stayLoggedIn", raw, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("displayOrder", raw, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The full roster is authenticated, and answers an anonymous caller with 401.</summary>
+    [Fact]
+    public async Task The_full_roster_is_not_anonymous()
+    {
+        using var app = new HubAppFactory();
+
+        var res = await app.CreateAnonymousClient().GetAsync("/api/profiles");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
 
     /// <summary>Signed out means signed out, reported rather than refused.</summary>

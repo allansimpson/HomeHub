@@ -3,16 +3,34 @@
 /** What a member may do on the panel. Mirrors the C# `ProfileRole` (enums serialize as strings). */
 export type ProfileRole = 'Member' | 'Admin'
 
+/**
+ * A household member as the panel knows them.
+ *
+ * <b>The policy fields are optional because they are absent before sign-in.</b> The roster has to be
+ * readable to draw the picker, and the server now answers that with `ProfilePickerDto` — id, name,
+ * initial and whether a keypad is needed — rather than publishing who is an administrator and how
+ * each member is defended. The full shape arrives from the authenticated list once identity is
+ * confirmed, so anything reading `role` or `requirePinWhenIdle` is reading a fact that only exists
+ * after confirmation, and `undefined` is the honest value until then.
+ */
+/** Exactly what the sign-in picker needs. See `ProfilePickerDto` on the server. */
+export interface ProfilePickerDto {
+  id: number
+  name: string
+  initial: string
+  hasPin: boolean
+}
+
 export interface ProfileDto {
   id: number
   name: string
   initial: string
   hasPin: boolean
-  requirePinWhenIdle: boolean
-  stayLoggedIn: boolean
-  displayOrder: number
+  requirePinWhenIdle?: boolean
+  stayLoggedIn?: boolean
+  displayOrder?: number
   /** Household administrator; everyone else is a Member. */
-  role: ProfileRole
+  role?: ProfileRole
 }
 
 export type DaylightBoostMode = 'auto' | 'on' | 'off'

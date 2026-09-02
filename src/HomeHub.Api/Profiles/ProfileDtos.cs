@@ -23,6 +23,29 @@ public record ProfileDto(
         p.RequirePinWhenIdle, p.StayLoggedIn, p.DisplayOrder, p.Role.ToString());
 }
 
+/// <summary>
+/// What the sign-in picker needs, and nothing else.
+/// </summary>
+/// <remarks>
+/// <b>The roster is readable before anybody has signed in</b> — the picker has to draw names before
+/// there is a session to authorise it — and the full <see cref="ProfileDto"/> was what it drew from.
+/// That handed an unauthenticated caller the household's security policy: who is an administrator,
+/// who has a PIN, who locks when idle, who stays signed in, and stable ids for all of them. Anyone
+/// who can reach the panel could read which member to attack and how that member is defended.
+///
+/// Signing in needs four things: an id to sign in as, a name and an initial to draw, and whether a
+/// keypad is required. <see cref="HasPin"/> is the one that looks like policy and is not — the server
+/// demands the PIN of any profile that has one, so a picker that could not ask would simply fail.
+///
+/// Everything else moved behind authentication. `Role` in particular is not the picker's business:
+/// the panel never draws it before sign-in, and publishing it names the account worth compromising.
+/// </remarks>
+public record ProfilePickerDto(int Id, string Name, string Initial, bool HasPin)
+{
+    public static ProfilePickerDto From(Profile p) =>
+        new(p.Id, p.Name, p.Initial, !string.IsNullOrEmpty(p.PinHash));
+}
+
 /// <summary>Create payload — a new profile starts with no PIN and as a Member.</summary>
 public record CreateProfileRequest(string Name, string Initial);
 

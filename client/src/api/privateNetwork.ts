@@ -32,9 +32,12 @@ export class PrivateNetworkError extends Error {
  *
  * <b>Every entry needs a reason that is true before authentication.</b>
  *
- * `GET /profiles` — the picker draws the roster before anybody has signed in; there is no way to
- * offer a sign-in without it. It is the widest thing here and the one worth re-reading: it hands
- * member names to an unconfirmed caller, which is inherent to a shared panel showing who lives here.
+ * `GET /profiles/picker` — the picker draws the roster before anybody has signed in; there is no way
+ * to offer a sign-in without it. It carries an id, a name, an initial and whether a keypad is
+ * needed. <b>It is deliberately not `GET /profiles`</b>, which was on this list and returned the full
+ * shape: role, PIN presence, idle-lock and persistent-login policy and display order — a map of who
+ * to attack and how well they are defended, handed to anyone who could reach the panel. That
+ * endpoint is authenticated now.
  *
  * `GET /session` — "is this device signed in", which has to be answerable when the answer is no.
  *
@@ -50,7 +53,7 @@ export class PrivateNetworkError extends Error {
  * required to work on a panel where every private feed is gone.
  */
 const PRE_CONFIRMATION_OPERATIONS: ReadonlySet<string> = new Set([
-  'GET /profiles',
+  'GET /profiles/picker',
   'GET /session',
   'POST /session',
   'DELETE /session',
