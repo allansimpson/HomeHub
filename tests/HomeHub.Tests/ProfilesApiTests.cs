@@ -17,7 +17,7 @@ public class ProfilesApiTests
         using var app = new HubAppFactory();
         var client = app.CreateSeededClient();
 
-        var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
 
         Assert.NotNull(profiles);
         Assert.Equal(new[] { "Astrid", "Ragnar", "Leif" }, profiles!.Select(p => p.Name));
@@ -30,7 +30,7 @@ public class ProfilesApiTests
         using var app = new HubAppFactory();
         var client = app.CreateSeededClient();
 
-        var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         Assert.NotNull(profiles);
 
         // The seed ships against live rows via UpdateData, so it grants the one thing that is
@@ -97,7 +97,7 @@ public class ProfilesApiTests
 
         // The client TS union mirrors this by name (PROJECT.md §8); an ordinal would silently
         // break that lockstep.
-        var raw = await client.GetStringAsync("/api/profiles");
+        var raw = await client.GetStringAsync("/api/profiles/detail");
         Assert.Contains("\"role\":\"Admin\"", raw);
     }
 
@@ -120,7 +120,7 @@ public class ProfilesApiTests
         Assert.Equal(HttpStatusCode.NoContent, set.StatusCode);
 
         // The list now reports a PIN is set, but never leaks the hash.
-        var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         var astrid = profiles!.Single(p => p.Id == 1);
         Assert.True(astrid.HasPin);
         Assert.True(astrid.RequirePinWhenIdle);
@@ -272,11 +272,11 @@ public class ProfilesApiTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await ragnar.DeleteAsync("/api/profiles/2/pin")).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await Clear(ragnar, 2, "0000")).StatusCode);
 
-        var profiles = await ragnar.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await ragnar.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         Assert.True(profiles!.Single(p => p.Id == 2).HasPin);
 
         Assert.Equal(HttpStatusCode.NoContent, (await Clear(ragnar, 2, "4321")).StatusCode);
-        var after = await ragnar.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var after = await ragnar.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         Assert.False(after!.Single(p => p.Id == 2).HasPin);
     }
 
@@ -354,7 +354,7 @@ public class ProfilesApiTests
         Assert.Equal("Sigrid", created!.Name);
         Assert.Equal("S", created.Initial);
 
-        var afterCreate = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var afterCreate = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         Assert.Equal(4, afterCreate!.Count);
 
         var rename = await client.PutAsJsonAsync(
@@ -367,7 +367,7 @@ public class ProfilesApiTests
         var delete = await client.DeleteAsync($"/api/profiles/{created.Id}");
         Assert.Equal(HttpStatusCode.NoContent, delete.StatusCode);
 
-        var afterDelete = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var afterDelete = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         Assert.Equal(3, afterDelete!.Count);
     }
 
@@ -386,7 +386,7 @@ public class ProfilesApiTests
         });
         Assert.Equal(HttpStatusCode.NoContent, clear.StatusCode);
 
-        var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await client.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         var leif = profiles!.Single(p => p.Id == 3);
         Assert.False(leif.HasPin);
         Assert.False(leif.RequirePinWhenIdle);

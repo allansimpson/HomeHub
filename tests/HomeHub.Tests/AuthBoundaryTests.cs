@@ -76,7 +76,7 @@ public class AuthBoundaryTests
     [Theory]
     [InlineData("/api/health")]
     // The picker's four-field roster, not the full one — see the roster test below.
-    [InlineData("/api/profiles/picker")]
+    [InlineData("/api/profiles")]
     [InlineData("/api/session")]
     public async Task The_endpoints_the_sign_in_screen_needs_stay_open(string path)
     {
@@ -184,7 +184,7 @@ public class AuthBoundaryTests
         var admin = app.CreateSeededClient();
         await admin.PutAsJsonAsync("/api/profiles/1/pin", new SetPinRequest("1234"));
 
-        var raw = await app.CreateAnonymousClient().GetStringAsync("/api/profiles/picker");
+        var raw = await app.CreateAnonymousClient().GetStringAsync("/api/profiles");
 
         Assert.DoesNotContain("pinHash", raw, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("1234", raw, StringComparison.Ordinal);
@@ -206,7 +206,7 @@ public class AuthBoundaryTests
     {
         using var app = new HubAppFactory();
 
-        var res = await app.CreateAnonymousClient().GetAsync("/api/profiles");
+        var res = await app.CreateAnonymousClient().GetAsync("/api/profiles/detail");
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
@@ -242,7 +242,7 @@ public class AuthBoundaryTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
         // Still set — the point is the PIN survived, not merely that the call failed.
-        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         Assert.True(profiles!.Single(p => p.Id == 2).HasPin);
     }
 
@@ -270,7 +270,7 @@ public class AuthBoundaryTests
             (await admin.DeleteAsync("/api/profiles/2/pin")).StatusCode);
 
         // The point is the PIN survived, not merely that the calls failed.
-        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         Assert.True(profiles!.Single(p => p.Id == 2).HasPin);
     }
 
@@ -295,7 +295,7 @@ public class AuthBoundaryTests
             "Ragnar", "R", RequirePinWhenIdle: false, StayLoggedIn: true, DisplayOrder: 3));
 
         res.EnsureSuccessStatusCode();
-        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         var ragnarRow = profiles!.Single(p => p.Id == 2);
         // The rename landed; the lock did not move.
         Assert.Equal("Ragnar", ragnarRow.Name);
@@ -324,7 +324,7 @@ public class AuthBoundaryTests
             (await ragnar.PutAsJsonAsync("/api/profiles/1/lock",
                 new LockPreferenceRequest(RequirePinWhenIdle: false, StayLoggedIn: true))).StatusCode);
 
-        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles");
+        var profiles = await admin.GetFromJsonAsync<List<ProfileDto>>("/api/profiles/detail");
         Assert.False(profiles!.Single(p => p.Id == 2).RequirePinWhenIdle);
     }
 

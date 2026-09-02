@@ -451,8 +451,8 @@ export const api = {
    * The only profile read that may precede confirmation. `listProfiles` below is the full shape and
    * is authenticated; asking for it before sign-in now fails, which is the point.
    */
-  listProfilePicker: () => request<ProfilePickerDto[]>('/profiles/picker'),
-  listProfiles: () => request<ProfileDto[]>('/profiles'),
+  listProfilePicker: () => request<ProfilePickerDto[]>('/profiles'),
+  listProfiles: () => request<ProfileDto[]>('/profiles/detail'),
   createProfile: (name: string, initial: string) =>
     request<ProfileDto>('/profiles', { method: 'POST', ...json({ name, initial }) }),
   /**

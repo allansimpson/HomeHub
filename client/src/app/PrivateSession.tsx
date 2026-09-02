@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useSession } from './SessionProvider'
 import { LockScreen } from '../screens/LockScreen'
+import { OfflineCare } from './OfflineCare'
 
 /**
  * The three states the panel is actually in, which is not the same as locked or unlocked.
@@ -89,32 +90,40 @@ export function PrivateSession({ children }: { children: ReactNode }) {
   if (mode === 'locked') return <LockScreen />
 
   /*
-   * Both remaining states mount the same tree, and the difference between them is enforced below
-   * this component, at the transport.
+   * Unlocked, but nothing has confirmed who this is.
    *
-   * <b>The previous version of this comment claimed that was safe "because every private call passes
-   * through `request()`". That was false when it was written.</b> Assist streaming, Assist
-   * cancellation and the house voice each called `fetch` directly, and the write queue has its own
-   * durable transport — so four authenticated paths went round the helper this paragraph was
-   * pointing at. Worse, the allowlist it relied on matched path *prefixes*, so `/profiles` admitted
-   * `POST /profiles`, `PUT /profiles/{id}` and `/profiles/{id}/pin` as well.
+   * <b>Only the local Care capability, and none of the application.</b> This used to mount the full
+   * provider tree and the whole router here, on the reasoning that an unreachable server has nothing
+   * to leak. That reasoning does not hold: connectivity returns while stale cookies and polling
+   * effects are still live, and the window between the two is where a request begun under one
+   * identity lands under another's cookie. Device-only is its own state with its own capability
+   * rather than a degraded confirmed one.
    *
-   * What is actually enforced, and where: `api/privateNetwork.ts` authorises a normalised **method
-   * and exact path**, deny-by-default. `authorizedFetch` is the only way to reach an authenticated
-   * endpoint and is used by the JSON helper, both Assist paths and server TTS; `executeDurably`
-   * checks the same policy directly, because routing it through the JSON helper would cost its abort,
-   * deadline and drain semantics. A future caller that reaches for `fetch` is refused by not being on
-   * the list, rather than by somebody remembering to add a check.
+   * `OfflineCare` mounts one screen directly and no providers. The write queue above stays
+   * owner-bound and suspended; the vault below it is sealed per profile.
+   */
+  if (mode === 'offlineCare') return <div key={activeProfileId}><OfflineCare /></div>
+
+  /*
+   * Confirmed: the full tree, and only now.
    *
-   * So in `offlineCare` the providers mount, are refused, and hold nothing — a fresh mount that
-   * fetches nothing has nothing to expose — while the Care vault reads local encrypted storage and
-   * the queue stays owner-bound and suspended. `ConnectionProvider`'s health check and
-   * `UpdateProvider`'s build read stay outside deliberately: both are unauthenticated, and both must
-   * work on a panel where every private feed is gone.
+   * <b>The comment that used to be here claimed the mounted tree was safe "because every private call
+   * passes through `request()`", and that was false when written.</b> Assist streaming, Assist
+   * cancellation and server TTS each called `fetch` directly, the write queue has its own transport,
+   * and the allowlist it relied on matched path prefixes — so `/profiles` admitted `POST /profiles`
+   * and `/profiles/{id}/pin` as well. Four authenticated paths went round the helper it pointed at.
    *
-   * Keyed by profile either way: a switch discards the tree rather than handing the next member the
-   * last one's answers, and if confirmation returns somebody else the key changes and the decrypted
-   * Care view goes with it.
+   * What is enforced now, and where: `api/privateNetwork.ts` authorises a normalised method and exact
+   * path, deny-by-default, and binds each request to the subject and epoch that authorised it — a
+   * reply that outlived its identity is refused before its body is read. `authorizedFetch` is the only
+   * way to reach an authenticated endpoint and carries the JSON helper, both Assist paths and server
+   * TTS; `executeDurably` checks the same policy directly, because routing it through the JSON helper
+   * would cost its abort, deadline and drain semantics. Every session transition drains what is in
+   * flight before the cookie changes.
+   *
+   * Keyed by profile: a switch discards the tree rather than handing the next member the last one's
+   * answers, and if confirmation returns somebody else the key changes and the decrypted Care view
+   * goes with it.
    */
   return <div key={activeProfileId} className="ml-private">{children}</div>
 }

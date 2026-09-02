@@ -284,7 +284,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       ])
       setSettings(nextSettings)
       // Only on success: a refusal must not blank a roster the picker is drawing from.
-      if (fullProfiles) setProfiles(fullProfiles)
+      // Same reason as the boot path: truthiness is not a shape check.
+      if (Array.isArray(fullProfiles)) setProfiles(fullProfiles)
       setIsAdmin(session.isAdmin)
       setOffline(false)
       // Re-remembered on every good read, so a renamed profile or a changed avatar is what the
@@ -394,7 +395,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         ])
         if (cancelled) return
         setSettings(nextSettings)
-        if (fullProfiles) setProfiles(fullProfiles)
+        // `Array.isArray`, not truthiness: `catch(() => null)` guards a refusal, but a malformed or
+        // unexpected body is truthy and would replace the roster with something that has no `.find`,
+        // which white-screens the panel. The picker's list stays standing instead.
+        if (Array.isArray(fullProfiles)) setProfiles(fullProfiles)
         setQueueIdentity(nextLocked ? null : session.profileId)
         setDeviceOnly(false)
         /*

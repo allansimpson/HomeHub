@@ -47,7 +47,7 @@ public class ProfilesController : ControllerBase
     /// nothing about what any member has done. Everything the roster is a key *to* is authorised.
     /// </remarks>
     [AllowAnonymous]
-    [HttpGet("picker")]
+    [HttpGet]
     public async Task<IReadOnlyList<ProfilePickerDto>> Picker() =>
         await _db.Profiles
             // Ordered here so the projection need not carry `DisplayOrder` — the picker draws the
@@ -60,6 +60,13 @@ public class ProfilesController : ControllerBase
     /// The full roster, with the policy fields. <b>Authenticated</b>, unlike the picker above.
     /// </summary>
     /// <remarks>
+    /// <b>The anonymous path keeps the minimal shape, and the privileged data moved to a new one.</b>
+    /// That direction round matters: a caller that has not been updated asks `/profiles` and gets
+    /// less than it expected rather than a 401, so the failure is a missing field rather than a
+    /// panel that will not draw. Every fixture and harness pointing at `/profiles` keeps working, and
+    /// anything wanting role or lock policy has to say so by asking a different, authenticated
+    /// endpoint.
+    ///
     /// This used to be the anonymous endpoint, and the remarks above it argued the roster was not
     /// worth protecting — no PIN hash, no role-bearing action, nothing about what anybody had done.
     /// The argument missed what the shape itself says: `Role` names the account worth attacking, and
@@ -67,7 +74,7 @@ public class ProfilesController : ControllerBase
     /// defended. That is a map, and it was being handed to anyone who could reach the panel.
     /// </remarks>
     [Authorize]
-    [HttpGet]
+    [HttpGet("detail")]
     public async Task<IReadOnlyList<ProfileDto>> List() =>
         await _db.Profiles
             .OrderBy(p => p.DisplayOrder)

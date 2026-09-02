@@ -34,7 +34,7 @@ describe('what may precede confirmation', () => {
     // Each of these has a reason that is true before anybody has authenticated: the picker must
     // draw, "am I signed in" must be answerable when the answer is no, and signing in and out are
     // how the boundary opens and closes.
-    expect(isPreConfirmationOperation('GET', '/profiles/picker')).toBe(true)
+    expect(isPreConfirmationOperation('GET', '/profiles')).toBe(true)
     expect(isPreConfirmationOperation('GET', '/session')).toBe(true)
     expect(isPreConfirmationOperation('POST', '/session')).toBe(true)
     expect(isPreConfirmationOperation('DELETE', '/session')).toBe(true)
@@ -42,7 +42,7 @@ describe('what may precede confirmation', () => {
 
   it('defaults an unstated method to GET, as fetch does', () => {
     expect(normaliseMethod(undefined)).toBe('GET')
-    expect(isPreConfirmationOperation(undefined, '/profiles/picker')).toBe(true)
+    expect(isPreConfirmationOperation(undefined, '/profiles')).toBe(true)
   })
 
   it('is case-insensitive about the method and nothing else', () => {
@@ -71,7 +71,7 @@ describe('what the prefix version wrongly admitted', () => {
     // H5: `GET /profiles` returns role, PIN presence, idle-lock and persistent-login policy and
     // display order — a map of who to attack and how well they are defended. The picker gets four
     // fields from its own endpoint; this one is authenticated.
-    expect(isPreConfirmationOperation('GET', '/profiles')).toBe(false)
+    expect(isPreConfirmationOperation('GET', '/profiles/detail')).toBe(false)
   })
 
   it('refuses a descendant merely because it shares a prefix', () => {
@@ -92,9 +92,9 @@ describe('normalisation cannot be used to widen authorisation', () => {
   it('ignores a query string', () => {
     // A query selects data; it does not name a different operation. And it must not be able to turn
     // a denied route into an allowed one by making it *look* like a prefix match.
-    expect(normalisePath('/profiles/picker?x=1')).toBe('/profiles/picker')
-    expect(isPreConfirmationOperation('GET', '/profiles/picker?x=1')).toBe(true)
-    expect(isPreConfirmationOperation('POST', '/profiles/picker?x=1')).toBe(false)
+    expect(normalisePath('/profiles?x=1')).toBe('/profiles')
+    expect(isPreConfirmationOperation('GET', '/profiles?x=1')).toBe(true)
+    expect(isPreConfirmationOperation('POST', '/profiles?x=1')).toBe(false)
     expect(isPreConfirmationOperation('GET', '/pantry?location=/session')).toBe(false)
   })
 
@@ -120,11 +120,11 @@ describe('the transport primitive', () => {
     const urls: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (url: string) => { urls.push(url); return new Response('[]') }))
 
-    await authorizedFetch('/profiles/picker')
+    await authorizedFetch('/profiles')
 
     // Prefixed here rather than by each caller, so a caller cannot accidentally authorise a
     // different origin by naming a full URL.
-    expect(urls).toEqual(['/api/profiles/picker'])
+    expect(urls).toEqual(['/api/profiles'])
   })
 
   it('opens for everything once confirmed, and shuts again when confirmation is lost', async () => {
@@ -143,8 +143,8 @@ describe('the transport primitive', () => {
 
   it('agrees with the predicate, so neither can drift from the other', () => {
     setPrivateNetworkConfirmed(false)
-    expect(isPrivateNetworkAllowed('GET', '/profiles/picker')).toBe(true)
-    expect(isPrivateNetworkAllowed('GET', '/profiles')).toBe(false)
+    expect(isPrivateNetworkAllowed('GET', '/profiles')).toBe(true)
+    expect(isPrivateNetworkAllowed('GET', '/profiles/detail')).toBe(false)
     setPrivateNetworkConfirmed(true)
     expect(isPrivateNetworkAllowed('POST', '/profiles')).toBe(true)
   })
