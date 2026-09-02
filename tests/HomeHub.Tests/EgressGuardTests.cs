@@ -29,10 +29,10 @@ using Microsoft.Extensions.Options;
 public class EgressGuardTests
 {
     private static readonly EgressRule Internet =
-        new("Test:Url", EgressReach.Internet, ["api.example.com"]);
+        EgressRule.Internet("Test:Url", ["api.example.com"]);
 
     private static readonly EgressRule Local =
-        new("Test:Local", EgressReach.Local, []);
+        EgressRule.HouseholdLan("Test:Local");
 
     // ---- Shape ----
 
@@ -96,7 +96,7 @@ public class EgressGuardTests
     [InlineData("https://192.168.1.5")]
     public void A_third_party_destination_may_not_be_a_private_address(string url)
     {
-        var rule = new EgressRule("Test:Url", EgressReach.Internet, []);
+        var rule = EgressRule.Internet("Test:Url", []);
 
         Assert.NotNull(EgressGuard.Refuse(url, rule));
     }
@@ -118,7 +118,7 @@ public class EgressGuardTests
     [InlineData("https://8.8.8.8")]
     public void A_local_destination_may_not_be_a_public_address(string url)
     {
-        Assert.Contains("must be on", EgressGuard.Refuse(url, Local)!);
+        Assert.Contains("not on this house's own network", EgressGuard.Refuse(url, Local)!);
     }
 
     [Fact]
@@ -146,14 +146,13 @@ public class EgressGuardTests
     [InlineData("172.31.255.255")]
     [InlineData("192.168.0.1")]
     [InlineData("169.254.1.1")]
-    [InlineData("100.64.0.1")]
     [InlineData("::1")]
     [InlineData("fd00::1")]
     [InlineData("fe80::1")]
     [InlineData("::ffff:127.0.0.1")]
     public void These_are_this_house_s_own_addresses(string address)
     {
-        Assert.True(EgressGuard.IsPrivate(IPAddress.Parse(address)));
+        Assert.True(EgressGuard.IsHouseholdLan(IPAddress.Parse(address)));
     }
 
     [Theory]
@@ -165,7 +164,32 @@ public class EgressGuardTests
     [InlineData("2606:4700::1111")]
     public void And_these_are_not(string address)
     {
-        Assert.False(EgressGuard.IsPrivate(IPAddress.Parse(address)));
+        Assert.False(EgressGuard.IsHouseholdLan(IPAddress.Parse(address)));
+    }
+
+    /*
+     * Carrier-grade NAT is the range that made "not public" the wrong question. It is not publicly
+     * routable, so an earlier version admitted it as household — and it is the ISP's space, shared
+     * with every other subscriber behind the same equipment. It belongs to neither side, and both
+     * sides refuse it.
+     */
+    [Theory]
+    [InlineData("100.64.0.1")]
+    [InlineData("100.127.255.254")]
+    [InlineData("0.1.2.3")]
+    [InlineData("224.0.0.1")]
+    public void Space_that_is_neither_ours_nor_the_internet_s_is_refused_by_both(string address)
+    {
+        var parsed = IPAddress.Parse(address);
+
+        Assert.False(EgressGuard.IsHouseholdLan(parsed));
+        Assert.False(EgressGuard.IsPubliclyRoutable(parsed));
+    }
+
+    [Fact]
+    public void A_household_sidecar_may_not_sit_in_carrier_grade_NAT()
+    {
+        Assert.NotNull(EgressGuard.Refuse("http://100.64.0.1:8080", Local));
     }
 
     // ---- Redirects ----
@@ -232,7 +256,7 @@ public class EgressGuardTests
 
     // ---- Dial-time screening ----
 
-    private static async Task<Exception> Dial(EgressRule rule, string host, int port = 443)
+    private static async Task<Exception?> Dial(EgressRule rule, string host, int port = 443)
     {
         using var handler = EgressGuard.CreateHandler(() => rule);
         using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
@@ -247,17 +271,17 @@ public class EgressGuardTests
     [Fact]
     public async Task A_third_party_name_resolving_onto_this_machine_is_not_dialled()
     {
-        var rule = new EgressRule("Test:Url", EgressReach.Internet, ["localhost"]);
+        var rule = EgressRule.Internet("Test:Url", ["localhost"]);
 
         var error = await Dial(rule, "localhost", 9);
 
-        Assert.Contains("resolves onto this machine", Flatten(error));
+        Assert.Contains("not a publicly routable address", Flatten(error));
     }
 
     [Fact]
     public async Task A_host_outside_the_allowlist_is_not_dialled_even_if_it_would_resolve()
     {
-        var rule = new EgressRule("Test:Url", EgressReach.Internet, ["api.example.com"]);
+        var rule = EgressRule.Internet("Test:Url", ["api.example.com"]);
 
         var error = await Dial(rule, "127.0.0.1", 9);
 
@@ -330,10 +354,11 @@ public class EgressGuardTests
 
     // ---- Hermes ----
 
-    private static IEnumerable<string> HermesErrors(string baseUrl) =>
+    private static IEnumerable<string> HermesErrors(string baseUrl, string[]? approvedOrigins = null) =>
         new HermesOptionsValidator()
             .Validate(null, new HermesOptions
             {
+                AllowedGatewayOrigins = [.. approvedOrigins ?? []],
                 Agents = new()
                 {
                     ["barnaby"] = new HermesAgentOptions
@@ -346,11 +371,37 @@ public class EgressGuardTests
 
     [Theory]
     [InlineData("http://127.0.0.1:8642")]
-    [InlineData("http://localhost:8642")]
-    [InlineData("http://192.168.1.10:8642")]
-    public void A_hermes_gateway_on_this_house_s_network_is_accepted(string baseUrl)
+    [InlineData("http://[::1]:8642")]
+    public void A_hermes_gateway_on_this_machine_is_accepted(string baseUrl)
     {
         Assert.Empty(HermesErrors(baseUrl));
+    }
+
+    /*
+     * The decision this encodes: a reach test was the first attempt and is too generous here. A
+     * gateway receives an agent's own API_SERVER_KEY and the household's conversations, and answers
+     * with tool-bearing responses the panel acts on. A typo landing on another box, or a device on the
+     * same network somebody else controls, satisfies "has a private address" and must not thereby
+     * qualify. So the LAN is refused by default.
+     */
+    [Fact]
+    public void A_hermes_gateway_merely_somewhere_on_the_LAN_is_not()
+    {
+        Assert.NotEmpty(HermesErrors("http://192.168.1.10:8642"));
+    }
+
+    [Fact]
+    public void A_deployment_may_approve_an_exact_origin_and_only_that_one()
+    {
+        string[] approved = ["http://192.168.1.10:8642"];
+
+        Assert.Empty(HermesErrors("http://192.168.1.10:8642", approved));
+        // The listener beside it is a different listener.
+        Assert.NotEmpty(HermesErrors("http://192.168.1.10:8643", approved));
+        // And a different machine is a different machine.
+        Assert.NotEmpty(HermesErrors("http://192.168.1.11:8642", approved));
+        // An approved origin is the whole authorisation, so loopback no longer passes by reach.
+        Assert.NotEmpty(HermesErrors("http://127.0.0.1:8642", approved));
     }
 
     /*
@@ -372,13 +423,26 @@ public class EgressGuardTests
      * The connect screen is what refuses it, and it refuses the addresses rather than the name.
      */
     [Fact]
-    public async Task A_named_hermes_gateway_that_resolves_off_the_house_network_is_not_dialled()
+    public async Task A_named_hermes_gateway_that_resolves_off_this_machine_is_not_dialled()
     {
         Assert.Empty(HermesErrors("http://agent.example:8642"));
 
         var error = await Dial(HermesOptionsValidator.GatewayRule("barnaby"), "one.one.one.one", 9);
 
-        Assert.Contains("resolves off this house's network", Flatten(error));
+        Assert.Contains("not on this machine", Flatten(error));
+    }
+
+    /*
+     * The default is loopback, so a name that resolves to this machine still passes — which keeps the
+     * documented deployment working while refusing everything else.
+     */
+    [Fact]
+    public async Task A_named_hermes_gateway_on_this_machine_is_dialled()
+    {
+        var error = await Dial(HermesOptionsValidator.GatewayRule("barnaby"), "localhost", 9);
+
+        // Refused by the socket, not by the screen: nothing is listening on discard.
+        Assert.DoesNotContain("not on this machine", Flatten(error));
     }
 
     [Fact]
@@ -401,7 +465,7 @@ public class EgressGuardTests
             {
                 ["barnaby"] = new HermesAgentOptions
                 {
-                    Name = "Barnaby", BaseUrl = "https://203.0.113.9:8642", ApiKey = "k", Default = true,
+                    Name = "Barnaby", BaseUrl = "https://192.168.1.10:8642", ApiKey = "k", Default = true,
                 },
             },
         };
@@ -410,8 +474,65 @@ public class EgressGuardTests
             new StubOptionsMonitor<HermesOptions>(options),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<HermesClientFactory>.Instance);
 
-        // Public address, so the recheck refuses it before any client exists to carry the bearer.
+        // A LAN address, which the loopback default refuses — before any client exists to carry the bearer.
         Assert.Null(factory.Create("barnaby"));
+    }
+
+    // ---- The sinks that were missed ----
+
+    /*
+     * The account-link token exchange, which was built on the unnamed default client and so inherited
+     * neither half of the policy. It is the worst one to have missed: the background providers send a
+     * bearer and household content, and this sends the OAuth client secret, the authorization code and
+     * the PKCE verifier — the whole of what it takes to mint tokens for a member's account.
+     */
+    [Fact]
+    public void The_account_link_exchange_asks_for_a_guarded_client_by_name()
+    {
+        var source = File.ReadAllText(SourcePath("src/HomeHub.Api/Controllers/AccountLinkController.cs"));
+
+        Assert.Contains("GuardedClients.Google", source);
+        Assert.Contains("GuardedClients.Microsoft", source);
+        // The shape this replaced. An unnamed client is the framework default: no screen, redirects on.
+        Assert.DoesNotContain("_http.CreateClient()", source);
+    }
+
+    /*
+     * The class, asserted as a class.
+     *
+     * Two consecutive reviews found the same fault in places the previous round had not enumerated —
+     * so what is pinned here is not another instance but the absence of the shape that produced them.
+     * A registration with no primary handler gets the framework's, which follows redirects and screens
+     * nothing; if a future one is added without a guard, this fails and names it.
+     */
+    [Fact]
+    public void Every_outbound_client_registration_is_guarded()
+    {
+        var program = File.ReadAllText(SourcePath("src/HomeHub.Api/Program.cs"));
+        var unguarded = new List<string>();
+
+        foreach (var line in program.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("builder.Services.AddHttpClient", StringComparison.Ordinal)) continue;
+            // A registration that ends its own statement has no handler configured after it.
+            if (trimmed.EndsWith(");", StringComparison.Ordinal)) unguarded.Add(trimmed);
+        }
+
+        Assert.True(
+            unguarded.Count == 0,
+            "These HttpClient registrations configure no primary handler, so they follow redirects and "
+            + "screen no address:\n  " + string.Join("\n  ", unguarded));
+    }
+
+    /// <summary>The repository root, found by walking up from the test binary.</summary>
+    private static string SourcePath(string relative)
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir is not null && !Directory.Exists(Path.Combine(dir, "src", "HomeHub.Api")))
+            dir = Path.GetDirectoryName(dir);
+        Assert.NotNull(dir);
+        return Path.Combine(dir!, relative.Replace('/', Path.DirectorySeparatorChar));
     }
 
     private sealed class StubHttpClientFactory : IHttpClientFactory

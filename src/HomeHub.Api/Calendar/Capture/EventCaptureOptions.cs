@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Calendar.Capture;
 
+using HomeHub.Api.Net;
+
 /// <summary>
 /// Credentials and model for reading engagements off photographs (<c>EventCapture:*</c>).
 /// </summary>
@@ -91,5 +93,17 @@ public sealed class EventCaptureOptions
     /// Hermes roster's business, and <see cref="HermesEventExtractor.IsAvailable"/> asks it. This
     /// property answers only for the vendor path, where a key is the whole question.
     /// </remarks>
-    public bool Configured => !string.IsNullOrWhiteSpace(ApiKey);
+    /// <summary>Hosts permitted to receive the household's photographs on the vendor path.</summary>
+    public List<string> AllowedHosts { get; set; } = [];
+
+    /// <summary>The rule for the vendor reading path.</summary>
+    /// <remarks>
+    /// This is the path the isolated extractor exists to replace, and it is still selectable, so it is
+    /// still a sink: an API key and the household's photographs leave the house on it.
+    /// </remarks>
+    public EgressRule Rule => EgressRule.Internet(
+        "EventCapture:BaseUrl", AllowedHosts.Count > 0 ? AllowedHosts : ["api.openai.com"]);
+
+    public bool Configured =>
+        !string.IsNullOrWhiteSpace(ApiKey) && EgressGuard.IsPermitted(BaseUrl, Rule);
 }

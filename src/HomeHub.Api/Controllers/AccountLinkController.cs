@@ -2,6 +2,7 @@ namespace HomeHub.Api.Controllers;
 
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using HomeHub.Api.Net;
 using HomeHub.Api.Accounts;
 using HomeHub.Api.Auth;
 using HomeHub.Api.Calendar;
@@ -266,9 +267,27 @@ public class AccountLinkController : ControllerBase
     private async Task<string?> ExchangeAsync(
         string provider, string code, string redirectUri, string codeVerifier, CancellationToken ct)
     {
-        var (tokenUrl, clientId, clientSecret) = provider == Google
-            ? (_google.TokenUrl, _google.ClientId, _google.ClientSecret)
-            : (_microsoft.TokenUrl, _microsoft.ClientId, _microsoft.ClientSecret);
+        var (tokenUrl, clientId, clientSecret, rule, client) = provider == Google
+            ? (_google.TokenUrl, _google.ClientId, _google.ClientSecret,
+               _google.Rule with { Setting = "Google:TokenUrl" }, GuardedClients.Google)
+            : (_microsoft.TokenUrl, _microsoft.ClientId, _microsoft.ClientSecret,
+               _microsoft.Rule with { Setting = "Microsoft:TokenUrl" }, GuardedClients.Microsoft);
+
+        /*
+         * The destination is checked here, and the client that carries it is a guarded one.
+         *
+         * <b>This exchange was missed when the providers were guarded, and it is the worst one to
+         * miss.</b> The background providers send a bearer and household content; this sends the OAuth
+         * client secret, the authorization code and the PKCE verifier — the whole of what it takes to
+         * mint tokens for a member's account — in a single form POST. It was built on the unnamed
+         * default `HttpClient`, which has no address screen and follows redirects, so a 307 from an
+         * approved token endpoint would have re-posted that form to wherever it pointed.
+         */
+        if (EgressGuard.Refuse(tokenUrl, rule) is { } refusal)
+        {
+            _logger.LogError("{Provider} token exchange refused: {Refusal}", provider, refusal);
+            return null;
+        }
 
         var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -283,7 +302,7 @@ public class AccountLinkController : ControllerBase
             ["code_verifier"] = codeVerifier,
         });
 
-        using var http = _http.CreateClient();
+        using var http = _http.CreateClient(client);
         using var res = await http.PostAsync(tokenUrl, form, ct);
         if (!res.IsSuccessStatusCode)
         {

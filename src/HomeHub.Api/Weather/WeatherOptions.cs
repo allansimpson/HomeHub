@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Weather;
 
+using HomeHub.Api.Net;
+
 /// <summary>
 /// Weather + NWS configuration, bound from the <c>Weather</c> section. Defaults to a real,
 /// NWS-covered placeholder location (Minneapolis, MN); set <see cref="Latitude"/>/<see
@@ -21,4 +23,16 @@ public sealed class WeatherOptions
 
     /// <summary>How often to refresh weather + alerts.</summary>
     public int PollMinutes { get; set; } = 10;
+
+    /// <summary>Hosts permitted to receive the household's coordinates.</summary>
+    /// <remarks>
+    /// No credential travels here, which is why it was easy to overlook and is not a reason to leave
+    /// it unguarded: the request says where this house is, and the reply is what the panel then
+    /// announces out loud. Empty means the NWS's own host.
+    /// </remarks>
+    public List<string> AllowedHosts { get; set; } = [];
+
+    /// <summary>The rule for the weather service, shared by startup and the request path.</summary>
+    public EgressRule Rule => EgressRule.Internet(
+        "Weather:BaseUrl", AllowedHosts.Count > 0 ? AllowedHosts : ["api.weather.gov"]);
 }

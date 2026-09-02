@@ -47,8 +47,8 @@ public sealed class MicrosoftTodoOptions
         ["login.microsoftonline.com", "graph.microsoft.com"];
 
     /// <summary>The rule for every Microsoft destination, shared by startup and the request sinks.</summary>
-    public EgressRule Rule => new(
-        "Microsoft", EgressReach.Internet, AllowedHosts.Count > 0 ? AllowedHosts : MicrosoftHosts);
+    public EgressRule Rule => EgressRule.Internet(
+        "Microsoft", AllowedHosts.Count > 0 ? AllowedHosts : MicrosoftHosts);
 
     /// <summary>Every configured destination, so one check can cover all of them.</summary>
     public IEnumerable<(string Setting, string Url)> Destinations =>

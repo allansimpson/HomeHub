@@ -62,6 +62,16 @@ interface SessionState {
   /** Force the lock (idle timeout) if the active profile opted into a PIN. */
   lockNow: () => void
   /**
+   * This device could not remove a previous build's plaintext care records, so nothing private is
+   * being written to it durably this session.
+   *
+   * <b>Surfaced rather than handled silently.</b> The household loses offline durability — the care
+   * log works for the life of the page and starts empty after a reload — and that is a visible change
+   * they are owed an explanation for. The cause is a browser store that refused a write, a removal
+   * and a read-back: a full disk, a locked-down profile, private browsing in some browsers.
+   */
+  storageUntrusted: boolean
+  /**
    * Clear the session entirely — the panel drops to the shared/guest state (CONFIG_SCREEN.md §3).
    * Unlike lockNow this always applies, PIN or not; switching profiles happens afterwards.
    */
@@ -151,6 +161,22 @@ const openPrivateStores = async (profileId: number, key: CryptoKey | null): Prom
 }
 
 /**
+ * The key this session may use, given what the device has proved it can do.
+ *
+ * <b>A device that cannot delete plaintext does not get durable private storage.</b> If the boot
+ * sweep could not remove a previous build's care records — the store refused a write and a removal,
+ * or would not read back — then this panel has demonstrated that what it is given, it keeps. Handing
+ * it more private data to seal would be adding to a pile nothing can clear, on the strength of an
+ * encryption promise made by the same storage layer that just failed.
+ *
+ * Memory-only rather than refusing the session outright: the household still gets their care log for
+ * the life of the page, which is the thing the offline work exists to protect, and they lose only
+ * durability. The panel says so — `storageUntrusted` on the session — rather than degrading silently.
+ */
+const durableKeyFor = (key: CryptoKey | null, sweptClean: boolean): CryptoKey | null =>
+  sweptClean ? key : null
+
+/**
  * Household settings, or null when this device holds no session yet.
  *
  * AUDIT A1 made `/api/settings` require one, and boot reads it before anybody has signed in — so it
@@ -197,6 +223,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    * writes or send them under an identity nobody checked.
    */
   const [deviceOnly, setDeviceOnly] = useState(false)
+  /*
+   * Whether this device could actually remove a previous build's plaintext care records.
+   *
+   * Starts true because the boot sweep has not run yet and a panel with nothing to sweep is the
+   * ordinary case; the sweep sets it, synchronously, before anything else in boot happens. False is a
+   * device that has told us it cannot delete — a disabled or full store, a `SecurityError` — and the
+   * only honest response to that is to stop adding to what it cannot clean.
+   */
+  const [plaintextSwept, setPlaintextSwept] = useState(true)
+  // Read from callbacks that must not re-identify when it changes, and read at the only moment it
+  // matters — the instant a store is about to be opened. Same reason `profilesRef` exists.
+  const plaintextSweptRef = useRef(true)
+  plaintextSweptRef.current = plaintextSwept
 
   /*
    * The connection.
@@ -454,8 +493,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
      * else, left it readable in shared `localStorage` for as long as that lasted, which on a wall
      * panel is indefinitely. It has nothing to do with who is signing in, so it does not wait to find
      * out. Synchronous, unconditional, and idempotent.
+     *
+     * <b>And its answer is acted on.</b> The first version called this and dropped the result on the
+     * floor, which made the return value decoration: the function could report honestly that it had
+     * failed to delete a care record and the panel would carry on as though privacy held. When it says
+     * false the device has demonstrated it cannot let go of plaintext, so this session is not given
+     * durable private storage — see `sealsAreTrustworthy` below.
      */
-    sweepLegacyPlaintext()
+    const sweptClean = sweepLegacyPlaintext()
+    // The ref first and synchronously: everything below this line runs before React re-renders, and
+    // the store opens in this same flow read the ref rather than the state.
+    plaintextSweptRef.current = sweptClean
+    setPlaintextSwept(sweptClean)
     // The boot read is an asynchronous flow like any other, so it is bound the same way. `cancelled`
     // covers unmount; this covers a lock, a sign-in or a revocation landing while it is still reading.
     const began = boundary.current.current()
@@ -524,7 +573,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // Opening a store is handing this session the household's records, so the boundary is
           // re-checked on the far side of the key lookup — which touches IndexedDB and can await.
           if (cancelled || !stillCurrent(began)) return
-          await openPrivateStores(session.profileId, key)
+          await openPrivateStores(session.profileId, durableKeyFor(key, plaintextSweptRef.current))
         } else {
           closePrivateStores()
         }
@@ -627,11 +676,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
        */
       if (!pin) {
         if (target?.hasPin !== false) throw err
-        await openPrivateStores(id, await keyFor(target, id, null))
+        await openPrivateStores(id, durableKeyFor(await keyFor(target, id, null), plaintextSweptRef.current))
       } else {
         const opened = await unlockOffline(id, pin)
         if (!opened.ok) throw new OfflineUnlockError(opened)
-        await openPrivateStores(id, opened.key)
+        await openPrivateStores(id, durableKeyFor(opened.key, plaintextSweptRef.current))
       }
 
       setActiveProfileId(id)
@@ -668,7 +717,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const signedInAs = session.profileId ?? id
     const active = profilesRef.current.find((p) => p.id === signedInAs) ?? null
     const proven = pin ? await enrol(signedInAs, pin) : null
-    await openPrivateStores(signedInAs, await keyFor(active, signedInAs, proven))
+    await openPrivateStores(
+      signedInAs, durableKeyFor(await keyFor(active, signedInAs, proven), plaintextSweptRef.current))
     setLocked(false)
     setOffline(false)
     // The panel holds a session again, so the next expiry gets announced rather than swallowed.
@@ -930,6 +980,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       loading,
       offline,
       deviceOnly,
+      storageUntrusted: !plaintextSwept,
       refresh,
       switchProfile,
       completeUnlock,
@@ -939,7 +990,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setBabyName,
       setLitterFullPercent,
     }),
-    [profiles, settings, activeProfileId, activeProfile, isAdmin, locked, loading, offline, deviceOnly, refresh, switchProfile, completeUnlock, lockNow, signOut, setCatName, setBabyName, setLitterFullPercent],
+    [profiles, settings, activeProfileId, activeProfile, isAdmin, locked, loading, offline, deviceOnly, plaintextSwept, refresh, switchProfile, completeUnlock, lockNow, signOut, setCatName, setBabyName, setLitterFullPercent],
   )
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>

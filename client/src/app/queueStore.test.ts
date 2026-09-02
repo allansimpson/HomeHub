@@ -318,6 +318,61 @@ describe('the boot sweep', () => {
     expect(sweepLegacyPlaintext(storage)).toBe(false)
   })
 
+  /*
+   * The fail-open paths. `readJson` answers `[]` for a store that throws, a value that is not JSON,
+   * and a value that is JSON but not an array — and the sweep took that empty list as proof there was
+   * nothing to remove. Every one of those is a state in which a care record may be sitting there
+   * unexamined, and reporting success about it is the function claiming something it never checked.
+   */
+  it('does not read an unreadable store as an empty one', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+    storage.getItem = () => { throw new DOMException('denied', 'SecurityError') }
+
+    expect(sweepLegacyPlaintext(storage)).toBe(false)
+  })
+
+  it('does not read malformed JSON as an empty store, and does not leave it there', () => {
+    const storage = new MemoryStorage()
+    // Half a write — a tab killed mid-`setItem`, and the tail of a care record still legible in it.
+    storage.setItem('homehub.writequeue.v1',
+      '[{"id":"c","domain":"care","label":"Bottle 120ml for Wren","body":{"volumeMl":1')
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBeNull()
+  })
+
+  it('does not read a non-array value as an empty store', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', '{"label":"Bottle 120ml for Wren"}')
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBeNull()
+  })
+
+  it('treats a malformed entry among well-formed ones as sensitive', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([null, groceryOp('g')]))
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    // The one it could classify survives; the one it could not does not.
+    const remaining = storage.getItem('homehub.writequeue.v1') ?? ''
+    expect(remaining).toContain('Olive oil')
+    expect(remaining).not.toContain('null')
+  })
+
+  it('reports failure when it cannot confirm the removal, rather than assuming it', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+    storage.setItem = () => { throw new DOMException('quota', 'QuotaExceededError') }
+    storage.removeItem = () => undefined // silently does nothing, which is the case worth catching
+
+    expect(sweepLegacyPlaintext(storage)).toBe(false)
+  })
+
   it('leaves a store with nothing sensitive in it exactly as it found it', () => {
     const storage = new MemoryStorage()
     const legacy = JSON.stringify([groceryOp('g')])

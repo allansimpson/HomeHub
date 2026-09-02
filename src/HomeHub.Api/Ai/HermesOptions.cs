@@ -35,6 +35,26 @@ public sealed class HermesOptions
     /// <summary>Agents by key. The key is stored on every conversation and never shown.</summary>
     public Dictionary<string, HermesAgentOptions> Agents { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// The exact origins — scheme, host and port — a gateway may be reached at.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Empty means loopback only</b>, which is the deployment this class documents: the API key has
+    /// no route-level scoping, so the gateway shares the host network namespace and is never exposed.
+    /// </para>
+    /// <para>
+    /// <b>Why not simply "somewhere on the LAN".</b> That was the first attempt and it is too generous
+    /// for what is being handed over. A gateway receives an agent's own <c>API_SERVER_KEY</c> and the
+    /// household's conversations, and answers with tool-bearing responses the panel acts on. A typo
+    /// landing on another box, or a device on the same network somebody else controls, satisfies
+    /// "has a private address" and must not thereby qualify. So a deployment that genuinely runs
+    /// Hermes on another machine names the origin here — an explicit act on a protected value, listing
+    /// the port as well as the host, because the listener beside it is a different listener.
+    /// </para>
+    /// </remarks>
+    public List<string> AllowedGatewayOrigins { get; set; } = [];
+
     /// <summary>Seconds to wait on a non-streaming call. Generous: an agent loop is several round-trips.</summary>
     [Range(5, 600)]
     public int TimeoutSeconds { get; set; } = 120;
@@ -172,13 +192,16 @@ public sealed class HermesOptionsValidator : IValidateOptions<HermesOptions>
              * then the household's conversation content, and sends back tool-bearing responses the
              * panel acts on. Documentation is not a boundary.
              *
-             * `EgressReach.Local` rather than loopback exactly: a household running Hermes on the
-             * server and the panel on the wall is a real deployment, and the addresses being screened
-             * at dial time are what makes "local" mean the machine rather than the string.
+             * <b>Loopback, or an exact approved origin — not "somewhere on the LAN".</b> A reach test
+             * was the first attempt and is too generous for this destination: a typo landing on
+             * another box, or a compromised device on the same network, satisfies "has an RFC1918
+             * address" and should not thereby qualify to receive an agent's key and the household's
+             * conversations. The property that matters is `AllowedGatewayOrigins`, and its default —
+             * loopback only — is the architecture this class already documents.
              */
             if (string.IsNullOrWhiteSpace(agent.BaseUrl))
                 errors.Add($"{where}:BaseUrl is required, e.g. http://127.0.0.1:8642");
-            else if (EgressGuard.Refuse(agent.BaseUrl, GatewayRule(key)) is { } refusal)
+            else if (EgressGuard.Refuse(agent.BaseUrl, GatewayRule(key, options.AllowedGatewayOrigins)) is { } refusal)
                 errors.Add(refusal);
             // **A missing ApiKey is deliberately not an error here.** It used to be, and once this
             // validation began running at startup that turned "Geist has no key yet" into "the panel
@@ -202,6 +225,8 @@ public sealed class HermesOptionsValidator : IValidateOptions<HermesOptions>
     /// The rule one agent's gateway must satisfy — shared with the client factory, so the startup
     /// check and the connection cannot drift apart.
     /// </summary>
-    public static EgressRule GatewayRule(string agentKey) =>
-        new($"Hermes:Agents:{agentKey}:BaseUrl", EgressReach.Local, []);
+    public static EgressRule GatewayRule(string agentKey, IReadOnlyCollection<string>? approvedOrigins = null) =>
+        approvedOrigins is { Count: > 0 }
+            ? EgressRule.Origins($"Hermes:Agents:{agentKey}:BaseUrl", approvedOrigins)
+            : EgressRule.Loopback($"Hermes:Agents:{agentKey}:BaseUrl");
 }

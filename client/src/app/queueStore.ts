@@ -227,30 +227,94 @@ export async function openQueueStore(
  * @returns whether no private or unowned plaintext remains — false means the device refused.
  */
 export function sweepLegacyPlaintext(storage: QueueStorage = localStorage): boolean {
-  const legacy = readJson<QueuedOp>(storage, LEGACY_KEY)
-  if (legacy.length === 0) return true
+  /*
+   * <b>Read raw, because "nothing there" and "could not look" are different answers.</b>
+   *
+   * `readJson` returns `[]` for both — a store that throws on `getItem`, a value that is not JSON, a
+   * value that is JSON but not an array — and this used to take that empty list as proof there was
+   * nothing to sweep and report success. Every one of those is a state in which a care record may be
+   * sitting in the store unexamined, which is the opposite of what was being claimed.
+   */
+  let raw: string | null
+  try {
+    raw = storage.getItem(LEGACY_KEY)
+  } catch {
+    // The store refused to be read. Nothing can be proved about what is in it, so nothing is claimed.
+    return false
+  }
+  if (raw == null) return true
 
-  const isSensitive = (op: QueuedOp) => op.ownerProfileId == null || isPrivateDomain(op.domain)
-  const kept = legacy.filter((op) => !isSensitive(op))
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    parsed = undefined
+  }
+
+  /*
+   * A shape this cannot classify is treated as if it held the worst thing it could hold.
+   *
+   * Half-written JSON, or a value from a build that stored something else under this key, cannot be
+   * partitioned into private and ordinary — so the ordinary half cannot be preserved and the whole
+   * key goes. It is the same confidentiality-over-availability trade the refused-rewrite path makes,
+   * reached for the same reason: what cannot be examined cannot be vouched for.
+   */
+  if (!Array.isArray(parsed)) return purge(storage)
+
+  const legacy = parsed as QueuedOp[]
+  const isSensitive = (op: QueuedOp) =>
+    // A malformed entry among well-formed ones is sensitive by the same reasoning as above.
+    op == null || typeof op !== 'object' || op.ownerProfileId == null || isPrivateDomain(op.domain)
   const swept = legacy.filter(isSensitive)
   if (swept.length === 0) return true
 
-  write(storage, LEGACY_KEY, kept)
+  write(storage, LEGACY_KEY, legacy.filter((op) => !isSensitive(op)))
 
   /*
    * Read back rather than trusted. `write` is best-effort because the legacy store is on its way out
    * either way — which is fine for the ordinary half and not fine for this one.
    */
-  if (readJson<QueuedOp>(storage, LEGACY_KEY).some(isSensitive)) {
-    remove(storage, LEGACY_KEY)
-    if (readJson<QueuedOp>(storage, LEGACY_KEY).some(isSensitive)) return false
-  }
+  if (stillSensitive(storage, isSensitive) && !purge(storage)) return false
 
+  /*
+   * A notice for each, and the malformed ones get one too.
+   *
+   * They cannot be described — that is what made them sensitive — so they are announced as orphaned,
+   * which is the truthful reading: nothing about the record establishes whose it was.
+   */
   const notices = swept.map((op) => redactedNotice(
-    op, op.ownerProfileId == null ? 'legacy-orphaned' : 'legacy-plaintext'))
+    op ?? {} as QueuedOp, op?.ownerProfileId == null ? 'legacy-orphaned' : 'legacy-plaintext'))
   write(storage, LEGACY_DROPPED_KEY,
     [...readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY), ...notices].slice(-MAX_DROPPED))
   return true
+}
+
+/** Remove the whole key, and say whether it is actually gone. */
+function purge(storage: QueueStorage): boolean {
+  remove(storage, LEGACY_KEY)
+  try {
+    return storage.getItem(LEGACY_KEY) == null
+  } catch {
+    // Cannot read it back, so cannot claim it is gone.
+    return false
+  }
+}
+
+/** Whether anything the sweep refuses to leave behind survived the rewrite. */
+function stillSensitive(storage: QueueStorage, isSensitive: (op: QueuedOp) => boolean): boolean {
+  let raw: string | null
+  try {
+    raw = storage.getItem(LEGACY_KEY)
+  } catch {
+    return true // Unreadable is indistinguishable from unswept, and only one of them is safe to assume.
+  }
+  if (raw == null) return false
+  try {
+    const parsed = JSON.parse(raw)
+    return !Array.isArray(parsed) || (parsed as QueuedOp[]).some(isSensitive)
+  } catch {
+    return true
+  }
 }
 
 /**

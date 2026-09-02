@@ -59,8 +59,8 @@ public sealed class GoogleCalendarOptions
         ["oauth2.googleapis.com", "www.googleapis.com", "accounts.google.com"];
 
     /// <summary>The rule for every Google destination, shared by startup and the request sinks.</summary>
-    public EgressRule Rule => new(
-        "Google", EgressReach.Internet, AllowedHosts.Count > 0 ? AllowedHosts : GoogleHosts);
+    public EgressRule Rule => EgressRule.Internet(
+        "Google", AllowedHosts.Count > 0 ? AllowedHosts : GoogleHosts);
 
     /// <summary>Every configured destination, so one check can cover all of them.</summary>
     public IEnumerable<(string Setting, string Url)> Destinations =>

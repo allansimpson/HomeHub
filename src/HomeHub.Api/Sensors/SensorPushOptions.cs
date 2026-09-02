@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Sensors;
 
+using HomeHub.Api.Net;
+
 /// <summary>
 /// SensorPush cloud credentials + optional sensor→zone naming, bound from configuration section
 /// <c>SensorPush</c>. Secrets are never committed: set via user-secrets in dev, environment
@@ -19,5 +21,20 @@ public sealed class SensorPushOptions
     /// <summary>Optional friendly names keyed by SensorPush sensor id; falls back to the device name.</summary>
     public Dictionary<string, string> ZoneNames { get; set; } = new();
 
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(Email) && !string.IsNullOrWhiteSpace(Password);
+    /// <summary>Hosts permitted to receive the household's sensor credentials and readings.</summary>
+    /// <remarks>Empty means SensorPush's own host, which is what a household deploying this wants.</remarks>
+    public List<string> AllowedHosts { get; set; } = [];
+
+    /// <summary>The rule for this vendor, shared by startup and the request path.</summary>
+    /// <remarks>
+    /// The account email and password are posted to it, an access token comes back, and the
+    /// household's sensor history follows — so the destination is as much a credential boundary as
+    /// the password itself.
+    /// </remarks>
+    public EgressRule Rule => EgressRule.Internet(
+        "SensorPush:BaseUrl", AllowedHosts.Count > 0 ? AllowedHosts : ["api.sensorpush.com"]);
+
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(Email) && !string.IsNullOrWhiteSpace(Password)
+        && EgressGuard.IsPermitted(BaseUrl, Rule);
 }

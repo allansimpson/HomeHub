@@ -72,7 +72,10 @@ public sealed class HermesClientFactory
          * the right one here too: better a household agent that says nothing than one whose key has
          * gone somewhere nobody approved.
          */
-        if (EgressGuard.Refuse(agent.BaseUrl, HermesOptionsValidator.GatewayRule(agentKey)) is { } refusal)
+        if (EgressGuard.Refuse(
+                agent.BaseUrl,
+                HermesOptionsValidator.GatewayRule(agentKey, _options.CurrentValue.AllowedGatewayOrigins))
+            is { } refusal)
         {
             _logger.LogError("Hermes agent {Agent} was not opened: {Refusal}", agentKey, refusal);
             return null;

@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Pantry;
 
+using HomeHub.Api.Net;
+
 /// <summary>
 /// Open Food Facts lookup config, bound from the <c>OpenFoodFacts</c> section.
 /// </summary>
@@ -41,5 +43,13 @@ public sealed class OpenFoodFactsOptions
     /// </remarks>
     public int CacheHours { get; set; } = 6;
 
-    public bool IsConfigured => Enabled && !string.IsNullOrWhiteSpace(BaseUrl);
+    /// <summary>Hosts permitted to receive the barcodes the household scans.</summary>
+    public List<string> AllowedHosts { get; set; } = [];
+
+    /// <summary>The rule for the lookup service. No credential, and still a destination.</summary>
+    public EgressRule LookupRule => EgressRule.Internet(
+        "OpenFoodFacts:BaseUrl", AllowedHosts.Count > 0 ? AllowedHosts : ["world.openfoodfacts.org"]);
+
+    public bool IsConfigured =>
+        Enabled && !string.IsNullOrWhiteSpace(BaseUrl) && EgressGuard.IsPermitted(BaseUrl, LookupRule);
 }

@@ -8,11 +8,31 @@ using System.Net.Sockets;
 /// </summary>
 public enum EgressReach
 {
-    /// <summary>A third-party service on the internet. Every resolved address must be public.</summary>
+    /// <summary>A third-party service on the internet. Every resolved address must be publicly routable.</summary>
     Internet,
 
-    /// <summary>A sidecar or gateway on this machine or this house. Every resolved address must not be.</summary>
-    Local,
+    /// <summary>
+    /// A device on the network this household controls.
+    /// </summary>
+    /// <remarks>
+    /// <b>Narrower than "not public", and the difference is the point.</b> This used to admit anything
+    /// that was not obviously internet-facing, which swept in carrier-grade NAT (100.64.0.0/10) and
+    /// <c>0.0.0.0/8</c> — ranges a household does not control and an ISP or a hostile neighbour on the
+    /// same carrier network may. "Not public" and "ours" are different claims and only the second is
+    /// the one being made.
+    /// </remarks>
+    HouseholdLan,
+
+    /// <summary>
+    /// This machine, and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// For destinations whose credential has no route-level scoping — the Hermes gateways and the
+    /// image extractor both say so in as many words. An RFC1918 address is not a qualification for
+    /// receiving one of those: a typo reaching another box on the LAN, or a compromised device on it,
+    /// would satisfy a reach test and should not.
+    /// </remarks>
+    Loopback,
 }
 
 /// <summary>
@@ -22,13 +42,41 @@ public enum EgressReach
 /// <param name="Reach">Which side of the house/internet line this destination must be on.</param>
 /// <param name="AllowedHosts">
 /// Exact hosts permitted. Empty means the reach check is the whole rule — which is right for a LAN
-/// sidecar whose address a household chooses, and wrong for a credentialed third party, where the
+/// device whose address a household chooses, and wrong for a credentialed third party, where the
 /// host is the thing being authorised.
+/// </param>
+/// <param name="AllowedOrigins">
+/// Exact origins — scheme, host <i>and</i> port — permitted, overriding both of the above.
+/// <para>
+/// <b>The strictest form, for destinations that hold a privileged credential.</b> A host allowlist
+/// still admits every port on that host, and a reach test admits every machine on the network; for
+/// something receiving a per-agent key and the household's conversations, neither is a small enough
+/// target. When this is non-empty it is the whole authorisation: the origin either matches one of
+/// these exactly or the destination is refused.
+/// </para>
 /// </param>
 public sealed record EgressRule(
     string Setting,
     EgressReach Reach,
-    IReadOnlyCollection<string> AllowedHosts);
+    IReadOnlyCollection<string> AllowedHosts,
+    IReadOnlyCollection<string> AllowedOrigins)
+{
+    /// <summary>A named third-party service on the internet, reachable only at its own hosts.</summary>
+    public static EgressRule Internet(string setting, IReadOnlyCollection<string> allowedHosts) =>
+        new(setting, EgressReach.Internet, allowedHosts, []);
+
+    /// <summary>A device on the household's own network, at an address they choose.</summary>
+    public static EgressRule HouseholdLan(string setting) =>
+        new(setting, EgressReach.HouseholdLan, [], []);
+
+    /// <summary>Something on this machine holding a credential with no route-level scoping.</summary>
+    public static EgressRule Loopback(string setting) =>
+        new(setting, EgressReach.Loopback, [], []);
+
+    /// <summary>Exactly these origins and nothing else — the narrowest form. See the parameter note.</summary>
+    public static EgressRule Origins(string setting, IReadOnlyCollection<string> approved) =>
+        new(setting, EgressReach.Loopback, [], approved);
+}
 
 /// <summary>
 /// Where HomeHub is permitted to send household data and the credentials that reach it.
@@ -95,15 +143,8 @@ public static class EgressGuard
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
             return $"{rule.Setting} must be an absolute URL.";
 
-        var local = rule.Reach == EgressReach.Local;
-
-        if (uri.Scheme != Uri.UriSchemeHttps && !(local && uri.Scheme == Uri.UriSchemeHttp))
-        {
-            return local
-                ? $"{rule.Setting} must use http or https; '{uri.Scheme}' is not a transport this speaks."
-                : $"{rule.Setting} must use https; '{uri.Scheme}' would send household data and any "
-                  + "credential with it in the clear.";
-        }
+        if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
+            return $"{rule.Setting} must use http or https; '{uri.Scheme}' is not a transport this speaks.";
 
         // Userinfo is a credential in a place nothing here expects one, and it is the classic way to
         // make a URL *read* as one host while resolving at another.
@@ -112,6 +153,33 @@ public static class EgressGuard
 
         if (!string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
             return $"{rule.Setting} must not carry a query string or fragment.";
+
+        /*
+         * An exact origin is the whole authorisation when one is given.
+         *
+         * Neither the reach nor the host list is consulted, because both are broader than what was
+         * approved and the point of naming an origin is to be narrower than either. A deployment that
+         * lists `http://127.0.0.1:8642` has authorised that listener and not port 8643 beside it.
+         */
+        if (rule.AllowedOrigins.Count > 0)
+        {
+            var origin = Origin(uri);
+            return rule.AllowedOrigins.Any(o => MatchesOrigin(o, origin))
+                ? null
+                : $"{rule.Setting} points at '{origin}', which is not one of the approved origins for "
+                  + "this destination.";
+        }
+
+        if (rule.Reach != EgressReach.Internet && uri.Scheme == Uri.UriSchemeHttp)
+        {
+            // Cleartext is allowed on the household's own network and nowhere else: the traffic never
+            // leaves it, and requiring TLS from a sidecar somebody runs on a Pi would mean nobody runs one.
+        }
+        else if (uri.Scheme != Uri.UriSchemeHttps)
+        {
+            return $"{rule.Setting} must use https; '{uri.Scheme}' would send household data and any "
+                + "credential with it in the clear.";
+        }
 
         if (rule.AllowedHosts.Count > 0
             && !rule.AllowedHosts.Any(h => string.Equals(h, uri.Host, StringComparison.OrdinalIgnoreCase)))
@@ -128,17 +196,33 @@ public static class EgressGuard
          * a named host is settled at dial time by the handler below, once, against the addresses
          * actually being connected to.
          */
-        if (IPAddress.TryParse(uri.Host.Trim('[', ']'), out var literal) && IsPrivate(literal) != local)
-        {
-            return local
-                ? $"{rule.Setting} points at the public address {literal}; this destination must be on "
-                  + "this machine or this house's own network."
-                : $"{rule.Setting} points at {literal}, which is on this machine or this network. A "
-                  + "third-party service reached at a private address is not that service.";
-        }
+        if (IPAddress.TryParse(uri.Host.Trim('[', ']'), out var literal))
+            return RefuseAddress(literal, rule, uri.Host);
 
         return null;
     }
+
+    /// <summary>Whether one resolved address satisfies the rule's reach, and why not when it does not.</summary>
+    private static string? RefuseAddress(IPAddress address, EgressRule rule, string host) => rule.Reach switch
+    {
+        EgressReach.Loopback when !IPAddress.IsLoopback(Normalise(address)) =>
+            $"{rule.Setting}: '{host}' is not on this machine. This destination holds a credential with "
+            + "no route-level scoping, so it may only be reached over loopback.",
+        EgressReach.HouseholdLan when !IsHouseholdLan(address) =>
+            $"{rule.Setting}: '{host}' is not on this house's own network.",
+        EgressReach.Internet when !IsPubliclyRoutable(address) =>
+            $"{rule.Setting}: '{host}' is not a publicly routable address. A third-party service "
+            + "reached at one is not that service.",
+        _ => null,
+    };
+
+    /// <summary>Scheme, host and port, with the default port made explicit so two spellings compare equal.</summary>
+    private static string Origin(Uri uri) =>
+        $"{uri.Scheme.ToLowerInvariant()}://{uri.Host.ToLowerInvariant()}:{uri.Port}";
+
+    private static bool MatchesOrigin(string approved, string origin) =>
+        Uri.TryCreate(approved, UriKind.Absolute, out var uri)
+        && string.Equals(Origin(uri), origin, StringComparison.Ordinal);
 
     /// <summary>Whether this destination may be used.</summary>
     public static bool IsPermitted(string? url, EgressRule rule) => Refuse(url, rule) is null;
@@ -159,6 +243,13 @@ public static class EgressGuard
         {
             var current = rule();
             var host = context.DnsEndPoint.Host;
+
+            if (current.AllowedOrigins.Count > 0
+                && !current.AllowedOrigins.Any(o => MatchesHostAndPort(o, host, context.DnsEndPoint.Port)))
+            {
+                throw new BlockedAddressException(
+                    $"{current.Setting}: '{host}:{context.DnsEndPoint.Port}' is not an approved origin.");
+            }
 
             if (current.AllowedHosts.Count > 0
                 && !current.AllowedHosts.Any(h => string.Equals(h, host, StringComparison.OrdinalIgnoreCase)))
@@ -189,12 +280,10 @@ public static class EgressGuard
              * connected to whichever the stack happened to prefer — a coin flip an attacker gets to
              * weight. The same reasoning `RecipeFetcher` gives for the outward direction.
              */
-            var wantPrivate = current.Reach == EgressReach.Local;
-            if (addresses.Any(a => IsPrivate(a) != wantPrivate))
+            foreach (var address in addresses)
             {
-                throw new BlockedAddressException(wantPrivate
-                    ? $"{current.Setting}: '{host}' resolves off this house's network."
-                    : $"{current.Setting}: '{host}' resolves onto this machine or this network.");
+                if (RefuseAddress(address, current, host) is { } refusal)
+                    throw new BlockedAddressException(refusal);
             }
 
             var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
@@ -212,16 +301,57 @@ public static class EgressGuard
     };
 
     /// <summary>
-    /// Whether this address is on this machine or a network the household controls.
+    /// A handler that refuses every connection, for a registration that exists so the unnamed default
+    /// does not.
     /// </summary>
     /// <remarks>
-    /// Loopback, RFC1918, RFC6598 carrier-grade NAT, link-local, and the IPv6 equivalents — unique
-    /// local addresses and link-local — plus anything mapped from an IPv4 address in those ranges,
-    /// because <c>::ffff:127.0.0.1</c> is loopback however it is spelled.
+    /// `AddHttpClient()` registers the factory <i>and</i> an unnamed default client configured with
+    /// nothing — which is what the account-link token exchange picked up, posting an OAuth client
+    /// secret through a handler that follows redirects and screens no address. The factory is still
+    /// needed by injection, so it is registered under a name, and that name gets this: a client that
+    /// cannot reach anything, so a caller reaching for it fails loudly rather than working unguarded.
     /// </remarks>
-    public static bool IsPrivate(IPAddress address)
+    public static SocketsHttpHandler CreateBlockingHandler() => new()
     {
-        if (address.IsIPv4MappedToIPv6) address = address.MapToIPv4();
+        AllowAutoRedirect = false,
+        ConnectCallback = (context, _) => throw new BlockedAddressException(
+            $"'{context.DnsEndPoint.Host}' was reached through an unconfigured HTTP client. Every "
+            + "outbound destination needs a named, guarded registration — see EgressGuard."),
+    };
+
+    /// <summary>
+    /// The connect callback sees a host and a port rather than a URL, so origins are matched on those.
+    /// </summary>
+    /// <remarks>
+    /// The scheme is not compared here and does not need to be: the shape check has already refused
+    /// any origin whose scheme was wrong, and a connection cannot change the scheme of the request
+    /// that opened it.
+    /// </remarks>
+    private static bool MatchesHostAndPort(string approved, string host, int port) =>
+        Uri.TryCreate(approved, UriKind.Absolute, out var uri)
+        && uri.Port == port
+        && string.Equals(uri.Host, host, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether this address is on the network the household actually controls.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Loopback, RFC1918, link-local, and the IPv6 equivalents — unique local addresses and
+    /// link-local — plus anything mapped from an IPv4 address in those ranges, because
+    /// <c>::ffff:127.0.0.1</c> is loopback however it is spelled.
+    /// </para>
+    /// <para>
+    /// <b>Carrier-grade NAT (100.64.0.0/10) and <c>0.0.0.0/8</c> are deliberately absent.</b> They are
+    /// not publicly routable, which is what an earlier version of this tested for, and they are not
+    /// the household's either: CGNAT space is the ISP's, shared with every other subscriber behind the
+    /// same equipment. "Not public" was the wrong question — a sidecar holding household audio should
+    /// be on a network this house owns, not merely on one the internet cannot reach directly.
+    /// </para>
+    /// </remarks>
+    public static bool IsHouseholdLan(IPAddress address)
+    {
+        address = Normalise(address);
         if (IPAddress.IsLoopback(address)) return true;
 
         if (address.AddressFamily == AddressFamily.InterNetwork)
@@ -230,12 +360,9 @@ public static class EgressGuard
             return b[0] switch
             {
                 10 => true,
-                127 => true,
-                169 when b[1] == 254 => true,          // link-local
                 172 when b[1] >= 16 && b[1] <= 31 => true,
                 192 when b[1] == 168 => true,
-                100 when b[1] >= 64 && b[1] <= 127 => true, // carrier-grade NAT
-                0 => true,                              // "this network"
+                169 when b[1] == 254 => true, // link-local, which is this link and so this house
                 _ => false,
             };
         }
@@ -243,10 +370,46 @@ public static class EgressGuard
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
         {
             if (address.IsIPv6LinkLocal || address.IsIPv6SiteLocal) return true;
-            // fc00::/7 — unique local addresses.
-            return (address.GetAddressBytes()[0] & 0xFE) == 0xFC;
+            return (address.GetAddressBytes()[0] & 0xFE) == 0xFC; // fc00::/7, unique local
         }
 
         return false;
     }
+
+    /// <summary>
+    /// Whether this address is one a third-party service can legitimately answer at.
+    /// </summary>
+    /// <remarks>
+    /// The complement is deliberately not <see cref="IsHouseholdLan"/>: the ranges that are neither —
+    /// carrier-grade NAT, multicast, reserved space, the broadcast address — are refused by both, which
+    /// is the right answer for both. A destination that is neither ours nor the internet's is one
+    /// nothing here should be talking to.
+    /// </remarks>
+    public static bool IsPubliclyRoutable(IPAddress address)
+    {
+        address = Normalise(address);
+        if (IPAddress.IsLoopback(address) || IsHouseholdLan(address)) return false;
+
+        if (address.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = address.GetAddressBytes();
+            if (b[0] == 0) return false;                                   // "this network"
+            if (b[0] == 100 && b[1] >= 64 && b[1] <= 127) return false;    // carrier-grade NAT
+            if (b[0] >= 224) return false;                                 // multicast, reserved, broadcast
+            return true;
+        }
+
+        if (address.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (address.IsIPv6Multicast) return false;
+            if (address.Equals(IPAddress.IPv6Any) || address.Equals(IPAddress.IPv6None)) return false;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>An IPv4-mapped IPv6 address is the IPv4 address it maps, however it is written.</summary>
+    private static IPAddress Normalise(IPAddress address) =>
+        address.IsIPv4MappedToIPv6 ? address.MapToIPv4() : address;
 }

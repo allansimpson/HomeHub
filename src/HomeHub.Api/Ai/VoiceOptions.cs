@@ -140,10 +140,9 @@ public sealed class VoiceOptions
         public List<string> LocalAllowedHosts { get; set; } = [];
 
         /// <summary>The rule for the local sidecar, shared by startup, availability and the request sink.</summary>
-        public EgressRule LocalRule => new(
-            "Voice:Stt:LocalEndpoint",
-            LocalAllowedHosts.Count > 0 ? EgressReach.Internet : EgressReach.Local,
-            LocalAllowedHosts);
+        public EgressRule LocalRule => LocalAllowedHosts.Count > 0
+            ? EgressRule.Internet("Voice:Stt:LocalEndpoint", LocalAllowedHosts)
+            : EgressRule.HouseholdLan("Voice:Stt:LocalEndpoint");
 
         /// <summary>Whisper model the sidecar loads (e.g. <c>tiny.en</c> / <c>base.en</c> / <c>small.en</c>).</summary>
         public string LocalModel { get; set; } = "base.en";

@@ -508,7 +508,10 @@ builder.Services.Configure<SensorPushOptions>(builder.Configuration.GetSection(S
 var sensorPush = builder.Configuration.GetSection(SensorPushOptions.Section).Get<SensorPushOptions>();
 if (sensorPush?.IsConfigured == true)
 {
-    builder.Services.AddHttpClient<SensorPushProvider>();
+    // Email, password, the access token they mint, and the household's sensor history.
+    builder.Services.AddHttpClient<SensorPushProvider>()
+        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+            () => sp.GetRequiredService<IOptions<SensorPushOptions>>().Value.Rule));
     builder.Services.AddScoped<ISensorProvider>(sp => sp.GetRequiredService<SensorPushProvider>());
 }
 else
@@ -520,7 +523,18 @@ else
 builder.Services.AddSingleton<AccountLinkState>();
 // A plain client for the OAuth token exchange — the provider-specific clients are registered only
 // when that provider is configured, and linking has to work on the way to being configured.
-builder.Services.AddHttpClient();
+/*
+ * `IHttpClientFactory` itself, with no unnamed default registration behind it.
+ *
+ * <b>Registering the unnamed client is what made the default reachable.</b> `CreateClient()` with no
+ * name hands back the framework's handler — redirects on, no address screen — and the account-link
+ * token exchange took it, posting an OAuth client secret and PKCE verifier through it while the
+ * providers beside it were guarded. Nothing asks for it any more, and not registering it means a
+ * future caller that tries gets a client with no configuration rather than a quietly unguarded one.
+ * The named registrations below are what callers ask for by name.
+ */
+builder.Services.AddHttpClient(GuardedClients.Unconfigured)
+    .ConfigurePrimaryHttpMessageHandler(EgressGuard.CreateBlockingHandler);
 
 builder.Services.AddScoped<AlertEngine>();
 
@@ -539,7 +553,10 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 // Key-free; the default location works out of the box. Alerts are folded into the same alert
 // engine + banner as sensors (no duplicate mechanism).
 builder.Services.Configure<WeatherOptions>(builder.Configuration.GetSection(WeatherOptions.Section));
-builder.Services.AddHttpClient<IWeatherProvider, NwsWeatherProvider>();
+// No credential, but a destination all the same, and one the household's coordinates travel to.
+builder.Services.AddHttpClient<IWeatherProvider, NwsWeatherProvider>()
+    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+        () => sp.GetRequiredService<IOptions<WeatherOptions>>().Value.Rule));
 builder.Services.AddScoped<WeatherRefresher>();
 
 // --- Stage M2: recipe import ---
@@ -592,7 +609,10 @@ builder.Services.Configure<OpenFoodFactsOptions>(builder.Configuration.GetSectio
 var openFoodFacts = builder.Configuration.GetSection(OpenFoodFactsOptions.Section).Get<OpenFoodFactsOptions>();
 if (openFoodFacts?.IsConfigured == true)
 {
-    builder.Services.AddHttpClient<IProductLookup, OpenFoodFactsProductLookup>();
+    // No credential, and still a destination: every barcode the household scans goes to it.
+    builder.Services.AddHttpClient<IProductLookup, OpenFoodFactsProductLookup>()
+        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+            () => sp.GetRequiredService<IOptions<OpenFoodFactsOptions>>().Value.LookupRule));
 }
 else
 {
@@ -622,6 +642,21 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 // Google Calendar when OAuth is configured; otherwise a local SQL calendar so the panel is
 // fully usable (create/edit/delete persist) without any external account. UI depends only on
 // ICalendarProvider. Both variants need the database, so registration is DB-gated below.
+/*
+ * Named guarded clients for the OAuth token exchange.
+ *
+ * `AccountLinkController` posts the client secret, the authorization code and the PKCE verifier — the
+ * whole of what it takes to mint tokens for a member's account — and it was doing so on the unnamed
+ * default client, which has no address screen and follows redirects. Named, so asking for the wrong
+ * one is a visible mistake rather than the default.
+ */
+builder.Services.AddHttpClient(GuardedClients.Google)
+    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+        () => sp.GetRequiredService<IOptions<GoogleCalendarOptions>>().Value.Rule));
+builder.Services.AddHttpClient(GuardedClients.Microsoft)
+    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+        () => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule));
+
 /*
  * Refused at startup rather than at the first sync, because the first sync is where the credential
  * goes. `IsConfigured` already fails closed on a destination that is not permitted — the panel simply
@@ -703,7 +738,11 @@ if (imageExtractor?.Configured == true)
         // The per-call budget is enforced inside the client, which needs to tell a timeout from a
         // cancellation; this is only the backstop for a socket that never answers at all.
         http.Timeout = TimeSpan.FromSeconds(Math.Clamp(imageExtractor.TimeoutSeconds, 5, 180) + 30);
-    });
+    })
+    // A bearer with no route-level scoping and the household's photographs. `Configured` already
+    // requires a loopback URL; this is the half a string check cannot do, and it turns redirects off.
+    .ConfigurePrimaryHttpMessageHandler(() => EgressGuard.CreateHandler(
+        () => EgressRule.Loopback("ImageExtractor:BaseUrl")));
     builder.Services.AddSingleton<IEventExtractor, ExtractorEventReader>();
     // The Kitchen's two modes ride the same isolated listener. A recipe page and a delivery
     // screenshot are a stranger's printed words exactly as a flyer is, so they get the same
@@ -714,7 +753,10 @@ else if (eventCapture?.UsesHouseAgent == false && eventCapture.Configured)
 {
     // Legacy: a vision vendor. Kept reachable by explicit configuration, no longer a default — it is
     // a second destination for the household's post and a second bill for a job now done in-house.
-    builder.Services.AddHttpClient<IEventExtractor, VisionEventExtractor>();
+    // The vendor reading path: an API key and the household's photographs leave the house on it.
+    builder.Services.AddHttpClient<IEventExtractor, VisionEventExtractor>()
+        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+            () => sp.GetRequiredService<IOptions<EventCaptureOptions>>().Value.Rule));
 }
 else if (eventCapture?.UsesHouseAgent != false)
 {
@@ -784,7 +826,11 @@ var homeAssistant = builder.Configuration.GetSection(HomeAssistantOptions.Sectio
 if (homeAssistant?.IsConfigured == true)
 {
     // One HA client shared by every HA-backed provider — climate here, the Litter-Robot below.
-    builder.Services.AddHttpClient<HomeAssistantClient>();
+    // A long-lived bearer, the household's state, and the commands that change it. Home Assistant is
+    // on the house network by construction, so the rule is the household boundary rather than a host list.
+    builder.Services.AddHttpClient<HomeAssistantClient>()
+        .ConfigurePrimaryHttpMessageHandler(() => EgressGuard.CreateHandler(
+            () => EgressRule.HouseholdLan("HomeAssistant:BaseUrl")));
     builder.Services.AddScoped<HomeAssistantClimateProvider>();
 }
 
@@ -854,8 +900,9 @@ builder.Services.AddHttpClient(HermesClientFactory.ClientName)
     // One pooled handler serves every agent, so the rule names the gateway class rather than an agent.
     // It carries no allowlist and only a reach, which is identical for all of them — the per-agent
     // address is checked by name in the validator and again in `HermesClientFactory.Create`.
-    .ConfigurePrimaryHttpMessageHandler(() => EgressGuard.CreateHandler(
-        () => HermesOptionsValidator.GatewayRule("*")));
+    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(() =>
+        HermesOptionsValidator.GatewayRule(
+            "*", sp.GetRequiredService<IOptionsMonitor<HermesOptions>>().CurrentValue.AllowedGatewayOrigins)));
 builder.Services.AddSingleton<HermesClientFactory>();
 builder.Services.AddSingleton<HermesClient>();
 
@@ -948,7 +995,11 @@ builder.Services.AddScoped<SttRouter>();
 // and the permanent fallback; Chatterbox becomes primary by setting Voice:Tts:Primary=chatterbox
 // once a GPU is installed. Falls back to browser synthesis when neither is configured.
 builder.Services.AddSingleton<PiperTextToSpeech>();
-builder.Services.AddHttpClient<ChatterboxTextToSpeech>();
+// Household text on its way to be spoken aloud — including assistant replies, which quote the
+// household back to itself. A self-hosted server on the house network.
+builder.Services.AddHttpClient<ChatterboxTextToSpeech>()
+    .ConfigurePrimaryHttpMessageHandler(() => EgressGuard.CreateHandler(
+        () => EgressRule.HouseholdLan("Voice:Tts:Chatterbox:Endpoint")));
 builder.Services.AddKeyedScoped<ITextToSpeech>(VoiceRouter.PiperKey, (sp, _) => sp.GetRequiredService<PiperTextToSpeech>());
 builder.Services.AddKeyedScoped<ITextToSpeech>(VoiceRouter.ChatterboxKey, (sp, _) => sp.GetRequiredService<ChatterboxTextToSpeech>());
 // The phrase cache clears itself at startup when the voice config hash changes, so it is a singleton.

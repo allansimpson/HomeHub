@@ -64,8 +64,6 @@ public static class CloudSpeechEndpoint
     /// so a 3xx arrives as an ordinary unsuccessful response and `EnsureSuccessStatusCode` ends the
     /// exchange before a second request exists.
     /// </remarks>
-    public static EgressRule Rule(IReadOnlyCollection<string>? allowedHosts = null) => new(
-        "Ai:OpenAiBaseUrl",
-        EgressReach.Internet,
-        allowedHosts is { Count: > 0 } ? allowedHosts : DefaultAllowedHosts);
+    public static EgressRule Rule(IReadOnlyCollection<string>? allowedHosts = null) => EgressRule.Internet(
+        "Ai:OpenAiBaseUrl", allowedHosts is { Count: > 0 } ? allowedHosts : DefaultAllowedHosts);
 }
