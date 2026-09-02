@@ -1,7 +1,19 @@
 import {
+  armSessionLostNotice as armNotice,
   authorizedFetch,
+  SESSION_LOST_EVENT as SessionLostEvent,
   setPrivateNetworkConfirmed as setConfirmed,
 } from './privateNetwork'
+
+/**
+ * Re-exported from `privateNetwork`, where the session-lost machinery now lives.
+ *
+ * It moved because it is part of the identity boundary rather than of the JSON helper: three of the
+ * four authenticated transports were not announcing a lost session, and centralising the announcement
+ * at the transport is what fixed that.
+ */
+export const SESSION_LOST_EVENT = SessionLostEvent
+export const armSessionLostNotice = armNotice
 
 /**
  * Re-exported so `SessionProvider` keeps one import for the session's effects on the API layer.
@@ -153,27 +165,6 @@ export class ApiError extends Error {
  * An event rather than a direct call because `api` must not import a React provider; `SessionProvider`
  * listens and locks, which lands on the picker that fixes it.
  */
-export const SESSION_LOST_EVENT = 'homehub:session-lost'
-
-/** Once per outage. A page-load storm of 401s is one lost session, not twenty. */
-let sessionLostAnnounced = false
-
-function announceSessionLost(): void {
-  if (sessionLostAnnounced) return
-  sessionLostAnnounced = true
-  window.dispatchEvent(new Event(SESSION_LOST_EVENT))
-}
-
-/** Signing in with the wrong PIN answers 401 and means nothing about the session that made it. */
-function isAuthAttempt(path: string): boolean {
-  return path === '/session' || path.includes('/pin')
-}
-
-/** Called once a session exists again, so the next genuine expiry is announced. */
-export function armSessionLostNotice(): void {
-  sessionLostAnnounced = false
-}
-
 /**
  * How long a call may go unanswered before it is treated as unreachable.
  *
@@ -244,7 +235,6 @@ async function request<T>(path: string, init?: RequestInit, deadlineMs = DEADLIN
       throw unreachable(cause)
     }
     if (!res.ok) {
-      if (res.status === 401 && !isAuthAttempt(path)) announceSessionLost()
       const text = await res.text().catch(() => '')
       // Plain-text problem details are the common case (the controllers return BadRequest("…")), so a
       // parse failure is expected rather than exceptional — the message still carries the text.

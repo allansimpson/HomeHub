@@ -19,6 +19,58 @@
  * should be importing another's transport to get it.
  */
 
+/**
+ * Announced when an authenticated call is refused because the session is gone.
+ *
+ * An event rather than a direct call, because this module must not import a React provider;
+ * `SessionProvider` listens and locks, which lands on the picker that fixes it.
+ */
+export const SESSION_LOST_EVENT = 'homehub:session-lost'
+
+/** Once per outage. A page-load storm of 401s is one lost session, not twenty. */
+let sessionLostAnnounced = false
+
+/** Called once a session exists again, so the next genuine expiry is announced. */
+export function armSessionLostNotice(): void {
+  sessionLostAnnounced = false
+}
+
+/**
+ * Signing in with the wrong PIN answers 401 and means nothing about the session that made it.
+ *
+ * Exact operations, for the same reason the allowlist is: `path.includes('/pin')` would excuse a 401
+ * from anything with `/pin` anywhere in it, and an excused 401 is a session loss that never reaches
+ * the lock screen.
+ */
+function isAuthenticationAttempt(method: string, path: string): boolean {
+  const operation = `${method} ${normalisePath(path)}`
+  return operation === 'POST /session'
+    || operation === 'DELETE /session'
+    || /^(PUT|DELETE) \/profiles\/\d+\/pin$/.test(operation)
+}
+
+/**
+ * Every authenticated response passes through here, and a 401 on one closes the boundary.
+ *
+ * <b>Three of the four authenticated paths used to skip this.</b> The JSON helper announced a lost
+ * session on a 401; Assist streaming did not, Assist cancellation swallowed every response and every
+ * error, and server TTS read a 401 as "TTS is not configured" and quietly fell back to the browser
+ * voice. So a panel whose cookie had expired could keep a stream open, cancel into the void and go on
+ * speaking, while the one path that noticed was the one nobody had touched — and the privacy
+ * transition a lost session is supposed to trigger never happened.
+ *
+ * Centralised at the transport because that is the only place all four meet. A rule at each call
+ * site is one three of them had already failed to follow.
+ */
+function noteAuthenticatedResponse(method: string, path: string, status: number): void {
+  if (status !== 401) return
+  // A wrong PIN is not a lost session. Everything else that answers 401 is.
+  if (isAuthenticationAttempt(method, path)) return
+  if (sessionLostAnnounced) return
+  sessionLostAnnounced = true
+  window.dispatchEvent(new Event(SESSION_LOST_EVENT))
+}
+
 /** Thrown instead of opening a connection. Never carries a response, because there was not one. */
 export class PrivateNetworkError extends Error {
   constructor(operation: string) {
@@ -129,10 +181,12 @@ export async function authorizedFetch(path: string, init?: RequestInit): Promise
   if (!isPrivateNetworkAllowed(method, path)) {
     throw new PrivateNetworkError(`${method} ${normalisePath(path)}`)
   }
-  return fetch(`/api${path}`, {
+  const res = await fetch(`/api${path}`, {
     // Since AUDIT A1 the session cookie is what authorises every one of these, so "cookies travel"
     // stopped being an incidental property of relative fetches and became what the API depends on.
     credentials: 'same-origin',
     ...init,
   })
+  noteAuthenticatedResponse(method, path, res.status)
+  return res
 }

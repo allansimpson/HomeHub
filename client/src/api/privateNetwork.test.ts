@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  armSessionLostNotice,
   authorizedFetch,
   isPreConfirmationOperation,
   isPrivateNetworkAllowed,
   normaliseMethod,
   normalisePath,
   PrivateNetworkError,
+  SESSION_LOST_EVENT,
   setPrivateNetworkConfirmed,
 } from './privateNetwork'
 
@@ -142,5 +144,91 @@ describe('the transport primitive', () => {
     expect(isPrivateNetworkAllowed('GET', '/profiles')).toBe(false)
     setPrivateNetworkConfirmed(true)
     expect(isPrivateNetworkAllowed('POST', '/profiles')).toBe(true)
+  })
+})
+
+
+/**
+ * A 401 on any authenticated path closes the session boundary — H4.
+ *
+ * <b>Three of the four authenticated transports used to skip this.</b> The JSON helper announced a
+ * lost session; Assist streaming did not, Assist cancellation swallowed every response and every
+ * error, and server TTS read a 401 as "TTS is not configured" and fell back to the browser voice. A
+ * panel whose cookie had expired could keep a stream open, cancel into the void, and go on talking,
+ * while the privacy transition a lost session is meant to trigger never happened.
+ *
+ * Asserted at the transport because that is the only place all four meet. A rule at each call site is
+ * one three of them had already failed to follow.
+ */
+describe('a 401 closes the session boundary', () => {
+  /**
+   * The harness is Node and has no `window`, so one is stubbed.
+   *
+   * An `EventTarget` rather than a mock: the announcement is a real DOM event with a real listener,
+   * so "was it announced" is answered by the same mechanism `SessionProvider` uses to hear it, not by
+   * a spy agreeing with the code that called it.
+   */
+  const listen = () => {
+    const target = new EventTarget()
+    vi.stubGlobal('window', target)
+    const seen: Event[] = []
+    const onLost = (e: Event) => seen.push(e)
+    target.addEventListener(SESSION_LOST_EVENT, onLost)
+    return { seen, stop: () => target.removeEventListener(SESSION_LOST_EVENT, onLost) }
+  }
+
+  it('announces on an authenticated 401, whatever the transport', async () => {
+    setPrivateNetworkConfirmed(true)
+    armSessionLostNotice()
+    const { seen, stop } = listen()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+
+    // The Assist stream's own path — one of the three that used to say nothing.
+    await authorizedFetch('/assist/chat/stream', { method: 'POST' })
+
+    expect(seen).toHaveLength(1)
+    stop()
+  })
+
+  it('says it once per outage, not once per request', async () => {
+    setPrivateNetworkConfirmed(true)
+    armSessionLostNotice()
+    const { seen, stop } = listen()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+
+    // A page-load storm of 401s is one lost session, not twenty.
+    await authorizedFetch('/pantry')
+    await authorizedFetch('/tasks')
+    await authorizedFetch('/voice/speak', { method: 'POST' })
+
+    expect(seen).toHaveLength(1)
+    stop()
+  })
+
+  it('stays quiet for a wrong PIN, which says nothing about the session', async () => {
+    setPrivateNetworkConfirmed(true)
+    armSessionLostNotice()
+    const { seen, stop } = listen()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+
+    await authorizedFetch('/session', { method: 'POST' })
+    await authorizedFetch('/profiles/1/pin', { method: 'PUT' })
+
+    expect(seen).toHaveLength(0)
+    stop()
+  })
+
+  it('does not excuse a 401 merely because the path contains /pin', async () => {
+    setPrivateNetworkConfirmed(true)
+    armSessionLostNotice()
+    const { seen, stop } = listen()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+
+    // The old exclusion was `path.includes('/pin')`, which would have excused this. An excused 401 is
+    // a session loss that never reaches the lock screen.
+    await authorizedFetch('/pantry/pinned')
+
+    expect(seen).toHaveLength(1)
+    stop()
   })
 })
