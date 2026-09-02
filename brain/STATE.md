@@ -7,7 +7,7 @@ _Updated: 2026-09-02 by Claude. Geist's live-verified deployment and production-
 
 **HomeHub is a website.** No Pi, no deployed voice bridge; its source and 12 tests stay but it is not a deployment gate.
 
-TEST is production-ineligible; production is unchanged and healthy. **`8036cdd` was not reviewed, at Geist's instruction** — reviewing it would have been invalidated by this commit. The candidate for review is **`e6bf3ba`**, which carries the mechanical egress invariant Geist specified; the record is `.hermes/2026-09-02-egress-invariant.md`.
+TEST is production-ineligible; production is unchanged and healthy. Exact candidate `d0296c4` (application `e6bf3ba`) passed the independent full gate but **failed closed: 0 Critical / 4 High**. The durable inventory is `brain/SECURITY-REVIEW-D0296C4.md`: residual RR-05 notice sanitation; deletion before historical lineage audit/backfill; tombstones permanently excluded after 12 attempts; and a production-bindable RecipeFetcher SSRF bypass.
 
 **Five reviews each found one instance of one class, and each round Claude closed the instance.** Hand-maintained inventories failed five times, so the class is now a mechanism: `EgressRequestGuard` shape-checks every request's origin where the scheme is visible — the connect callback cannot see it, which is how Chatterbox was screened at the socket and cleartext anyway — and `AddGuardedHttpClient` attaches both guards or neither, so "is every client guarded" becomes a question a regex and a runtime sweep can answer.
 
@@ -26,11 +26,11 @@ TEST is production-ineligible; production is unchanged and healthy. **`8036cdd` 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `e6bf3ba` (mechanical egress invariant), plus this documentation commit |
+| `HEAD` now | `d0296c4` (application `e6bf3ba` plus documentation), matching `origin/main` at review start. |
 | Working tree | Clean before review; only this Geist-owned state update is pending commit. |
-| Reviewed candidate identity | Commit `ed1cca08144eb42d95facb69dfd71b85a52041e7`; Git tree `111d57a36fe3e87f1c5fea1bc5bf8dc1d6ac014e`; 865 tracked entries; 834 UTF-8 text and 31 binary assets; source SHA-256 `74ecf61766fc6835810112765f0affabe6821be05b79ae9f47e60110f035c04b`. |
-| Independent verdict | FAIL CLOSED: 0 Critical / 2 High, plus incomplete C# prior-policy RED proof. |
-| Current candidate | `e6bf3ba` — the candidate for review. Full gate green: 54 client files, 1,336 backend tests, 12 bridge tests. |
+| Reviewed candidate identity | Commit `d0296c4e525c5b7bb0bfc55d20b98583d8a0b704`; application `e6bf3ba8d90cba822a4c74bb03b6bc83e08c39e9`; Git tree `ab19a53272a641a79d97c19bc813c4ac8e7dea0f`; 873 tracked entries; 842 UTF-8 text and 31 binary assets. |
+| Independent verdict | FAIL CLOSED: 0 Critical / 4 High. Complete inventory: `brain/SECURITY-REVIEW-D0296C4.md`. |
+| Current candidate | `d0296c4` — full gate independently reproduced: 54 client files, 1,336 backend tests, 12 bridge tests; npm and NuGet production vulnerability checks clean. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
