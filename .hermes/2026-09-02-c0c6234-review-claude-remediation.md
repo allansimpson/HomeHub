@@ -36,20 +36,16 @@ did not ask what else could bypass it.
 |---|---|---|
 | 1. Unnamed client not deny-all | `Program.cs` configures `Options.DefaultName` with `CreateBlockingHandler`; the `GuardedClients.Unconfigured` name is gone | `The_default_client_refuses_every_connection` — resolves through real DI, red-capable against the previous attempt |
 | 2. Proxies enabled | `UseProxy = false` on `EgressGuard.CreateHandler`, `CreateBlockingHandler` and `RecipeFetcher.CreateGuardedHandler` | `No_confined_handler_will_use_a_proxy`, and `Every_handler_family_refuses_redirects_and_proxies` extends the class check to handler properties |
-| 3. Home Assistant cleartext LAN | `HomeAssistant:AllowedOrigins` (exact, loopback by default) and `HomeAssistant:AcknowledgeCleartextLan`; `IsConfigured` fails closed; handler uses the rule | 5 tests in `EgressGuardTests` |
+| 3. Home Assistant cleartext LAN | `HomeAssistant:AllowedOrigins` (exact, loopback by default); non-loopback must be https — see the transport correction below; `IsConfigured` fails closed; handler uses the rule | 9 tests in `EgressGuardTests` |
 | 4. Voice bridge unrestricted | `approve_origin`, `allow_redirects=False` with a 3xx raised, `trust_env=False`, `HOMEHUB_ALLOWED_ORIGINS` | `voice-bridge/tests/test_api_destination.py` — 9 tests, 2 with real listeners; 3 red-capable |
 | 5. RR-05 post-seal | `commitLegacyMigration` returns its sweep result; `openQueueStore` propagates it and calls `revokeQueueDurability`; both stores demoted together; `storageUntrusted` rendered | 4 tests in `queueStore.test.ts`, 3 red-capable |
 
 ## Decisions worth reviewing rather than assuming
 
-**Home Assistant cleartext is permitted behind an explicit acknowledgement rather than refused.** The
-required fix said "authenticated TLS or a locally pinned authenticated proxy/transport". Exact origins
-are implemented as asked; the transport is where I stopped short. Household Home Assistant commonly
-has no certificate, and a hard TLS requirement would take the climate, the scenes and the sensors off
-every panel that has one — a change I did not think I should make silently on the household's behalf.
-So `AcknowledgeCleartextLan` is an explicit, protected, defaulted-off decision, the same shape as
-`Voice:Stt:CloudAudioEgressAcknowledged`. **If Geist wants cleartext refused outright, say so and it is
-a two-line change**; I would rather be overruled than have guessed.
+**Home Assistant cleartext — resolved by Geist's decision, see the correction below.** I had
+implemented an explicit acknowledgement rather than a refusal and flagged it for a ruling. The ruling
+was to refuse, and it is right for a reason I had not weighted properly: an acknowledgement records
+that a deployment accepts a readable bearer, and does not authenticate the listener receiving it.
 
 **`revokeQueueDurability` keeps what the store already holds.** It withdraws the right to be written
 to, not the contents: reopening with no key would read an empty store back over unsent work. The blob
@@ -65,7 +61,7 @@ wired into `scripts/check.sh` under `all` and a new `bridge` scope, so they run 
 
 - `HomeAssistant:AllowedOrigins` — **required** for any Home Assistant not on loopback. A deployment
   with HA on another box will refuse to configure the integration until this names its exact origin.
-- `HomeAssistant:AcknowledgeCleartextLan` — required alongside it when that origin is plain http.
+- `HomeAssistant:AllowedOrigins` must name an **https** origin unless Home Assistant is on a loopback address.
 - `HOMEHUB_ALLOWED_ORIGINS` (voice bridge) — required for any HomeHub not on loopback. A bridge on a
   separate Pi will now fail at startup until this is set.
 
@@ -90,3 +86,62 @@ Client 54 files / 1,029 tests; backend 1,307 → 1,315; bridge 0 → 9. No basel
 Geist's browser verification at 540×1169 is the first real-browser pass on any of this and closes the
 gap I could not. Two of the changes in this commit are browser-visible and are **not** covered by it,
 since it predates them: the `storageUntrusted` warning strip, and the memory-only demotion behind it.
+
+
+---
+
+## Transport correction — 2026-09-02, commit `6486cda`
+
+Geist's decision: **refuse non-loopback cleartext outright, no acknowledgement escape hatch.** Applied
+in full, and extended to the second boundary the review found.
+
+The reasoning is worth restating because it is the part I got wrong. An exact origin and an
+authenticated transport answer different questions — *where* the listener is, and *what* it is. I had
+treated the first as most of the second and offered an acknowledgement for the gap. An acknowledgement
+records consent to a risk; it does not authenticate the machine that answers at that address, so a
+device taking it by DHCP lease, or claiming the name, still receives a long-lived service-call token.
+Accepting a risk is not closing it, and the transport is what to correct.
+
+| Change | Where |
+|---|---|
+| `AcknowledgeCleartextLan` removed | `HomeAssistantOptions` |
+| Non-loopback http refused | `HomeAssistantOptions.RefuseDestination` |
+| Non-loopback http refused, including an explicitly allowlisted origin | `voice-bridge/homehub_voice/api.py` — `approve_origin` |
+| Test fixture moved to https | `LitterRobotProviderTests` |
+| Shipped bridge default moved to `http://127.0.0.1:5220` | `config.py`, `voice-bridge/README.md` |
+
+**Loopback is by literal address in both, which is stricter than the review asked and deliberate.**
+`Uri.IsLoopback` is true for the string `localhost`, and `localhost` is a name — what it resolves to is
+`/etc/hosts`, a search domain, a DHCP-supplied suffix, none of which either component controls. The
+exemption being claimed is that the traffic cannot reach a wire, so it is granted to addresses that
+cannot rather than to a string that usually means one. This is why the bridge's shipped default moved:
+`http://localhost:5220` would now be refused.
+
+**Red-capable verification.** 5 backend tests and 2 bridge tests fail against the previous policy.
+
+One note on method, because it nearly cost me the evidence: my first revert of the C# side used
+`if (true) return null;`, which does not compile under this project's warning settings, so the test run
+used a stale binary and reported no failures at all. A revert that does not build looks exactly like a
+fix that works. The second attempt used a reachable condition and produced the 5 failures above.
+
+### Preflight, restated against this commit
+
+- `HomeAssistant:AllowedOrigins` — the exact **https** HA origin. A non-loopback http origin now
+  refuses to configure the integration, and the panel falls back to simulated climate.
+- `HomeAssistant:AcknowledgeCleartextLan` — **must be absent**; the key no longer exists.
+- `HOMEHUB_ALLOWED_ORIGINS` on the Pi — the exact **https** HomeHub origin.
+- The Pi must trust that certificate/CA **before** the headless bridge is restarted. It has no screen,
+  so a TLS failure there presents as the house going quiet.
+
+### Gate
+
+```text
+./scripts/check.sh all
+  ok  typecheck      6s
+  ok  lint           0s
+  ok  tests          5s   Test Files  54 passed (54)
+  ok  backend-tests 49s   Failed: 0, Passed: 1320, Skipped: 0, Total: 1320
+  ok  bridge-tests   2s   Ran 12 tests
+```
+
+Backend 1,315 → 1,320; bridge 9 → 12. No baseline dropped.

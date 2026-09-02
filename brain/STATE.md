@@ -3,35 +3,35 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Claude, over Geist's `c0c6234` review snapshot. Geist's live-verified deployment, browser and production-probe facts are theirs and unchanged; the remediation status is Claude's._
+_Updated: 2026-09-02 by Claude, over Geist's `c0c6234` review and transport-decision snapshots. Geist's live-verified deployment, browser and production-probe facts are theirs and unchanged; the remediation status is Claude's._
 
-TEST is healthy on `c0c6234` with zero pending migrations; production is unchanged and healthy. That candidate **failed independent production review: 0 Critical, 5 High.** All five are remediated in `9db29e0`; the record is `.hermes/2026-09-02-c0c6234-review-claude-remediation.md`. It is a claim awaiting review, not a clearance.
+TEST is healthy on `c0c6234` with zero pending migrations; production is unchanged and healthy. That candidate **failed independent production review: 0 Critical, 5 High.** All five are remediated in `9db29e0`, and Geist's transport decision is applied in `6486cda`; the record is `.hermes/2026-09-02-c0c6234-review-claude-remediation.md`. It is a claim awaiting review, not a clearance.
 
 **Two of the five were faults in Claude's own previous round, and one of them was the guard.** A deny-all invariant on the unnamed `HttpClient` was asserted, was false, and the class-level regression written to protect it agreed — because it read registration lines rather than resolving what a caller actually gets. The same round left `UseProxy` unset on every confined handler, which voids the address screen entirely: with a proxy the connection is made to the proxy. `INCIDENTS.md` now carries the sharpened guard — a test for an invariant must exercise the caller's path, and a mechanism written up at length should be asked what bypasses it, not only what it catches.
 
 **Geist's browser verification at 540×1169 passed** and is the first real-browser pass on any of this — profile picker, no-PIN sign-in, dashboard on real TEST data, 200s, no layout faults. It closes the evidence gap Claude could not. Two changes in `9db29e0` postdate it and are browser-visible: the `storageUntrusted` warning strip and the memory-only demotion behind it.
 
-**Geist's transport decision: refuse non-loopback cleartext outright.** `HomeAssistant:AcknowledgeCleartextLan` does not close the finding: it records consent to unauthenticated bearer and control traffic but does not authenticate the responding service. Keep plain HTTP only for literal loopback; every non-loopback Home Assistant origin must be HTTPS with verified identity. If the HA deployment cannot serve trusted HTTPS directly, fix that transport boundary before production rather than making an application acknowledgement substitute for it.
+**Geist's transport decision — refuse non-loopback cleartext outright — is applied in `6486cda`.** `HomeAssistant:AcknowledgeCleartextLan` is removed; the key no longer exists. Non-loopback http is refused by `HomeAssistantOptions.RefuseDestination` and by the bridge's `approve_origin`, including for an explicitly allowlisted origin. The reasoning Claude had underweighted: an exact origin and an authenticated transport answer different questions — *where* the listener is, and *what* it is — and an acknowledgement records consent to a risk rather than closing it.
 
-Apply the same rule to the Pi voice bridge. Its new exact-origin list closes arbitrary destination and redirect/proxy escape, but `approve_origin()` still accepts an explicitly allowed non-loopback `http://` origin. Raw audio, conversation history, and the service bearer require HTTPS whenever the approved HomeHub origin is not loopback.
+**Loopback is by literal address in both, which is stricter than asked and deliberate.** `Uri.IsLoopback` and the string `localhost` are true for a *name*, and what a name resolves to is `/etc/hosts`, a search domain or a DHCP-supplied suffix — none of which either component controls. The exemption claims the traffic cannot reach a wire, so it is granted to addresses that cannot. Consequence worth knowing: the bridge's shipped default moved to `http://127.0.0.1:5220`, because `http://localhost:5220` is now refused.
 
-**Configuration preflight after those source changes:** verify the exact protected `HomeAssistant:AllowedOrigins`; remove rather than set `HomeAssistant:AcknowledgeCleartextLan`; verify the Pi's `HOMEHUB_ALLOWED_ORIGINS` names the exact HTTPS HomeHub origin; and prove the Pi trusts the intended HomeHub certificate/CA before restarting its headless bridge. These checks precede TEST installation or bridge rollout so a startup refusal does not become the discovery mechanism.
+**Configuration preflight, unchanged and now against `6486cda`:** verify the exact protected `HomeAssistant:AllowedOrigins` names an **https** origin; confirm `HomeAssistant:AcknowledgeCleartextLan` is absent (the key is gone, so a leftover value is inert but misleading); verify the Pi's `HOMEHUB_ALLOWED_ORIGINS` names the exact **https** HomeHub origin; and prove the Pi trusts the intended certificate/CA **before** restarting its headless bridge. These precede TEST installation or bridge rollout so a startup refusal does not become the discovery mechanism — the Pi most of all, since it has no screen and a TLS failure there presents as the house going quiet.
 
-The gate now includes the voice bridge — `./scripts/check.sh all` runs 54 client files, 1,315 backend tests and 9 bridge tests, two of which stand up real listeners.
+The gate now includes the voice bridge — `./scripts/check.sh all` runs 54 client files, 1,320 backend tests and 12 bridge tests, two of which stand up real listeners.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `9db29e0` (c0c6234-review remediation) plus this documentation commit |
+| `HEAD` now | `6486cda` (transport correction) on top of `9db29e0`, plus this documentation commit |
 | `HEAD` reviewed | `d94666a` (`a25eb83` remediation plus `d94666a` evidence), on top of `7e92322` |
 | Working tree | Clean. Application bytes changed in `3f164ae`, so the candidate identifiers below describe the superseded `d94666a` and a fresh snapshot is owed. |
 | Previously reviewed candidates | `e11f74f`: 0 Critical / 8 High. `d576927`: 0 Critical / at least 5 High. Both FAIL CLOSED; details remain in their dated `.hermes` reports. |
 | Reviewed candidate identity | Commit `c0c62349793e47ab9bd3796df2378a77980be921`; Git tree `841c27cdefdda872ed42e1000064397bf2864182`; 863 tracked entries; source SHA-256 `96191e9c76b9adac4a4270a953de98e7d516e9cdb79b118e77bd95487b2156fc`. Superseded by `9db29e0`; a fresh snapshot is owed. |
 | Independent verdict on `d94666a` | FAIL CLOSED: 0 Critical / 5 unique High. Details in `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. |
 | Reviewed in progress | `3f7dffc` — three blockers raised mid-review (RR-05 fail-open, account-link exchange unguarded, egress class incomplete). |
-| Current candidate | `9db29e0` — all five remediated, full gate green (54 client files, 1,315 backend tests, 9 bridge tests). Unreviewed. |
+| Current candidate | `6486cda` — the five blockers and the transport decision, full gate green (54 client files, 1,320 backend tests, 12 bridge tests). Unreviewed. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed

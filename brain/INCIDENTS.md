@@ -67,6 +67,13 @@ was still the framework's. The same round left `UseProxy` unset on every confine
 silently voids the whole address screen: with a proxy the connection is made to the proxy, so the
 addresses screened are the proxy's.
 
+**A method note from the same round, 2026-09-02.** Verifying a regression is red-capable means
+reverting the fix and watching the test fail — and a revert that does not *compile* looks exactly like
+a fix that works: the runner uses the last good binary and reports everything passing. One revert here
+used `if (true) return null;`, which this project's warning settings reject, and the run reported no
+failures at all. **Check that the revert built.** A green run during a deliberate revert is a result
+that needs explaining, not accepting.
+
 **Guard.** A test for an invariant must exercise the path the caller takes, not the declaration the
 author wrote — resolve it from the container, drive a real connection, assert the property on the
 object that gets used. And when a mechanism is written up at length, ask what bypasses it rather than
