@@ -24,6 +24,34 @@ One environment note, not a discrepancy: the brief gives the checkout as
 `/workspace/homehub-dev`; this work was done in `/srv/dev/homehub`, which is the same repository and
 the same HEAD.
 
+### Lineage since the frozen candidate
+
+Five commits by a **concurrent Claude Code session** separate the frozen candidate `dc7d026` from the
+briefed HEAD `3b84cb8`. Listed because two of them bear directly on this review:
+
+| Commit | |
+|---|---|
+| `091bc6d` | **`fix(security): open the identity boundary on every path that establishes it`** — see below |
+| `39ceedb` | `feat(meals): save a recipe out of a Barnaby chat`; adds `ChatRecipeTests.cs` (+340 lines) |
+| `d8fd42b` | `docs(brain)` |
+| `c14717c` | `fix(shell)`: gives the `.ml-private` wrapper its height so the nav sits at the bottom |
+| `3b84cb8` | `feat(shell)`: last-tab persistence |
+
+**`091bc6d` fixed a real defect in my H3 work, and it is worth reading before this change.** I had
+opened the boundary only inside `refresh`, which reads as one place and is three — a cold boot with a
+valid cookie and a sign-in both establish identity without going through it. Neither opened anything,
+so a panel that rebooted normally refused every private call before the fetch and, because that
+refusal is deliberately shaped as `ApiError(0)`, drew offline states over a server that was answering.
+No suite could see it; it took a browser. The fix centralises opening and closing into one
+`confirmIdentity(isLocked, profileId)`, passing both arguments rather than closing over state — a
+callback closing over a stale `locked` being the other way this goes wrong, quietly and in the
+direction of opening.
+
+**`c14717c` is also a consequence of my H3 change**: the `<div class="ml-private">` wrapper I
+introduced had no height, so the bottom nav rose off the foot of the panel.
+
+So the boundary now has two authors, and neither the defect above nor its fix is mine.
+
 ---
 
 ## HEAD
@@ -34,8 +62,12 @@ the same HEAD.
 | **Ending** | `1324cb6d18e5a9a44aad5d90e2f4085241598b53` |
 | **Tree** | `3fd682efd67a83f4d16ecbdc9286c6d727fa9943` |
 
-**Not pushed.** `origin/main` remains `dc7d026`. Your two commits `c14717c` and `3b84cb8` are
-unpushed and are not mine to publish, so the push is left to you.
+**Not pushed.** `origin/main` remains `dc7d026`, and five commits sit unpushed ahead of it.
+
+**Correction to an earlier version of this handoff:** those commits and the uncommitted working-tree
+files are **not Geist's** — they are a concurrent Claude Code session working in the same checkout. I
+had attributed them to you, which was wrong, and the distinction matters to your review because
+**one of them changed this very boundary.**
 
 ---
 
@@ -178,8 +210,8 @@ No DOM test stack was introduced. The policy is pure and tested directly.
   ok    backend-tests     50s   Failed: 0, Passed: 1156, Skipped: 0, Total: 1156
 ```
 
-**No count drop.** Client 47 → 50 files (+3 mine). Backend 1145 → 1156 (your additions in
-`c14717c`/`3b84cb8`; none of mine).
+**No count drop.** Client 47 → 50 files (+3 mine). Backend 1145 → 1156 — those eleven are
+`ChatRecipeTests.cs` from the concurrent session's `39ceedb`, not mine; I added no backend tests.
 
 ### `git status --short`
 
@@ -187,8 +219,15 @@ No DOM test stack was introduced. The policy is pure and tested directly.
  M brain/DEPLOYMENT.md
 ```
 
-**`brain/DEPLOYMENT.md` was not modified by me** — it is your 20+/17− edit, never staged, never opened
-for writing. It is the only entry, and the tree is otherwise clean.
+**`brain/DEPLOYMENT.md` was not modified by me** — never staged, never opened for writing. It is a
+concurrent Claude Code session's edit, not Geist's, as an earlier version of this document wrongly
+said.
+
+The tree is in motion while that session works. At the time of writing it also shows
+`client/src/components/ledger.css` and `client/src/screens/CalendarScreen.tsx` modified, both that
+session's. **Every commit of mine staged its files by name**, so none of that was swept in — but a
+shared, actively-edited working tree is worth knowing about given the rule that any changed bytes
+after your review begins invalidate the candidate.
 
 ---
 
