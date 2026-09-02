@@ -174,3 +174,61 @@ describe('coming back from device-only', () => {
     expect(calls).toHaveLength(1)
   })
 })
+
+
+/**
+ * Every authenticated network path is behind the boundary, including the ones that do not go through
+ * the JSON helper.
+ *
+ * <b>These are the paths the first version missed.</b> Assist streaming, Assist cancellation and the
+ * house voice each called `fetch` directly — reasonably, since each needs streaming, a fire-and-forget
+ * POST, or audio rather than JSON — and each therefore sat outside a boundary that looked complete.
+ * The proof each test makes is not "the call failed" but "no call was made".
+ */
+describe('the raw-transport call sites', () => {
+  it('starts no Assist stream while unconfirmed', async () => {
+    setPrivateNetworkConfirmed(false)
+    const calls = stubSilentFetch()
+
+    await api.streamAssistTurn({ text: 'hello' } as never, {} as never).catch(() => {})
+
+    expect(calls).toHaveLength(0)
+  })
+
+  it('sends no Assist cancellation while unconfirmed', async () => {
+    setPrivateNetworkConfirmed(false)
+    const calls = stubSilentFetch()
+
+    // Fire-and-forget by design, so this must not throw at the call site either — a Stop that
+    // explodes is worse than one that quietly has nothing to cancel.
+    await Promise.resolve(api.cancelAssistTurn('turn-1')).catch(() => {})
+
+    expect(calls).toHaveLength(0)
+  })
+
+  it('refuses the profile writes the prefix allowlist used to admit', async () => {
+    setPrivateNetworkConfirmed(false)
+    const calls = stubSilentFetch()
+
+    // Each of these was reachable before confirmation under `startsWith('/profiles')`: creating a
+    // member, renaming or re-roling one, deleting one, and setting or clearing a PIN.
+    await Promise.allSettled([
+      api.createProfile('Intruder', 'I'),
+      api.updateProfile(1, { role: 'Admin' } as never),
+      api.deleteProfile(1),
+      api.setPin(1, '0000'),
+      api.clearPin(1),
+    ])
+
+    expect(calls).toHaveLength(0)
+  })
+
+  it('still lets the picker read the roster, which is why the list exists at all', () => {
+    setPrivateNetworkConfirmed(false)
+    const calls = stubSilentFetch()
+
+    void api.listProfiles()
+
+    expect(calls).toHaveLength(1)
+  })
+})

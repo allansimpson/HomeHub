@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { setPrivateNetworkConfirmed } from '../api/privateNetwork'
 import {
   MAX_ATTEMPTS, canExecuteQueuedOp, closeQueueExecution, executeDurably, isRetryable, keepMine, localQueueStore, persistAhead,
   queueForProfile, removeOp, replayQueue, setQueueIdentity, updateOp,
@@ -15,6 +16,19 @@ const op = (id: string, ownerProfileId?: number, extra: Partial<QueuedOp> = {}):
   createdAt: 1,
   ...extra,
 } as QueuedOp)
+
+beforeEach(() => {
+  // These cover durability, retry and drain — all of which happen *after* the identity boundary — so
+  // the boundary is opened for them. Left shut they never reach `fetch` at all, which is the boundary
+  // working and would make every assertion below pass for the wrong reason.
+  setPrivateNetworkConfirmed(true)
+})
+
+afterEach(() => {
+  // Shut again between tests. A fresh panel is unconfirmed, and a test that leaked it open would
+  // hide exactly the regression the boundary exists to catch.
+  setPrivateNetworkConfirmed(false)
+})
 
 /** The durable side, in memory — same contract as localStorage, no DOM required. */
 function memStore(initial: QueuedOp[] = []): QueueStore & { ops: QueuedOp[]; gone: DroppedOp[] } {
@@ -398,5 +412,60 @@ describe('keep-mine', () => {
     expect(store.ops).toHaveLength(1)
     expect(store.ops[0].conflict).toBeUndefined()
     expect(store.ops[0].baseVersion).toBeUndefined()
+  })
+})
+
+
+/**
+ * The queue may not send before the server has confirmed who is asking.
+ *
+ * `WriteQueueProvider` already refuses to *replay* while locked or device-only. This is the other
+ * door: a fresh write goes straight to `executeDurably`, so connectivity returning before
+ * confirmation would have sent it under a cookie nobody had checked. Connectivity returning is not
+ * authorization.
+ */
+describe('the identity boundary', () => {
+  it('does not send while unconfirmed, and retains the operation', async () => {
+    setPrivateNetworkConfirmed(false)
+    // Owner-bound as well: `canExecuteQueuedOp` refuses an op whose owner is not the queue's current
+    // identity, which is a second and independent gate this must not be mistaken for.
+    setQueueIdentity(1)
+    const sent = vi.fn()
+    vi.stubGlobal('fetch', sent)
+    const store = memStore()
+    const queued = op('a', 1)
+    persistAhead(store, queued)
+
+    const { outcome } = await executeDurably(store, queued)
+
+    // Nothing left the device.
+    expect(sent).not.toHaveBeenCalled()
+    // `offline` because that is what this is from the queue's point of view: not sent, still owed.
+    // Any other outcome would be a new vocabulary for a condition the queue already handles.
+    expect(outcome.kind).toBe('offline')
+    expect(store.ops.map((o) => o.id)).toEqual(['a'])
+
+    vi.unstubAllGlobals()
+    setQueueIdentity(null)
+  })
+
+  it('sends once confirmation arrives, without the operation having been lost in between', async () => {
+    setPrivateNetworkConfirmed(false)
+    setQueueIdentity(1)
+    const store = memStore()
+    const queued = op('b', 1)
+    persistAhead(store, queued)
+    await executeDurably(store, queued)
+
+    // The reconnect: the server answers, `SessionProvider` agrees the identity and its security
+    // version, and only then may the retained write go.
+    setPrivateNetworkConfirmed(true)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 200 })))
+
+    const { outcome } = await executeDurably(store, queued)
+    expect(outcome.kind).toBe('ok')
+
+    vi.unstubAllGlobals()
+    setQueueIdentity(null)
   })
 })

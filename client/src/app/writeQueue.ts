@@ -1,3 +1,5 @@
+import { isPrivateNetworkAllowed } from '../api/privateNetwork'
+
 /**
  * Offline write-queue (Stage 9b). User mutations that can't reach the server are persisted here
  * (localStorage, survives reload) and replayed in order on reconnect. Conditional writes carry the
@@ -274,6 +276,30 @@ export async function executeOp(
   try {
     let outcome: ExecOutcome
     let res: Response
+
+    /*
+     * The identity boundary, checked here rather than by routing this through the JSON helper.
+     *
+     * This transport is not that one: it owns a send deadline, an abort controller a profile
+     * transition can pull, and an outcome vocabulary that decides whether an operation is retained,
+     * retried or set aside. Sending it through `request` to inherit the boundary would cost all of
+     * that, so it inherits the *policy* instead.
+     *
+     * <b>Reported as `offline`, which is exactly what it is.</b> An unconfirmed panel and an
+     * unreachable one are the same situation from the queue's point of view — the write has not been
+     * sent and is still owed — and `offline` already means "retained, try again". Anything else here
+     * would be a new outcome for a condition the queue already handles correctly.
+     *
+     * This is the reconnect hole it closes: `WriteQueueProvider` already refuses to *replay* while
+     * locked or device-only, but a fresh write goes straight to `executeDurably`, and connectivity
+     * returning before confirmation would have let it send under a cookie nobody had checked.
+     */
+    if (!isPrivateNetworkAllowed(op.method, op.path)) {
+      outcome = { kind: 'offline' }
+      beforeDrain?.(outcome)
+      return outcome
+    }
+
     try {
       res = await fetch(url, {
         method: op.method,

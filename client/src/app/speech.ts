@@ -1,3 +1,5 @@
+import { authorizedFetch } from '../api/privateNetwork'
+
 /**
  * Swappable speech layer. The default is the browser's on-device recognizer (Web Speech API) +
  * speech synthesis — works in the kiosk's Chromium with no keys and keeps audio handling local.
@@ -187,7 +189,11 @@ export function speak(text: string, handlers?: SpeakHandlers, prosody: Prosody =
 
 async function speakViaServer(text: string, handlers?: SpeakHandlers, prosody: Prosody = 'neutral'): Promise<void> {
   try {
-    const res = await fetch('/api/voice/speak', {
+    // Through the authorised transport, not `fetch`: the house voice is an authenticated endpoint,
+    // and a panel that has not confirmed who is asking must not be sending it text to speak. The
+    // refusal lands in the `catch` below and falls back to the browser voice, which is the same
+    // behaviour as a server that is not configured for TTS — so a device-only panel still talks.
+    const res = await authorizedFetch('/voice/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // Assistant replies are one-off text; caching them would fill the cache with lines never

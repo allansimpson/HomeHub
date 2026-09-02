@@ -1,3 +1,14 @@
+import {
+  authorizedFetch,
+  setPrivateNetworkConfirmed as setConfirmed,
+} from './privateNetwork'
+
+/**
+ * Re-exported so `SessionProvider` keeps one import for the session's effects on the API layer.
+ * The policy itself lives in `privateNetwork.ts`.
+ */
+export const setPrivateNetworkConfirmed = setConfirmed
+
 import type {
   ProfileDto,
   SettingsDto,
@@ -193,54 +204,7 @@ export const SLOW_CALL_MS = 90_000
  * @param deadlineMs How long to wait before treating silence as unreachable. See {@link SLOW_CALL_MS}
  *   for the calls that legitimately need longer than the default.
  */
-/*
- * Which calls may run before the server has confirmed who is asking.
- *
- * Everything else is refused at this layer rather than at each provider's polling effect. That was
- * the alternative and it is the weaker one: eleven providers each remembering to check is eleven
- * chances to miss, the one that missed would be invisible, and the twelfth provider somebody adds
- * next year would start life bypassing the boundary entirely. Here a new caller is refused by
- * default and has to argue its way onto the list.
- *
- * The list is what an unconfirmed panel legitimately needs: who lives here (the picker draws before
- * anybody signs in), whether this device has a session, whether the server is answering at all, and
- * which build it is serving. None of them return private data, and the first two are exactly how
- * confirmation happens — gating them would make the boundary unopenable.
- */
-const UNCONFIRMED_PATHS = ['/session', '/profiles', '/health', '/build']
-
-/**
- * Whether the server has confirmed the caller's identity and security version.
- *
- * Module-level rather than a hook because `request` is not a component and every private call in the
- * app goes through it. `SessionProvider` owns the value; nothing else may set it.
- */
-let privateNetworkConfirmed = false
-
-/**
- * Called by `SessionProvider` when confirmation is gained or lost.
- *
- * <b>Lost matters as much as gained.</b> A lock, a sign-out, an expired cookie or a profile switch
- * all close the boundary again, and the finding this closes was precisely that requests outlived the
- * identity they were issued for.
- */
-export function setPrivateNetworkConfirmed(confirmed: boolean): void {
-  privateNetworkConfirmed = confirmed
-}
-
 async function request<T>(path: string, init?: RequestInit, deadlineMs = DEADLINE_MS): Promise<T> {
-  if (!privateNetworkConfirmed && !UNCONFIRMED_PATHS.some((p) => path.startsWith(p))) {
-    /*
-     * Refused before the fetch, and shaped as an ordinary offline failure on purpose.
-     *
-     * Every caller in this app already handles `ApiError(0, …)` — it is what a refused connection and
-     * a timed-out one both raise — so an unconfirmed panel degrades exactly as an unreachable one
-     * does, rather than needing eleven providers to learn a new failure mode. The device-only Care
-     * log depends on that: it is built to work when the server cannot be reached, and this is that
-     * case as far as it can tell.
-     */
-    throw new ApiError(0, 'The panel has not confirmed who is signed in yet.')
-  }
 
   /* The caller's own `signal`, if it passed one through `init`, is still honoured: the spread below
      puts it in place and this only replaces it when there is none. Nothing in this file passes one
@@ -261,17 +225,21 @@ async function request<T>(path: string, init?: RequestInit, deadlineMs = DEADLIN
   try {
     let res: Response
     try {
-      res = await fetch(`/api${path}`, {
-        // Explicit, though it is also the default for a same-origin URL: since AUDIT A1 the session
-        // cookie is what authorises every one of these calls, so "cookies travel" stopped being an
-        // incidental property of relative fetches and became the thing the API depends on.
-        credentials: 'same-origin',
+      res = await authorizedFetch(path, {
         headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
         signal: watchdog.signal,
         ...init,
       })
     } catch (cause) {
-      // Network failure (server down / offline / no answer) — surface as a 0-status ApiError.
+      /*
+       * Network failure, or a refusal at the identity boundary — both surface as a 0-status
+       * `ApiError`, and deliberately as the same one.
+       *
+       * Every caller in this app already handles `ApiError(0, …)`: it is what a refused connection
+       * and a timed-out one both raise. So an unconfirmed panel degrades exactly as an unreachable
+       * one does, rather than needing eleven providers to learn a new failure mode — and the
+       * device-only Care log, which is built for a server it cannot reach, needs no changes at all.
+       */
       throw unreachable(cause)
     }
     if (!res.ok) {
@@ -386,7 +354,7 @@ async function streamAssistTurn(
 
   let res: Response
   try {
-    res = await fetch('/api/assist/chat/stream', {
+    res = await authorizedFetch('/assist/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify(body),
@@ -813,7 +781,7 @@ export const api = {
    * and the reply is stored whether or not this call arrived.
    */
   cancelAssistTurn: (turnId: string) =>
-    fetch(`/api/assist/chat/turns/${encodeURIComponent(turnId)}/cancel`, { method: 'POST' })
+    authorizedFetch(`/assist/chat/turns/${encodeURIComponent(turnId)}/cancel`, { method: 'POST' })
       .then(() => undefined, () => undefined),
   /**
    * What became of a turn whose stream this panel lost.
