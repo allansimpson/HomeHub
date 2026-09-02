@@ -3,30 +3,28 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02T04:14Z by Claude and Geist. Deployment facts below were live-verified by Geist;
-the application handoff and code notes are Claude's._
+_Updated: 2026-09-02 by Geist. Deployment facts below were live-verified by Geist; application remediation remains Claude's._
 
-Current clean DEV through `e11f74f` now runs in TEST. Production remains on the prior release. The detailed
-In flight notes predate this promotion; application work they describe through this commit is now in TEST even
-where an older parenthetical still says “not deployed.”
+Current TEST remains healthy on the exact `e11f74f` candidate. The independent complete-source production review failed closed with **0 Critical and 8 High findings**. Production remains unchanged. Claude's authoritative remediation handoff is `.hermes/2026-09-02-production-security-review-eight-high-claude-handoff.md`.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` / `origin/main` | `e11f74f` / `dc7d026` (15 ahead, 0 behind; nothing pushed) |
-| Working tree | Application tree clean at capture; only Geist's post-deploy `brain/DEPLOYMENT.md` and `brain/STATE.md` updates are uncommitted |
-| Verified at `HEAD` | Claude handoff records `./scripts/check.sh all` green: typecheck, lint, 50 client test files, 1157 backend tests; browser device-only/confirmed boundary pass at 540×1169. Geist independently verified the deployed artifact and live environment. |
-| Coordination state | `.git/index` restored to `simpson:geist-dev` (UID 1000/GID 989), mode 0660, after the promotion workflow exposed and corrected its direct-gitdir ownership defect. |
+| `HEAD` / `origin/main` before this handoff commit | `d6f1540` / `d6f1540` (0 ahead, 0 behind) |
+| Working tree before this handoff | Clean |
+| Reviewed application bytes | Commit `e11f74f`; source-tree SHA-256 `620d8f13f2ca863c0025f768f959a3fc8ccb04252f7a6fd5b10e3dc185347218`. Only `brain/DEPLOYMENT.md` and `brain/STATE.md` changed between `e11f74f` and `d6f1540`; all eight cited code/config surfaces were byte-identical. |
+| Independent verdict | FAIL CLOSED: 0 Critical, 8 High. The earlier H1–H5 and later private-boundary labels are reconciled in the new handoff; passing prior tests did not cover the residual races, offline plaintext/lock boundaries, SQL TLS template, or cloud-STT default. |
+| Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
 
-| Environment | Live state at 2026-09-02T04:14Z |
+| Environment | Last live-verified state |
 |---|---|
-| TEST | Release `20260902T041152Z-620d8f13f2ca`; artifact SHA-256 `e9e7b563c3cb3bc814bddd7c387609ca84f360c52cb885d12eb8d64057a18a6d`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `e11f74f+ · 2026-09-02 04:12Z`; bundle `index-kcmVYEme.js`; live bundle and service worker exactly match the artifact |
-| Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle `index-D3pqF7Ee.js` |
-| Gap | TEST has current clean DEV. Production qualification remains separate. |
+| TEST | Release `20260902T041152Z-620d8f13f2ca`; artifact SHA-256 `e9e7b563c3cb3bc814bddd7c387609ca84f360c52cb885d12eb8d64057a18a6d`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `e11f74f+ · 2026-09-02 04:12Z`; bundle `index-kcmVYEme.js`; live bundle and service worker exactly matched the artifact |
+| Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged and last verified healthy; build `a66e80a+ · 2026-08-31 10:52Z` |
+| Gap | Production is blocked pending Claude remediation, a new exact TEST artifact, fresh independent review with 0 Critical/High, configuration and installer qualification, and Allan's explicit approval. |
 
 ## Waiting to ship
 

@@ -64,7 +64,7 @@ Verified at 2026-09-02T04:14Z:
   deep health 200; database `ok`; pending migrations `0`; migration head
   `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle
   `index-D3pqF7Ee.js`.
-- The new archive is TEST-only and production-ineligible. Production qualification remains separate.
+- The new archive is TEST-only and production-ineligible. The independent complete-source production review failed closed with **0 Critical and 8 High findings**. The authoritative Claude remediation handoff is `.hermes/2026-09-02-production-security-review-eight-high-claude-handoff.md`; production remains blocked pending new bytes, fresh TEST verification, and a zero-Critical/High re-review.
 
 ## Observation from Claude, 2026-08-30 — deployment docs still describe Huckleberry
 
