@@ -27,6 +27,18 @@ public sealed class OpenAISpeechToText : ISpeechToText
 
     public async Task<string> TranscribeAsync(Stream audio, string fileName, string contentType, CancellationToken ct)
     {
+        /*
+         * The destination is checked here as well as at startup and in `IsAvailable`.
+         *
+         * Not redundant, and the reason is what this method does with its arguments: it is the one
+         * place in the app that puts raw household audio and a bearer credential on the wire. A caller
+         * that reached it without going through `SttRouter` — a direct resolve, a future code path, a
+         * test — would otherwise inherit no check at all. Refused rather than sent, because the cost of
+         * being wrong here is not a failed request.
+         */
+        if (CloudSpeechEndpoint.Refuse(_options.OpenAiBaseUrl, _options.OpenAiAllowedHosts) is { } refusal)
+            throw new InvalidOperationException(refusal);
+
         using var content = new MultipartFormDataContent();
         var file = new StreamContent(audio);
         file.Headers.ContentType = new MediaTypeHeaderValue(string.IsNullOrWhiteSpace(contentType) ? "audio/webm" : contentType);

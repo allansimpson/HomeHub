@@ -236,3 +236,52 @@ describe('the plaintext vault a previous build left behind', () => {
     expect(storage.getItem('homehub.care.vault.v1.1')).toBe(sealed)
   })
 })
+
+/**
+ * A wrong key must read nothing <b>and</b> destroy nothing — RR-01.
+ *
+ * The first claim was being made and the second was not. A session that failed to decrypt started an
+ * empty vault while keeping the wrong key and a writable store, so the first thing that changed the
+ * vault — a server refill, a pending entry, a pump timer ticking — sealed that empty log under the
+ * wrong key and replaced the rightful owner's blob. Unsynced entries and a running timer went with it.
+ *
+ * The test above stops after the read, which is exactly why it did not catch this. These write.
+ */
+describe('a session holding the wrong key', () => {
+  it('cannot overwrite the rightful owner\'s blob, and the right key still opens it', async () => {
+    const storage = new MemoryStorage()
+    const mine = await aKey()
+    await openCareVault(1, { kind: 'sealed', key: mine }, storage)
+    writeVault((cur) => ({ ...cur, entries: { baby: [entry(7)] } }))
+    await flushCareVault()
+    const sealed = storage.getItem('homehub.care.vault.v1.1')
+
+    // Somebody else's key — a switched profile, or the device key against a PIN-sealed blob.
+    await openCareVault(1, { kind: 'sealed', key: await aKey() }, storage)
+    expect(readVault().entries).toEqual({})
+    writeVault((cur) => ({ ...cur, entries: { baby: [entry(99)] } }))
+    await flushCareVault()
+
+    expect(storage.getItem('homehub.care.vault.v1.1')).toBe(sealed)
+
+    await openCareVault(1, { kind: 'sealed', key: mine }, storage)
+    expect(readVault().entries.baby).toHaveLength(1)
+    expect(readVault().entries.baby[0].id).toBe(7)
+  })
+
+  /*
+   * The mechanism, stated separately from its consequence: the session becomes memory-only. A pump
+   * timer still runs and the screen still works for the life of the page; nothing reaches the device.
+   */
+  it('still works in memory for the life of the page', async () => {
+    const storage = new MemoryStorage()
+    await openCareVault(1, { kind: 'sealed', key: await aKey() }, storage)
+    writeVault((cur) => ({ ...cur, entries: { baby: [entry(7)] } }))
+    await flushCareVault()
+
+    await openCareVault(1, { kind: 'sealed', key: await aKey() }, storage)
+    writeVault((cur) => ({ ...cur, pending: [{ clientKey: 'k' }] as never }))
+
+    expect(readVault().pending).toHaveLength(1)
+  })
+})

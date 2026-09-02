@@ -8,10 +8,11 @@ import {
   saveUnlock, shouldAskForPin,
 } from './sessionTrust'
 import type { ProfileDto, SettingsDto } from '../api/types'
-import { clearCareOfflineData, closeCareVault, flushCareVault, openCareVault } from '../screens/care/careOffline'
+import { clearCareOfflineData, flushCareVault, openCareVault } from '../screens/care/careOffline'
 import { closeQueueExecution, setQueueIdentity } from './writeQueue'
 import { createSessionBoundary } from './sessionBoundary'
-import { clearQueueStore, closeQueueStore, flushQueueStore, openQueueStore } from './queueStore'
+import { clearQueueStore, flushQueueStore, openQueueStore } from './queueStore'
+import { closePrivateStores, endSessionAuthority } from './sessionAuthority'
 import { clearDeviceKeys, deviceKeyFor } from './deviceKey'
 import { clearEnrolment, enrol, OfflineUnlockError, unlockOffline } from './offlineUnlock'
 
@@ -147,12 +148,6 @@ const keyFor = async (
 const openPrivateStores = async (profileId: number, key: CryptoKey | null): Promise<void> => {
   await openCareVault(profileId, key ? { kind: 'sealed', key } : { kind: 'memory' })
   await openQueueStore(profileId, key)
-}
-
-/** Close both, leaving what is sealed on the device. Closing is not erasing — see `careVault`. */
-const closePrivateStores = (): void => {
-  closeCareVault()
-  closeQueueStore()
 }
 
 /**
@@ -403,9 +398,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    * from the request layer's point of view, and revocations must not wait for a network round trip.
    */
   useEffect(() => {
-    // Not awaited, and does not need to be: closing and aborting are synchronous inside it, so
-    // nothing new starts and everything running is cancelled the moment the panel locks. The promise
-    // is the settlement of those aborts, which only a transition has to wait on.
+    /*
+     * A backstop now rather than the mechanism.
+     *
+     * `lockNow` and the session-loss handler used to rely on this effect to close the request layer,
+     * which meant authority outlived the transition by however long React took to commit. They close
+     * it themselves now (`endSessionAuthority`). What is left here covers the paths that set `locked`
+     * without going through either — the boot read deciding a PIN is owed, and a profile switch
+     * raising the Lock screen — where nothing is in flight to outlive anything, and closing twice is
+     * free because the epoch only ever advances.
+     */
     if (locked) void closeAndDrainPrivateNetwork()
   }, [locked, confirmIdentity])
 
@@ -425,11 +427,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // A revocation, so it takes a number before it touches anything: a session read already in
       // flight must not finish and re-confirm the identity the server has just refused.
       beginTransition()
-      // Closed, not erased. An expired cookie is a reason to ask for the PIN again; it is not the
-      // household saying they are finished with the record, and treating it as one is what used to
-      // throw away a night's log because a session timed out. See `careVault.closeCareVault`.
-      closePrivateStores()
-      setQueueIdentity(null)
+      /*
+       * The same order as `lockNow`, and for the same reason: a lost session is a revocation, so
+       * admission shuts and everything in flight is aborted here rather than whenever React next
+       * commits. Closed, not erased — an expired cookie is a reason to ask for the PIN again; it is
+       * not the household saying they are finished with the record, and treating it as one is what
+       * used to throw away a night's log because a session timed out. See `careVault.closeCareVault`.
+       */
+      void endSessionAuthority()
       setDeviceOnly(false)
       setLocked(true)
     }
@@ -738,9 +743,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // records stay sealed on the device and the PIN reopens them; what cannot happen is this
         // session's queued writes going out under a session nobody checked.
         beginTransition()
-        closePrivateStores()
+        // A revocation like any other, so it ends authority the same way — synchronously, and with
+        // the stores closed only once what was in flight has settled.
+        await endSessionAuthority()
         setDeviceOnly(false)
-        setQueueIdentity(null)
         setLocked(true)
       } catch (err) {
         // Still unreachable — the probe was optimistic, and being wrong about it changes nothing.
@@ -758,9 +764,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // away from keeps their sealed log and their queued writes, and the one being switched to
         // can read neither.
         beginTransition()
-        closePrivateStores()
+        // Awaited here, unlike the lock: a switch has somewhere to go next, and the member being
+        // switched to must not arrive while the previous one's operations are still settling.
+        await endSessionAuthority()
         setDeviceOnly(false)
-        await closeQueueExecution()
       }
       // A profile with a PIN is not switched to, it is signed in to — so this only raises the Lock
       // screen and lets completeUnlock do the work. Setting activeProfileId optimistically here
@@ -820,8 +827,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // A lock is a revocation, so it takes a number before it does anything else — a session read in
       // flight must not complete afterwards and reopen what this just shut.
       beginTransition()
-      setQueueIdentity(null)
-      closePrivateStores()
+      // Authority ends on this line, not at the next render. `endSessionAuthority` shuts admission and
+      // aborts synchronously; the promise is the drain, and the stores close on the far side of it.
+      void endSessionAuthority()
       setDeviceOnly(false)
       setLocked(true)
     }

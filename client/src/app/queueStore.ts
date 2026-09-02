@@ -143,19 +143,90 @@ export async function openQueueStore(
   }
 
   /*
-   * The migration runs only when there is a key to seal its result under.
+   * A session with no key still has to deal with private plaintext. It just cannot adopt anything.
    *
-   * Without one it would read the plaintext store into memory, delete it, and persist nothing — a
-   * session that quietly destroys the very writes it was migrating. A memory-only session leaves the
-   * plaintext store exactly where it is for a session that can do something about it.
+   * This used to return early and leave the whole legacy store alone, on the reasoning that reading
+   * it into memory and deleting it would destroy the writes it was migrating. True of the *ordinary*
+   * writes and false of the private ones, and that distinction is the finding: a panel that never
+   * opens a key-bearing session — locked, restarted, another member's turn — left a previous build's
+   * care bodies, paths and labels readable in `localStorage` indefinitely. Waiting for a session that
+   * can migrate safely is not a plan when the wait has no bound.
+   *
+   * So the private half is dealt with now, destructively, and the ordinary half is left for a session
+   * that can seal it. See {@link sweepPrivateLegacy}.
    */
-  const migrated = openKey ? adoptLegacy(opened, profileId, storage) : opened
-  held = migrated
+  if (!openKey) {
+    sweepPrivateLegacy(profileId, storage)
+    held = opened
+    announce()
+    return
+  }
+
+  /*
+   * The migration is planned, sealed, and only then allowed to touch its source.
+   *
+   * <b>It used to delete first.</b> `adoptLegacy` removed the plaintext entries as it read them and
+   * the sealed replacement was written by a `persistNow()` nobody awaited — so a quota exhaustion or
+   * any other storage failure during an upgrade destroyed ordinary unsent operations and the only
+   * notices for the quarantined private ones, with no replacement written. That is not "decided once,
+   * durably"; it is decided once and possibly not recorded at all.
+   *
+   * Planning is pure, so on failure the legacy keys are byte-identical and the migration is simply
+   * retried on the next open. The in-memory queue rolls back with them — presenting adopted
+   * operations that are not durable would let a later ordinary write seal them while the legacy store
+   * still holds them, which is the same records twice.
+   */
+  const plan = planLegacyMigration(opened, profileId, storage)
+  held = plan.migrated
   announce()
-  // Whatever the migration decided is durable before anything can act on it — a quarantine that is
-  // only in memory would be re-decided on the next boot, and the household told twice. Skipped when
-  // it decided nothing, so an ordinary open does not rewrite a blob it has no changes for.
-  if (migrated !== opened) persistNow()
+  if (!plan.changed) return
+
+  persistNow()
+  try {
+    await flushQueueStore()
+  } catch {
+    held = opened
+    announce()
+    return
+  }
+  commitLegacyMigration(plan, storage)
+}
+
+/**
+ * Take a previous build's private plaintext off the device when there is no key to seal it under.
+ *
+ * <b>Destructive, deliberately, and in this order.</b> The private operation is removed from the
+ * legacy store first and the notice is written afterwards: removing is the privacy-critical act and
+ * it frees the space the notice needs, so a store too full to hold the telling still stops holding
+ * the record. That is the opposite ordering to {@link planLegacyMigration}, and for the opposite
+ * reason — there the replacement must survive, here the original must not.
+ *
+ * <b>The notice is generic, because it is stored in the clear.</b> A sealed quarantine notice carries
+ * the operation's label so the household knows which entry to re-enter; this one cannot, or it would
+ * leave the private thing behind in the process of announcing its removal. What is left is enough to
+ * act on — something was set aside, whose, and roughly what — and nothing that reads as a record.
+ *
+ * Ordinary writes are untouched. They were already legible, they lose nothing by waiting, and a
+ * session that can seal them is what they are waiting for.
+ */
+function sweepPrivateLegacy(profileId: number, storage: QueueStorage): void {
+  const legacy = readJson<QueuedOp>(storage, LEGACY_KEY)
+  if (legacy.length === 0) return
+
+  const mine = (owner: number | null | undefined) => owner == null || owner === profileId
+  const kept: QueuedOp[] = []
+  const swept: QueuedOp[] = []
+  for (const op of legacy) {
+    if (mine(op.ownerProfileId) && (op.ownerProfileId == null || isPrivateDomain(op.domain))) swept.push(op)
+    else kept.push(op)
+  }
+  if (swept.length === 0) return
+
+  write(storage, LEGACY_KEY, kept)
+  const notices = swept.map((op) => redactedNotice(
+    op, op.ownerProfileId == null ? 'legacy-orphaned' : 'legacy-plaintext'))
+  write(storage, LEGACY_DROPPED_KEY,
+    [...readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY), ...notices].slice(-MAX_DROPPED))
 }
 
 /**
@@ -174,10 +245,25 @@ export async function openQueueStore(
  * <b>An operation with no owner at all is quarantined too</b>, which is the rule `replayQueue` already
  * applied to them; it is applied here now because the plaintext store is the only place they exist.
  */
-function adoptLegacy(opened: SealedQueue, profileId: number, storage: QueueStorage): SealedQueue {
+interface LegacyMigration {
+  /** What the sealed store becomes. Nothing is written until this is durable. */
+  migrated: SealedQueue
+  /** What the plaintext operation store becomes once it is. */
+  left: QueuedOp[]
+  /** What the plaintext notice store becomes once it is. */
+  noticesLeft: DroppedOp[]
+  changed: boolean
+}
+
+/** Work out the migration without touching a single stored byte. */
+function planLegacyMigration(
+  opened: SealedQueue, profileId: number, storage: QueueStorage,
+): LegacyMigration {
   const legacy = readJson<QueuedOp>(storage, LEGACY_KEY)
   const legacyDropped = readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY)
-  if (legacy.length === 0 && legacyDropped.length === 0) return opened
+  if (legacy.length === 0 && legacyDropped.length === 0) {
+    return { migrated: opened, left: [], noticesLeft: [], changed: false }
+  }
 
   const mine = (owner: number | null | undefined) => owner == null || owner === profileId
   const adopted: QueuedOp[] = []
@@ -195,24 +281,69 @@ function adoptLegacy(opened: SealedQueue, profileId: number, storage: QueueStora
     }
   }
 
-  const noticesMine = legacyDropped.filter((d) => mine(d.ownerProfileId))
-  const noticesLeft = legacyDropped.filter((d) => !mine(d.ownerProfileId))
-
-  write(storage, LEGACY_KEY, left)
-  write(storage, LEGACY_DROPPED_KEY, noticesLeft)
-
   return {
-    // Ordered by creation rather than appended, so an adopted write keeps its place against anything
-    // already sealed. FIFO is the whole contract of a replay queue.
-    ops: [...opened.ops, ...adopted].sort((a, b) => a.createdAt - b.createdAt),
-    dropped: [...opened.dropped, ...noticesMine, ...quarantined].slice(-MAX_DROPPED),
+    migrated: {
+      // Ordered by creation rather than appended, so an adopted write keeps its place against anything
+      // already sealed. FIFO is the whole contract of a replay queue.
+      ops: byId([...opened.ops, ...adopted]).sort((a, b) => a.createdAt - b.createdAt),
+      dropped: byId([
+        ...opened.dropped,
+        ...legacyDropped.filter((d) => mine(d.ownerProfileId)),
+        ...quarantined,
+      ]).slice(-MAX_DROPPED),
+    },
+    left,
+    noticesLeft: legacyDropped.filter((d) => !mine(d.ownerProfileId)),
+    changed: true,
   }
 }
 
+/**
+ * First occurrence of each id wins, which makes the migration idempotent.
+ *
+ * <b>Not belt and braces — it closes the one gap the ordering above cannot.</b> The sealed
+ * replacement is written before the plaintext source is retired, so if retiring it silently fails
+ * (`write` is best-effort by design, because the legacy store is on its way out either way) the next
+ * open would find the same operations in both places and adopt them a second time. A duplicate
+ * queued write is not a cosmetic problem: for the care domain it is a second feed on the log.
+ *
+ * Already-sealed entries come first in every merge above, so an operation the household has since
+ * amended keeps the amendment rather than being reverted to the plaintext copy of itself.
+ */
+function byId<T extends { id: string }>(items: T[]): T[] {
+  const seen = new Set<string>()
+  return items.filter((item) => !seen.has(item.id) && seen.add(item.id))
+}
+
+/** Retire the plaintext source. Called only once its sealed replacement is on the device. */
+function commitLegacyMigration(plan: LegacyMigration, storage: QueueStorage): void {
+  write(storage, LEGACY_KEY, plan.left)
+  write(storage, LEGACY_DROPPED_KEY, plan.noticesLeft)
+}
+
+/** A notice that will be sealed, so it may carry the label the household needs to identify it. */
 function notice(op: QueuedOp, reason: DroppedOp['reason']): DroppedOp {
   return {
     id: op.id,
     label: op.label,
+    domain: op.domain,
+    ownerProfileId: op.ownerProfileId,
+    reason,
+    at: op.createdAt,
+  }
+}
+
+/**
+ * A notice that will be stored in the clear, so it may carry nothing that reads as a record.
+ *
+ * The label is the private half of a queued operation after its body — "Bottle 120ml for Wren" is the
+ * entry, restated for a person to read — so a plaintext notice keeps the domain and the owner and
+ * replaces the label with a sentence the household can act on without it naming anything.
+ */
+function redactedNotice(op: QueuedOp, reason: DroppedOp['reason']): DroppedOp {
+  return {
+    id: op.id,
+    label: 'An offline entry from an older version could not be carried over. Please re-enter it.',
     domain: op.domain,
     ownerProfileId: op.ownerProfileId,
     reason,

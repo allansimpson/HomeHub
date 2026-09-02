@@ -161,6 +161,24 @@ export async function openCareVault(
   try {
     vault = normalise(JSON.parse(await decrypt(seal.key, raw)) as Partial<CareVault>)
   } catch {
+    /*
+     * <b>A blob this key does not open makes the session memory-only, and the blob is not touched.</b>
+     *
+     * Starting empty is only half an answer, and the missing half is the dangerous one. This session
+     * kept the wrong key and a writable store, so the first thing that changed the vault — a server
+     * refill, a pending entry, a pump timer ticking — sealed an empty log under that wrong key and
+     * replaced the rightful owner's blob. Whoever holds the wrong key must be able to read nothing
+     * *and* destroy nothing, and those are two claims; only the first was being made.
+     *
+     * The same rule as `../../app/queueStore`, which is where it was got right first and where the
+     * reasoning was written down. It should have been carried back here at the time: the two stores
+     * hold the same rows and are opened under the same key, so a hazard in one is a hazard in both.
+     *
+     * The cost is the one `../../app/offlineUnlock.enrol` already names — a PIN changed on another
+     * device strands what was sealed under the old key until a sign-out clears it. Stranded is
+     * recoverable by the household; overwritten is not.
+     */
+    openSeal = { kind: 'memory' }
     vault = { entries: {}, summary: {}, pending: [], timers: [] }
   }
 }

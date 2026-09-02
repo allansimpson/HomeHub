@@ -153,14 +153,89 @@ describe('a session that holds no key', () => {
     expect(storage.getItem('homehub.writequeue.sealed.v1.2')).toBeNull()
   })
 
-  it('leaves a plaintext store it cannot migrate exactly where it is', async () => {
+  it('leaves an ordinary plaintext write it cannot migrate exactly where it is', async () => {
     const storage = new MemoryStorage()
     storage.setItem('homehub.writequeue.v1', JSON.stringify([groceryOp('g')]))
 
     await openQueueStore(2, null, storage)
 
-    // Reading it into memory and deleting it would destroy the very writes it was migrating.
-    expect(storage.getItem('homehub.writequeue.v1')).not.toBeNull()
+    // Reading it into memory and deleting it would destroy the very write it was migrating, and it
+    // loses nothing by waiting for a session that can seal it.
+    expect(storage.getItem('homehub.writequeue.v1')).toContain('Olive oil')
+  })
+
+  /*
+   * RR-05. The private half cannot wait, and this is where the previous version was wrong.
+   *
+   * "Leave it for a session that can migrate safely" is not a plan when the wait has no bound: a panel
+   * that is locked, restarted, or handed to another member never opens a key-bearing session for this
+   * profile, and a previous build's care bodies, paths and labels stayed readable in `localStorage`
+   * indefinitely — across exactly the transitions the release claims protect them.
+   */
+  it('takes private plaintext off the device even with no key to seal it under', async () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c'), groceryOp('g')]))
+
+    await openQueueStore(2, null, storage)
+
+    const remaining = storage.getItem('homehub.writequeue.v1') ?? ''
+    for (const legible of ['Bottle', 'Wren', '120', 'took it all', '/care/children/1/entries']) {
+      expect(remaining).not.toContain(legible)
+    }
+    // And the ordinary write beside it is untouched.
+    expect(remaining).toContain('Olive oil')
+  })
+
+  it('sweeps an unowned plaintext operation too, which is nobody\'s to keep', async () => {
+    const storage = new MemoryStorage()
+    const orphan = { ...groceryOp('o'), ownerProfileId: undefined } as unknown as QueuedOp
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([orphan]))
+
+    await openQueueStore(2, null, storage)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBeNull()
+  })
+
+  /*
+   * The notice is stored in the clear, so it may carry nothing that reads as a record — otherwise it
+   * would leave the private thing behind in the act of announcing its removal.
+   */
+  it('leaves a recovery notice that names no record', async () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+
+    await openQueueStore(2, null, storage)
+
+    const notices = storage.getItem('homehub.writequeue.dropped.v1') ?? ''
+    expect(notices).toContain('could not be carried over')
+    expect(notices).toContain('legacy-plaintext')
+    expect(notices).not.toContain('Bottle')
+    expect(notices).not.toContain('Wren')
+  })
+
+  it('leaves another profile\'s plaintext alone, private or not', async () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('theirs', 3)]))
+
+    await openQueueStore(2, null, storage)
+
+    // Sweeping it would be this session deciding about a member it cannot identify; their own next
+    // session sweeps or seals it.
+    expect(storage.getItem('homehub.writequeue.v1')).toContain('theirs')
+  })
+
+  it('sweeps for a session whose key turned out to be the wrong one', async () => {
+    const storage = new MemoryStorage()
+    await openQueueStore(2, await aKey(), storage)
+    persistAhead(store, groceryOp('sealed'))
+    await flushQueueStore()
+    closeQueueStore()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+
+    // A wrong key is a session with no key, and it must reach the same conclusion about plaintext.
+    await openQueueStore(2, await aKey(), storage)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBeNull()
   })
 })
 
@@ -279,6 +354,123 @@ describe('migration off the plaintext store', () => {
 
     // Told once. A quarantine held only in memory would be re-decided, and re-announced, for ever.
     expect(store.readDropped()).toHaveLength(1)
+  })
+})
+
+/**
+ * The migration must not delete its source before the replacement is durable — RR-02.
+ *
+ * It used to: `adoptLegacy` removed the plaintext entries as it read them, and the sealed replacement
+ * was written by a `persistNow()` nobody awaited. So a quota exhaustion during an upgrade destroyed
+ * ordinary unsent operations *and* the only notices for the quarantined private ones, and wrote no
+ * replacement at all. The migration tests below the success path could not see it, because they never
+ * combined legacy source data with a store that refuses.
+ */
+describe('migration is not allowed to lose the data it is migrating', () => {
+  /** A store that takes reads and legacy rewrites but refuses the sealed blob. */
+  const refusingSeal = () => {
+    const storage = new MemoryStorage()
+    const real = storage.setItem.bind(storage)
+    storage.setItem = (key, value) => {
+      if (key.startsWith('homehub.writequeue.sealed.')) {
+        throw new DOMException('quota', 'QuotaExceededError')
+      }
+      real(key, value)
+    }
+    return storage
+  }
+
+  it('leaves the plaintext source byte-identical when the sealed write fails', async () => {
+    const storage = refusingSeal()
+    const legacy = JSON.stringify([groceryOp('g'), careOp('c')])
+    storage.setItem('homehub.writequeue.v1', legacy)
+
+    await openQueueStore(2, await aKey(), storage)
+    await flushQueueStore().catch(() => undefined)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBe(legacy)
+    expect(storage.getItem('homehub.writequeue.sealed.v1.2')).toBeNull()
+  })
+
+  it('does not present operations it could not make durable', async () => {
+    const storage = refusingSeal()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([groceryOp('g')]))
+
+    await openQueueStore(2, await aKey(), storage)
+    await flushQueueStore().catch(() => undefined)
+
+    /*
+     * Rolled back in memory too. Holding an adopted operation the seal never took would let a later
+     * ordinary write seal it while the legacy store still holds it — the same record twice, once the
+     * migration is retried.
+     */
+    expect(store.read()).toEqual([])
+  })
+
+  it('retries the whole migration on the next open, and lands it', async () => {
+    const storage = refusingSeal()
+    const key = await aKey()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([groceryOp('g'), careOp('c')]))
+
+    await openQueueStore(2, key, storage)
+    await flushQueueStore().catch(() => undefined)
+    closeQueueStore()
+
+    // Space freed, or the browser in a better mood.
+    const storage2 = new MemoryStorage()
+    for (const k of [...storage.values.keys()]) storage2.setItem(k, storage.getItem(k)!)
+    await openQueueStore(2, key, storage2)
+    await flushQueueStore()
+
+    expect(store.read().map((o) => o.id)).toEqual(['g'])
+    expect(store.readDropped()).toMatchObject([{ id: 'c', reason: 'legacy-plaintext' }])
+    expect(storage2.getItem('homehub.writequeue.v1')).toBeNull()
+  })
+
+  it('keeps the quarantine notice rather than losing it with the operation', async () => {
+    const storage = refusingSeal()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+
+    await openQueueStore(2, await aKey(), storage)
+    await flushQueueStore().catch(() => undefined)
+
+    // The private operation is still in the plaintext store — undesirable, and strictly better than
+    // gone with no notice. The next successful open quarantines it and tells the household.
+    expect(storage.getItem('homehub.writequeue.v1')).toContain('Bottle')
+    expect(storage.getItem('homehub.writequeue.dropped.v1')).toBeNull()
+  })
+
+  /*
+   * The gap the ordering cannot close on its own. Retiring the plaintext source is best-effort — the
+   * legacy store is on its way out either way — so a silent failure there would leave the same
+   * operations in both places, and a second adoption would be a second feed on the care log.
+   */
+  it('adopts the same operation once even if the plaintext source outlives the seal', async () => {
+    const storage = new MemoryStorage()
+    const key = await aKey()
+    const legacy = JSON.stringify([groceryOp('g')])
+    storage.setItem('homehub.writequeue.v1', legacy)
+
+    await openQueueStore(2, key, storage)
+    await flushQueueStore()
+    // The retirement failed silently and the source is still there.
+    storage.setItem('homehub.writequeue.v1', legacy)
+    closeQueueStore()
+    await openQueueStore(2, key, storage)
+    await flushQueueStore()
+
+    expect(store.read().map((o) => o.id)).toEqual(['g'])
+  })
+
+  it('leaves another profile\'s entries in place through a failed migration', async () => {
+    const storage = refusingSeal()
+    const legacy = JSON.stringify([groceryOp('mine'), groceryOp('theirs', 3)])
+    storage.setItem('homehub.writequeue.v1', legacy)
+
+    await openQueueStore(2, await aKey(), storage)
+    await flushQueueStore().catch(() => undefined)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBe(legacy)
   })
 })
 

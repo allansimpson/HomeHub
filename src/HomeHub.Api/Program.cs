@@ -823,7 +823,16 @@ builder.Services.AddSingleton<HermesClientFactory>();
 builder.Services.AddSingleton<HermesClient>();
 
 // Speech credentials only — cloud STT. Not an assistant model choice; see AiOptions.
-builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.Section));
+//
+// Validated at boot alongside the voice policy, and the pair is deliberate: `Voice:Stt` decides
+// whether household audio may leave the LAN, and this decides where it may go. A deployment that had
+// answered the first was being taken to have answered both, which is how an arbitrary or cleartext
+// base URL could receive recorded speech and the bearer that pays for it.
+builder.Services.AddSingleton<IValidateOptions<AiOptions>>(
+    new AiOptionsValidator(requiresDeploymentSafeguards));
+builder.Services.AddOptions<AiOptions>()
+    .Bind(builder.Configuration.GetSection(AiOptions.Section))
+    .ValidateOnStart();
 
 // The roster is configuration, so it is a singleton: nothing about which agents exist varies by
 // request. Which *member* gets which agent is household data and is read per request.
@@ -1199,11 +1208,18 @@ using (var probe = app.Services.CreateScope())
     var stt = probe.ServiceProvider.GetRequiredService<SttRouter>();
     if (stt.CloudUsable)
     {
+        // Names the destination, because "may leave the LAN" is only half of what an operator needs to
+        // check. Host only — the key is never logged, and the path carries nothing.
+        var cloudAi = probe.ServiceProvider.GetRequiredService<IOptions<AiOptions>>().Value;
+        var destination = Uri.TryCreate(cloudAi.OpenAiBaseUrl, UriKind.Absolute, out var cloudUri)
+            ? cloudUri.Host
+            : "an unparseable Ai:OpenAiBaseUrl";
         app.Logger.LogWarning(
-            "Speech-to-text may leave the LAN ({Boundary}). Recorded household audio is sent to the "
-            + "cloud provider when local STT is unavailable or when Voice:Stt:Prefer=cloud. Unset "
-            + "Voice__Stt__AllowCloudFallback to keep every recording on the house network.",
-            stt.Boundary);
+            "Speech-to-text may leave the LAN ({Boundary}) and is addressed to {Destination}. Recorded "
+            + "household audio is sent there when local STT is unavailable or when Voice:Stt:Prefer="
+            + "cloud. Unset Voice__Stt__AllowCloudFallback to keep every recording on the house network.",
+            stt.Boundary,
+            destination);
     }
     else
     {
