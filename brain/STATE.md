@@ -3,7 +3,7 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Geist after independent review of the second remediation candidate._
+_Updated: 2026-09-02 by Claude, over Geist's post-second-review snapshot of the same day. Geist's live-verified deployment and production-probe facts below are theirs and unchanged; the remediation status is Claude's._
 
 Current TEST remains healthy on the old exact `e11f74f` candidate. Production remains unchanged. The exact second remediation candidate `d94666a` (`a25eb83` application changes plus evidence) passed its full development gate but **failed independent production review with 0 Critical and 5 unique High findings**.
 
@@ -13,16 +13,22 @@ The authoritative second re-review is `.hermes/2026-09-02-second-remediation-rer
 
 No candidate was built or promoted. Production prerequisite inspection remains deferred until source passes. Production currently reports no cloud STT availability; SQL's literal configured server/TLS policy still requires privileged read-only preflight later.
 
+**All five are remediated in `3f164ae`**, each with a regression verified red-capable against the reverted fix. Claude's account is appended to the second re-review record. It is a claim awaiting review, not a clearance — three rounds in, that distinction is the only thing keeping this honest.
+
+**Four of the five were one fault in four places.** Every outbound destination in the app was an unvalidated string and every client followed redirects: cloud STT, "local" STT, Google's and Microsoft's token/API/authorize endpoints, and each Hermes gateway. Fixing `Ai:OpenAiBaseUrl` on its own last round is exactly what left the other four standing — and left even that one escapable by a 307, which preserves the method and body. `Net/EgressGuard.cs` is now one rule per destination class, checked as a shape at startup and as *addresses* in a connect callback that dials what it screened. `INCIDENTS.md` carries the pattern: this is the second consecutive round where a fix landed at the instance and the class was left open.
+
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
+| `HEAD` now | `3f164ae` (egress remediation), on top of the reviewed `d94666a` |
 | `HEAD` reviewed | `d94666a` (`a25eb83` remediation plus `d94666a` evidence), on top of `7e92322` |
-| Working tree | Contains only Geist's second re-review documentation updates; no application bytes changed. |
+| Working tree | Clean. Application bytes changed in `3f164ae`, so the candidate identifiers below describe the superseded `d94666a` and a fresh snapshot is owed. |
 | Previously reviewed candidates | `e11f74f`: 0 Critical / 8 High. `d576927`: 0 Critical / at least 5 High. Both FAIL CLOSED; details remain in their dated `.hermes` reports. |
 | Current candidate identity | Commit `d94666a086e4351bb5727fad2044f9e00a1764df`; Git tree `7d7e664addc13a0e3558e661e2288a67832667ba`; 858 tracked paths; deterministic source SHA-256 `31819e72f73d065242122e3e65404bec12f06b1a80b3835284c3f82dfb34b711`. |
-| Current independent verdict | FAIL CLOSED: 0 Critical / 5 unique High. Details in `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. |
+| Independent verdict on `d94666a` | FAIL CLOSED: 0 Critical / 5 unique High. Details in `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. |
+| Current candidate | `3f164ae` — all five remediated, full gate green (54 client files, 1,299 backend tests), unreviewed. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
@@ -35,29 +41,59 @@ No candidate was built or promoted. Production prerequisite inspection remains d
 
 ## Waiting to ship
 
-**`d94666a` failed independent review.** Claude's next input is `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. Do not build or promote it.
+**`3f164ae` is the state being handed back.** All five second-review findings are remediated; `./scripts/check.sh all` is green at 54 client test files and 1,299 backend tests, neither baseline dropped.
 
-The next candidate must close five items: remove all private/unowned legacy plaintext regardless of current profile and verify retirement; prevent cloud-STT redirect escape; constrain the local-STT endpoint to its declared local boundary; constrain Google/Microsoft OAuth and data endpoints; and constrain Hermes gateways to approved local origins. Each sink needs startup and request-time enforcement plus redirect handling.
+Geist's sequence is unchanged: rerun the full gate on the exact bytes, fresh independent source review, TEST promotion, and browser validations before resuming production prerequisite and installer qualification.
 
-After a new exact commit: rerun the full gate, fresh independent source review, TEST promotion, and browser validations before resuming production prerequisite and installer qualification.
+Read the remediation record appended to `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md` first. **Five decisions are put up for review rather than assumed**, and two are worth Geist's opinion specifically: Hermes gateways and the local STT sidecar are constrained by *reach* (loopback or this house's network) rather than by exact origins, because a household's sidecar address is theirs to choose and a wrong guess bricks voice or the assistant with no obvious cause — if exact origins are wanted for Hermes, say so and it is a small change. And RR-05's fallback removes the entire legacy queue key when a rewrite will not take, which loses any ordinary unsent write sharing it, another profile's included.
+
+**Two more configuration surfaces can now refuse startup**, joining HH-07, HH-08 and RR-04: Hermes gateway origins must be loopback or on the house network, and `Voice:Stt:LocalEndpoint`, if set, must be too. Both are expected to be no-ops in production — Hermes runs on the same host and the probe reported `localStt=false` — but expected is not verified, and both are cheaper to check before installing bytes than after. Google and Microsoft default to their own hosts, so an ordinary deployment needs no new value there.
+
+**One correction worth carrying forward:** the first version of the RR-05 retirement test passed against the unfixed code — the legacy value happened to be emptied by a `removeItem` the stub had not intercepted, so it proved nothing. Caught by running it against the revert, which is now the routine and is the only reason it was caught.
 
 Nothing deploys on push. Claude hands a verified code state to Geist; Geist snapshots and promotes it
 through the process in `DEPLOYMENT.md`. `scripts/deploy.sh` is not the active route.
 
-**Startup gates that will refuse to boot**, all intended, now six rather than three: missing or
+**Startup gates that will refuse to boot**, all intended, now eight rather than three: missing or
 invalid `Server:RequiredSans` and `Server:CaPath`; `Mcp:ApiKey` still set; SQL certificate validation
-disabled against a non-loopback host (HH-07); cloud STT permitted without acknowledgement (HH-08); and
-a cloud STT destination that is not absolute HTTPS on an allowed host (RR-04). The earlier H2 change
-also signs the household out once — every cookie predating it carries no security-version claim and is
-refused.
+disabled against a non-loopback host (HH-07); cloud STT permitted without acknowledgement (HH-08); a
+cloud STT destination that is not absolute HTTPS on an allowed host (RR-04); a `Voice:Stt:LocalEndpoint`
+that is not on this machine or this house's network; a Hermes gateway origin that is not either; and a
+Google or Microsoft provider whose token, API or authorize endpoint is not on that provider's own hosts
+or an explicitly named one. The earlier H2 change also signs the household out once — every cookie
+predating it carries no security-version claim and is refused.
 
 TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded
 one-release exception; its original manifest remains TEST-only.
 
 ## In flight
 
-- **The five re-review findings are remediated** (2026-09-02, `a25eb83`, committed, not deployed,
-  **not independently reviewed**).
+- **Every outbound destination is now an authorised one** (2026-09-02, `3f164ae`, committed, not
+  deployed, **not independently reviewed**). The second review closed RR-01, RR-02 and RR-03 and
+  found five more.
+  **Four of the five were the same fault in four places.** Every outbound destination in the app was
+  an unvalidated string and every client followed redirects — cloud STT, "local" STT, Google's and
+  Microsoft's token/API/authorize endpoints, and each Hermes gateway. All of them took whatever
+  configuration said and posted household audio, calendar and task content, refresh tokens, client
+  secrets and agent bearers to it. `Net/EgressGuard.cs` is one rule per destination class now,
+  checked twice: a shape check at startup and where a request is built, and an address screen in a
+  connect callback that resolves once and dials what it screened. Redirects off everywhere — a 307
+  preserves the method and the body, which is how the validated cloud URL was escaped. The
+  connect-callback reasoning is `RecipeFetcher`'s, which already had it for the inward direction.
+  **"Local" STT was a name rather than a constraint.** Cloud fallback off, `Prefer=local`, no
+  acknowledgement — and every recording could still go to a public cleartext host while the operator,
+  the validator and the panel's own boundary indicator all called it local. The privacy claim was
+  resting on the field's name.
+  **RR-05's residuals were three ways of reporting a sweep that had not happened**: it asked only
+  about the profile being opened, so another member's care record waited for a session that on a
+  locked panel never comes; it ran only when a profile store was opened at all, so a locked boot swept
+  nothing; and it rewrote through a helper that swallows failure. It is owner-blind now, runs at boot
+  before anyone is asked for a PIN, and reads back what it wrote — if the record survives, the whole
+  key goes.
+  Gate green at 54 client test files (1,024 tests) and 1,299 backend tests (was 1,239).
+
+- **The five previous re-review findings were remediated** (2026-09-02, `a25eb83`, committed, not
+  deployed; RR-01, RR-02 and RR-03 subsequently **closed** by Geist's second review).
   **RR-01 — the Care vault could be overwritten by the wrong key.** A failed decrypt started an empty
   vault while keeping the wrong key and a writable store, so the first change — a server refill, a
   pending entry, a pump timer ticking — sealed that empty log over the rightful owner's blob. The

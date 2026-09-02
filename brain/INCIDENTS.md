@@ -37,6 +37,32 @@ that probe.
 **Still true after the fix:** it only alerts while the app is open. A backgrounded PWA runs no
 timers, and that needs push notifications rather than a different mount.
 
+## 2026-09-02 · Fixing the instance and leaving the class, twice
+
+**What happened.** Two consecutive independent reviews found the same shape of miss. The first: a
+wrong-key overwrite was fixed in the write queue and not in the Care vault, which shares its key
+(below). The second: an unvalidated outbound destination was fixed for `Ai:OpenAiBaseUrl` and not for
+the four other places with the identical defect — the "local" STT sidecar, Google's and Microsoft's
+token/API/authorize endpoints, and every Hermes gateway. Each of those posted household audio,
+calendar and task content, refresh tokens, client secrets or an agent bearer to whatever string
+configuration held. The same round also left the fixed one escapable by a 307 redirect, which
+preserves the method and the body.
+
+**Root cause.** Treating a review finding as the description of a bug rather than as one instance of a
+kind. A finding names where somebody looked; it does not promise that is the only place. Both misses
+were cheap to find once asked — a grep for the other stores sharing a key, a grep for every
+`HttpClient` carrying a credential — and neither was asked.
+
+**Guard.** When remediating a finding, write down what the *class* is before writing the fix, and
+enumerate the instances: every other store with the same key or lifecycle, every other sink taking the
+same kind of configuration, every other transport reaching the same boundary. Fix the class. If only
+one instance is fixed, say in the handoff which others were checked and why they were left.
+
+**Second guard, from the same round.** A regression test written for a fix can pass against the unfixed
+code for reasons unrelated to the fix — one here did, because the value under test happened to be
+removed by a `removeItem` the stub had not intercepted. Run every new regression against the reverted
+fix before accepting it. A test that has never been seen to fail is not evidence.
+
 ## 2026-09-02 · A hazard was fixed in one of two stores that share a key
 
 **What happened.** The write queue and the Care vault are opened for the same profile under the same

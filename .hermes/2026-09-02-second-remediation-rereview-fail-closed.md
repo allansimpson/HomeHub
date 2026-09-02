@@ -110,3 +110,123 @@ The exact isolated candidate passed its existing gate under the release toolchai
 The three independent counterexamples above fail despite that green suite.
 
 No TEST promotion or production mutation was performed.
+
+---
+
+## Claude's remediation — 2026-09-02, commit `3f164ae`
+
+**Status:** all five implemented, with regressions verified red-capable against the reverted fix.
+**Geist's review is not marked complete and is not claimed.** The browser-evidence gap is unchanged.
+
+All five were verified against the code before any edit; none was a misreading. Four of them are the
+same fault in four places, so the fix is the class rather than the instances.
+
+### The class
+
+Every outbound destination in this app was an unvalidated string, and every client followed
+redirects. Cloud STT, "local" STT, Google's token/calendar/authorize endpoints, Microsoft's
+token/Graph/authorize endpoints, and each Hermes gateway — all took whatever configuration said and
+posted household audio, calendar and task content, refresh tokens, client secrets and agent bearers
+to it. Fixing `Ai:OpenAiBaseUrl` on its own last round is what left the other four, and left even
+that one escapable by a redirect.
+
+`Net/EgressGuard.cs` is one `EgressRule` per destination class, checked twice:
+
+- **Shape**, at startup and again where a request is built: absolute URI; `https` (or `http` for a
+  destination on this house's own network); no userinfo; no query or fragment; exact host allowlist;
+  and a literal address on the wrong side of the house/internet line refused outright.
+- **Addresses**, in a `ConnectCallback` that resolves once and dials the `IPAddress` values it
+  screened rather than the name. This is the half a shape check cannot do, and the reasoning is
+  `Meals/RecipeFetcher`'s, which already had it for the inward direction. `AllowAutoRedirect = false`
+  on the same handler.
+
+A hostname passes the shape stage and is settled at dial time. That split is deliberate: resolving a
+name at startup would be a check the connection is free to disagree with, which is the rebinding
+window. It is stated in the code and tested in both halves.
+
+| Finding | Fix | Regressions |
+|---|---|---|
+| RR-05 A/B/C | `queueStore.ts` — `sweepLegacyPlaintext` is owner-blind, exported, run at boot before any unlock, reads back what it wrote and removes the whole key if the record survives; `commitLegacyMigration` verifies retirement the same way | `queueStore.test.ts` → *the boot sweep* (6) plus 2 rewritten in *a session that holds no key* |
+| Cloud STT redirects | `CloudSpeechEndpoint.Rule`, guarded handler in `Program.cs` | `EgressGuardTests.cs` → redirect group (2) |
+| "Local" STT destination | `VoiceOptions.SttOptions` (`LocalAllowedHosts`, `LocalRule`, `LocalConfigured`), `VoiceOptionsValidator`, `LocalWhisperSpeechToText`, guarded handler | `EgressGuardTests.cs` → local-reach group (5) |
+| Google / Microsoft endpoints | `GoogleCalendarOptions`, `MicrosoftTodoOptions` (`AllowedHosts`, `Rule`, `Destinations`, `RefuseDestinations`, `IsAppRegistered`), `Net/ProviderDestinationValidator.cs`, guarded handlers incl. the grocery mirror | `EgressGuardTests.cs` → provider group (4) |
+| Hermes gateway origins | `HermesOptionsValidator.GatewayRule` + validation, recheck in `HermesClientFactory.Create`, guarded handler | `EgressGuardTests.cs` → Hermes group (5) |
+
+### Red-capable verification
+
+Run against the reverted fix in this checkout, restoring immediately afterwards:
+
+- RR-05 A/B: 4 of 36 failed (`sweeps another profile's private plaintext too…`, `needs no profile and
+  no key…`, `removes the whole key rather than reporting a sweep that did not happen`, `says so when
+  the device will not let go of it at all`).
+- RR-05 C: `catches a source that outlived a successful seal` failed with the retirement verification
+  removed. **Worth recording: the first version of this test passed against the unfixed code.** The
+  legacy value happened to be emptied by `removeItem`, which the stub had not intercepted, so it was
+  proving nothing. It now leaves another profile's ordinary write in the store so retirement is a
+  rewrite rather than a removal, which is the case that can half-succeed.
+- The four egress groups are new surface with no prior implementation to revert against; each asserts
+  a refusal that the previous code could not make at all (there was no policy), and the redirect
+  group additionally pins `AllowAutoRedirect == false` on the production handler.
+
+### Decisions worth reviewing rather than assuming
+
+**Reach, not an allowlist, for the two local destinations.** Hermes gateways and the local STT sidecar
+take `EgressReach.Local` with an empty allowlist — anything on loopback or an RFC1918/CGNAT/link-local
+/ULA address is accepted. The alternative, exact origins, is stronger and was rejected because a
+household's sidecar address is theirs to choose and a wrong guess here bricks voice or the assistant
+with no obvious cause. If Geist wants exact origins for Hermes specifically, that is a small change to
+`GatewayRule` and I would rather be told than guess.
+
+**`localhost` is accepted for local reach and is resolved, not special-cased.** It passes the shape
+stage as a hostname and is screened at dial time like any other name, so a `/etc/hosts` remapping to a
+public address is refused at the connection.
+
+**A "local" endpoint outside the house is permitted only with `CloudAudioEgressAcknowledged`.** Naming
+a host in `Voice:Stt:LocalAllowedHosts` flips its rule to `Internet` and requires the same consent as
+cloud, because that is what it is. Without that, the acknowledgement could be walked around by moving
+the destination rather than changing the routing.
+
+**Provider destination failures fail closed as well as loud.** `IsConfigured` now includes
+`RefuseDestinations() is null`, so in Development — where startup validation is lenient — a bad
+destination deactivates the provider and the panel falls back to its local calendar or task store,
+rather than posting a refresh token to it. `IsAppRegistered` was split out so the startup validator
+stays quiet about a provider nobody has set up.
+
+**RR-05's "whole key goes" is a real data loss.** When a rewrite will not take, the entire legacy
+queue key is removed, including any ordinary unsent writes sharing it — another profile's included.
+The trade is stated in the code: an unsent grocery item can be tapped again and a legible care record
+cannot be un-read. Flagged rather than assumed acceptable.
+
+### New production prerequisites
+
+Two more configuration surfaces a deployment can now fail startup on, joining HH-07, HH-08 and RR-04:
+
+- **Hermes gateway origins** must be loopback or on the house's own network. Production runs Hermes
+  on the same host, so this should be a no-op — worth confirming against the real `Hermes:Agents:*:BaseUrl`
+  values before installing new bytes.
+- **`Voice:Stt:LocalEndpoint`**, if set, must be on this machine or this house's network. Geist's probe
+  reported `localStt=false` in production, so likely also a no-op; likely, not verified.
+
+Google and Microsoft default to their own hosts, so an ordinary deployment needs no new value there.
+
+### Full gate
+
+```text
+./scripts/check.sh all
+  ok  typecheck      6s
+  ok  lint           1s
+  ok  tests          4s   Test Files  54 passed (54)
+  ok  backend-tests 49s   Failed: 0, Passed: 1299, Skipped: 0, Total: 1299
+```
+
+Client test files 54 (1,024 individual tests, up from 1,009); backend tests 1,239 → 1,299. Neither
+baseline dropped.
+
+### Still outstanding
+
+Browser/manual evidence remains unproduced, unchanged and for the same reason: every validation needs
+a sign-in, which needs a database, and this checkout has no `ConnectionStrings:HomeHub` and no dev
+credentials. Geist's plan to run the validations against TEST's database-backed deployment is what
+closes it.
+
+Geist marks the review, not this record.
