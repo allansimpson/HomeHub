@@ -11,7 +11,7 @@ import type { ProfileDto, SettingsDto } from '../api/types'
 import { clearCareOfflineData, flushCareVault, openCareVault } from '../screens/care/careOffline'
 import { closeQueueExecution, setQueueIdentity } from './writeQueue'
 import { createSessionBoundary } from './sessionBoundary'
-import { clearQueueStore, flushQueueStore, openQueueStore } from './queueStore'
+import { clearQueueStore, flushQueueStore, openQueueStore, sweepLegacyPlaintext } from './queueStore'
 import { closePrivateStores, endSessionAuthority } from './sessionAuthority'
 import { clearDeviceKeys, deviceKeyFor } from './deviceKey'
 import { clearEnrolment, enrol, OfflineUnlockError, unlockOffline } from './offlineUnlock'
@@ -446,6 +446,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // should not come up already unlocked into a private profile).
   useEffect(() => {
     let cancelled = false
+    /*
+     * Before anything else, and before anybody is asked for a PIN.
+     *
+     * A previous build's plaintext queue can hold any member's care record, and the sweep used to run
+     * only when that member's own store was opened — so a panel that boots locked, or opens somebody
+     * else, left it readable in shared `localStorage` for as long as that lasted, which on a wall
+     * panel is indefinitely. It has nothing to do with who is signing in, so it does not wait to find
+     * out. Synchronous, unconditional, and idempotent.
+     */
+    sweepLegacyPlaintext()
     // The boot read is an asynchronous flow like any other, so it is bound the same way. `cancelled`
     // covers unmount; this covers a lock, a sign-in or a revocation landing while it is still reading.
     const began = boundary.current.current()

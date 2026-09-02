@@ -25,6 +25,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using HomeHub.Api.Net;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 
@@ -601,7 +602,9 @@ else
 // outside any request. It shares the Microsoft OAuth config with the Tasks provider — one linked
 // account, two things using it — and does nothing at all until a list is chosen, which is a
 // supported way to run the section rather than a broken one (PANTRY_BEHAVIOURS §8).
-builder.Services.AddHttpClient(nameof(GroceryMirrorService));
+builder.Services.AddHttpClient(nameof(GroceryMirrorService))
+    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+        () => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule));
 builder.Services.AddSingleton<GroceryMirrorService>(sp => new GroceryMirrorService(
     sp.GetRequiredService<IServiceScopeFactory>(),
     sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GroceryMirrorService)),
@@ -619,11 +622,27 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 // Google Calendar when OAuth is configured; otherwise a local SQL calendar so the panel is
 // fully usable (create/edit/delete persist) without any external account. UI depends only on
 // ICalendarProvider. Both variants need the database, so registration is DB-gated below.
-builder.Services.Configure<GoogleCalendarOptions>(builder.Configuration.GetSection(GoogleCalendarOptions.Section));
+/*
+ * Refused at startup rather than at the first sync, because the first sync is where the credential
+ * goes. `IsConfigured` already fails closed on a destination that is not permitted — the panel simply
+ * uses its local calendar — but a deployment that meant to reach Google and is silently not doing so
+ * should be told at boot, not by noticing an empty week.
+ */
+builder.Services.AddSingleton<IValidateOptions<GoogleCalendarOptions>>(
+    new ProviderDestinationValidator<GoogleCalendarOptions>(
+        requiresDeploymentSafeguards, o => o.IsAppRegistered ? o.RefuseDestinations() : null));
+builder.Services.AddOptions<GoogleCalendarOptions>()
+    .Bind(builder.Configuration.GetSection(GoogleCalendarOptions.Section))
+    .ValidateOnStart();
 var google = builder.Configuration.GetSection(GoogleCalendarOptions.Section).Get<GoogleCalendarOptions>();
 if (google?.IsConfigured == true)
 {
-    builder.Services.AddHttpClient<GoogleCalendarProvider>();
+    // The client secret and each member's refresh token are posted to Google's token endpoint and the
+    // household's calendar travels to its API. Screened, and no redirects: a 307 from an allowed origin
+    // would re-post the refresh token to wherever it pointed.
+    builder.Services.AddHttpClient<GoogleCalendarProvider>()
+        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+            () => sp.GetRequiredService<IOptions<GoogleCalendarOptions>>().Value.Rule));
 }
 
 // --- E2: reading engagements off a photograph ---
@@ -740,11 +759,21 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 // --- Stage 5: tasks ---
 // Microsoft To Do (Graph) when configured; otherwise a local SQL tasks store so the panel is
 // fully usable without any linked account. UI depends only on ITaskProvider. DB-gated below.
-builder.Services.Configure<MicrosoftTodoOptions>(builder.Configuration.GetSection(MicrosoftTodoOptions.Section));
+// As Google — see the note there.
+builder.Services.AddSingleton<IValidateOptions<MicrosoftTodoOptions>>(
+    new ProviderDestinationValidator<MicrosoftTodoOptions>(
+        requiresDeploymentSafeguards, o => o.IsAppRegistered ? o.RefuseDestinations() : null));
+builder.Services.AddOptions<MicrosoftTodoOptions>()
+    .Bind(builder.Configuration.GetSection(MicrosoftTodoOptions.Section))
+    .ValidateOnStart();
 var microsoft = builder.Configuration.GetSection(MicrosoftTodoOptions.Section).Get<MicrosoftTodoOptions>();
 if (microsoft?.IsConfigured == true)
 {
-    builder.Services.AddHttpClient<MicrosoftTodoProvider>();
+    // As Google, and wider: the grocery mirror shares these endpoints, so the shopping list travels
+    // the same route as the tasks and the credentials.
+    builder.Services.AddHttpClient<MicrosoftTodoProvider>()
+        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+            () => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule));
 }
 
 // --- Stage 6: climate (Home Assistant) ---
@@ -818,7 +847,15 @@ builder.Services.AddOptions<HermesOptions>()
 
 // One pooled handler; the address and this profile's bearer are set per call from live options, so
 // the key never leaves HermesClientFactory and a config reload is picked up without a restart.
-builder.Services.AddHttpClient(HermesClientFactory.ClientName);
+// The gateway carries this agent's own `API_SERVER_KEY` and the household's conversation content, and
+// its address is documented as loopback. Screened at dial time so that is true of the machine and not
+// merely of the string, and redirects are off so a gateway cannot hand the credential onward.
+builder.Services.AddHttpClient(HermesClientFactory.ClientName)
+    // One pooled handler serves every agent, so the rule names the gateway class rather than an agent.
+    // It carries no allowlist and only a reach, which is identical for all of them — the per-agent
+    // address is checked by name in the validator and again in `HermesClientFactory.Create`.
+    .ConfigurePrimaryHttpMessageHandler(() => EgressGuard.CreateHandler(
+        () => HermesOptionsValidator.GatewayRule("*")));
 builder.Services.AddSingleton<HermesClientFactory>();
 builder.Services.AddSingleton<HermesClient>();
 
@@ -880,9 +917,29 @@ builder.Services.AddOptions<VoiceOptions>()
     .Bind(builder.Configuration.GetSection(VoiceOptions.Section))
     .ValidateOnStart();
 var voice = builder.Configuration.GetSection(VoiceOptions.Section).Get<VoiceOptions>() ?? new VoiceOptions();
-builder.Services.AddHttpClient<OpenAISpeechToText>();
+/*
+ * Both speech clients are guarded, and the guard is two things.
+ *
+ * <b>No automatic redirects.</b> A 307 or 308 preserves the method and the body, so an allowed origin
+ * answering with one would retransmit the same raw household audio to a host that passed no check —
+ * which is exactly how the validated initial URL was escaped. With redirects off the 3xx arrives as
+ * an unsuccessful response and `EnsureSuccessStatusCode` ends it before a second request exists.
+ *
+ * <b>Every address screened at dial time.</b> A string check cannot survive DNS, and the two clients
+ * need opposite answers from it: the cloud engine must reach the internet and never the LAN, and the
+ * "local" sidecar must reach this machine or this house and never the internet. One rule each, read
+ * live so a configuration reload cannot leave a stale one in a pooled handler.
+ */
+builder.Services.AddHttpClient<OpenAISpeechToText>()
+    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(() =>
+    {
+        var current = sp.GetRequiredService<IOptions<AiOptions>>().Value;
+        return CloudSpeechEndpoint.Rule(current.OpenAiAllowedHosts);
+    }));
 builder.Services.AddHttpClient<LocalWhisperSpeechToText>(c =>
-    c.Timeout = TimeSpan.FromSeconds(Math.Max(1, voice.Stt.TimeoutSeconds)));
+        c.Timeout = TimeSpan.FromSeconds(Math.Max(1, voice.Stt.TimeoutSeconds)))
+    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(() =>
+        sp.GetRequiredService<IOptions<VoiceOptions>>().Value.Stt.LocalRule));
 builder.Services.AddKeyedScoped<ISpeechToText>(SttRouter.LocalKey, (sp, _) => sp.GetRequiredService<LocalWhisperSpeechToText>());
 builder.Services.AddKeyedScoped<ISpeechToText>(SttRouter.CloudKey, (sp, _) => sp.GetRequiredService<OpenAISpeechToText>());
 builder.Services.AddScoped<SttRouter>();

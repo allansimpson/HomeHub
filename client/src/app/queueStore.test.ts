@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearQueueStore, closeQueueStore, flushQueueStore, isQueueStoreOpen, openQueueStore,
-  sealedQueueStore as store,
+  sealedQueueStore as store, sweepLegacyPlaintext,
 } from './queueStore'
 import type { QueueStorage } from './queueStore'
 import { persistAhead } from './writeQueue'
@@ -213,14 +213,33 @@ describe('a session that holds no key', () => {
     expect(notices).not.toContain('Wren')
   })
 
-  it('leaves another profile\'s plaintext alone, private or not', async () => {
+  /*
+   * This test used to assert the opposite, and the assertion was the bug written down.
+   *
+   * "Leave another member's records for that member to deal with" reads as respect and is the reverse
+   * of it: their care record sat legible in the same shared `localStorage`, and the session that could
+   * have removed it declined on their behalf. On a wall panel that boots locked, or opens somebody
+   * else, the member whose turn would clear it never comes.
+   */
+  it('sweeps another profile\'s private plaintext too, rather than deferring to a session that may never come', async () => {
     const storage = new MemoryStorage()
     storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('theirs', 3)]))
 
     await openQueueStore(2, null, storage)
 
-    // Sweeping it would be this session deciding about a member it cannot identify; their own next
-    // session sweeps or seals it.
+    const remaining = storage.getItem('homehub.writequeue.v1') ?? ''
+    expect(remaining).not.toContain('Bottle')
+    expect(remaining).not.toContain('Wren')
+  })
+
+  it('still leaves another profile\'s ordinary write for a session that can seal it', async () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([groceryOp('theirs', 3)]))
+
+    await openQueueStore(2, null, storage)
+
+    // Nothing private about it, and adopting it into *this* profile's seal would attribute somebody
+    // else's tap to whoever is signed in now.
     expect(storage.getItem('homehub.writequeue.v1')).toContain('theirs')
   })
 
@@ -235,6 +254,108 @@ describe('a session that holds no key', () => {
     // A wrong key is a session with no key, and it must reach the same conclusion about plaintext.
     await openQueueStore(2, await aKey(), storage)
 
+    expect(storage.getItem('homehub.writequeue.v1')).toBeNull()
+  })
+})
+
+/**
+ * The privacy sweep answers to nobody's session — the second-round RR-05 residuals.
+ *
+ * Three separate ways the first version could report a sweep it had not performed: it asked only
+ * about the profile being opened, it ran only when a profile store was opened at all, and it rewrote
+ * the store through a helper that swallows failure.
+ */
+describe('the boot sweep', () => {
+  it('needs no profile and no key, which is what a locked panel has', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([
+      careOp('mine', 2), careOp('theirs', 3), groceryOp('ordinary', 2),
+    ]))
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    const remaining = storage.getItem('homehub.writequeue.v1') ?? ''
+    expect(remaining).not.toContain('Bottle')
+    expect(remaining).not.toContain('Wren')
+    expect(remaining).toContain('Olive oil')
+  })
+
+  it('is idempotent, because a panel boots more than once', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c'), groceryOp('g')]))
+
+    sweepLegacyPlaintext(storage)
+    const after = storage.getItem('homehub.writequeue.v1')
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBe(after)
+  })
+
+  /*
+   * The rewrite is read back rather than trusted. When it will not take, the whole key goes — the
+   * ordinary write beside it is collateral, and that is the right way round: an unsent grocery item
+   * can be tapped again and a legible care record cannot be un-read.
+   */
+  it('removes the whole key rather than reporting a sweep that did not happen', () => {
+    const storage = new MemoryStorage()
+    const legacy = JSON.stringify([careOp('c'), groceryOp('g')])
+    storage.setItem('homehub.writequeue.v1', legacy)
+    // A store that refuses to replace the value — quota, or a disabled store mid-session.
+    storage.setItem = () => { throw new DOMException('quota', 'QuotaExceededError') }
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBeNull()
+  })
+
+  it('says so when the device will not let go of it at all', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+    storage.setItem = () => { throw new DOMException('quota', 'QuotaExceededError') }
+    storage.removeItem = () => { throw new DOMException('denied', 'SecurityError') }
+
+    // Reporting success here would be the function claiming a privacy guarantee it did not deliver.
+    expect(sweepLegacyPlaintext(storage)).toBe(false)
+  })
+
+  it('leaves a store with nothing sensitive in it exactly as it found it', () => {
+    const storage = new MemoryStorage()
+    const legacy = JSON.stringify([groceryOp('g')])
+    storage.setItem('homehub.writequeue.v1', legacy)
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.v1')).toBe(legacy)
+    expect(storage.getItem('homehub.writequeue.dropped.v1')).toBeNull()
+  })
+
+  /*
+   * The third residual: sealing succeeded, retiring the source did not, and the migration reported
+   * itself complete with the plaintext still there. Deduplication stopped the replay and never
+   * touched the disclosure.
+   */
+  it('catches a source that outlived a successful seal', async () => {
+    const storage = new MemoryStorage()
+    const key = await aKey()
+    /*
+     * Another profile's ordinary write is in the store on purpose. It is what makes retirement a
+     * *rewrite* rather than a removal, which is the case that can half-succeed — and the case the
+     * previous version returned from as though the migration were complete.
+     */
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c'), groceryOp('theirs', 3)]))
+    const real = storage.setItem.bind(storage)
+    // The seal lands; the legacy rewrite does not.
+    storage.setItem = (k, v) => {
+      if (k === 'homehub.writequeue.v1') return
+      real(k, v)
+    }
+
+    await openQueueStore(2, key, storage)
+    await flushQueueStore()
+
+    expect(storage.getItem('homehub.writequeue.sealed.v1.2')).not.toBeNull()
+    // The care record is gone, whole key and all. Another profile's grocery item goes with it, which
+    // is the right way round — it can be tapped again and a legible care record cannot be un-read.
     expect(storage.getItem('homehub.writequeue.v1')).toBeNull()
   })
 })

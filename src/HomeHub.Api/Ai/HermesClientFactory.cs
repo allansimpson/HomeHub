@@ -1,6 +1,7 @@
 namespace HomeHub.Api.Ai;
 
 using System.Net.Http.Headers;
+using HomeHub.Api.Net;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -34,11 +35,16 @@ public sealed class HermesClientFactory
 
     private readonly IHttpClientFactory _factory;
     private readonly IOptionsMonitor<HermesOptions> _options;
+    private readonly ILogger<HermesClientFactory> _logger;
 
-    public HermesClientFactory(IHttpClientFactory factory, IOptionsMonitor<HermesOptions> options)
+    public HermesClientFactory(
+        IHttpClientFactory factory,
+        IOptionsMonitor<HermesOptions> options,
+        ILogger<HermesClientFactory> logger)
     {
         _factory = factory;
         _options = options;
+        _logger = logger;
     }
 
     /// <summary>Whether this agent has both an address and a key.</summary>
@@ -55,6 +61,22 @@ public sealed class HermesClientFactory
     public HttpClient? Create(string agentKey)
     {
         if (Find(agentKey) is not { } agent) return null;
+
+        /*
+         * Rechecked at construction, not only at startup.
+         *
+         * `Hermes` is bound through `IOptionsMonitor` so a configuration reload is picked up without a
+         * restart — which is the point, and also means the address that passed validation at boot is
+         * not necessarily the one being handed a credential now. Null is already this method's answer
+         * for an agent that cannot be reached, and the caller's response to it — the canned reply — is
+         * the right one here too: better a household agent that says nothing than one whose key has
+         * gone somewhere nobody approved.
+         */
+        if (EgressGuard.Refuse(agent.BaseUrl, HermesOptionsValidator.GatewayRule(agentKey)) is { } refusal)
+        {
+            _logger.LogError("Hermes agent {Agent} was not opened: {Refusal}", agentKey, refusal);
+            return null;
+        }
 
         var http = _factory.CreateClient(ClientName);
         http.BaseAddress = new Uri(agent.BaseUrl.TrimEnd('/') + "/");

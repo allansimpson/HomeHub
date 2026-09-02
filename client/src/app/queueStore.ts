@@ -156,7 +156,7 @@ export async function openQueueStore(
    * that can seal it. See {@link sweepPrivateLegacy}.
    */
   if (!openKey) {
-    sweepPrivateLegacy(profileId, storage)
+    sweepLegacyPlaintext(storage)
     held = opened
     announce()
     return
@@ -193,40 +193,64 @@ export async function openQueueStore(
 }
 
 /**
- * Take a previous build's private plaintext off the device when there is no key to seal it under.
+ * Take a previous build's private plaintext off the device. <b>Every owner's, and before any unlock.</b>
  *
- * <b>Destructive, deliberately, and in this order.</b> The private operation is removed from the
- * legacy store first and the notice is written afterwards: removing is the privacy-critical act and
- * it frees the space the notice needs, so a store too full to hold the telling still stops holding
- * the record. That is the opposite ordering to {@link planLegacyMigration}, and for the opposite
- * reason — there the replacement must survive, here the original must not.
+ * <b>The first version of this asked the wrong question in three places.</b> It swept only the
+ * profile being opened, so another member's care record — path, body, label, child's name, feed
+ * volumes, notes — stayed readable in the same shared `localStorage` until that member happened to
+ * open a session, which on a locked panel is never. It ran only from `openQueueStore`, and a locked
+ * boot opens no store at all. And it rewrote the store through a best-effort helper that swallows
+ * failure, so it could return as though the sweep had happened while the record sat there untouched.
+ *
+ * <b>Owner-blind, deliberately.</b> There is no version of "whose private record may stay legible"
+ * that has a good answer. Not sweeping another profile's was a claim that the panel was protecting
+ * them by not touching their data, and the effect was the exact opposite.
+ *
+ * <b>Verified, not attempted.</b> The rewrite is read back, and if the private record survives it the
+ * whole key is removed rather than the function reporting success. That costs any ordinary write
+ * sharing the key, which is a real loss and the right trade: an unsent grocery item can be re-tapped
+ * and a legible care record cannot be un-read. The return value says what happened so a caller can
+ * refuse to claim a migration it did not achieve.
+ *
+ * <b>Order, and why it is the opposite of {@link planLegacyMigration}'s.</b> The record is removed
+ * first and the notice written after — removing is the privacy-critical act and it frees the space
+ * the notice needs, so a store too full to hold the telling still stops holding the record. There the
+ * replacement must survive; here the original must not.
  *
  * <b>The notice is generic, because it is stored in the clear.</b> A sealed quarantine notice carries
  * the operation's label so the household knows which entry to re-enter; this one cannot, or it would
- * leave the private thing behind in the process of announcing its removal. What is left is enough to
- * act on — something was set aside, whose, and roughly what — and nothing that reads as a record.
+ * leave the private thing behind in the act of announcing its removal.
  *
- * Ordinary writes are untouched. They were already legible, they lose nothing by waiting, and a
- * session that can seal them is what they are waiting for.
+ * Ordinary writes are left where they are. They were already legible, they lose nothing by waiting,
+ * and a session that can seal them is what they are waiting for.
+ *
+ * @returns whether no private or unowned plaintext remains — false means the device refused.
  */
-function sweepPrivateLegacy(profileId: number, storage: QueueStorage): void {
+export function sweepLegacyPlaintext(storage: QueueStorage = localStorage): boolean {
   const legacy = readJson<QueuedOp>(storage, LEGACY_KEY)
-  if (legacy.length === 0) return
+  if (legacy.length === 0) return true
 
-  const mine = (owner: number | null | undefined) => owner == null || owner === profileId
-  const kept: QueuedOp[] = []
-  const swept: QueuedOp[] = []
-  for (const op of legacy) {
-    if (mine(op.ownerProfileId) && (op.ownerProfileId == null || isPrivateDomain(op.domain))) swept.push(op)
-    else kept.push(op)
-  }
-  if (swept.length === 0) return
+  const isSensitive = (op: QueuedOp) => op.ownerProfileId == null || isPrivateDomain(op.domain)
+  const kept = legacy.filter((op) => !isSensitive(op))
+  const swept = legacy.filter(isSensitive)
+  if (swept.length === 0) return true
 
   write(storage, LEGACY_KEY, kept)
+
+  /*
+   * Read back rather than trusted. `write` is best-effort because the legacy store is on its way out
+   * either way — which is fine for the ordinary half and not fine for this one.
+   */
+  if (readJson<QueuedOp>(storage, LEGACY_KEY).some(isSensitive)) {
+    remove(storage, LEGACY_KEY)
+    if (readJson<QueuedOp>(storage, LEGACY_KEY).some(isSensitive)) return false
+  }
+
   const notices = swept.map((op) => redactedNotice(
     op, op.ownerProfileId == null ? 'legacy-orphaned' : 'legacy-plaintext'))
   write(storage, LEGACY_DROPPED_KEY,
     [...readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY), ...notices].slice(-MAX_DROPPED))
+  return true
 }
 
 /**
@@ -315,10 +339,20 @@ function byId<T extends { id: string }>(items: T[]): T[] {
   return items.filter((item) => !seen.has(item.id) && seen.add(item.id))
 }
 
-/** Retire the plaintext source. Called only once its sealed replacement is on the device. */
+/**
+ * Retire the plaintext source. Called only once its sealed replacement is on the device.
+ *
+ * <b>Retirement is verified for the private half, not attempted.</b> Sealing successfully and then
+ * failing to remove the source is the case that reads as a completed migration and is not one: the
+ * records are now in two places, one of them legible. Deduplication by id keeps that from replaying
+ * twice, which was the only part of the problem it ever addressed. So the sweep runs afterwards and
+ * removes the key outright if a rewrite left anything sensitive behind — the sealed copy already
+ * exists, so nothing private is lost by being blunt about it.
+ */
 function commitLegacyMigration(plan: LegacyMigration, storage: QueueStorage): void {
   write(storage, LEGACY_KEY, plan.left)
   write(storage, LEGACY_DROPPED_KEY, plan.noticesLeft)
+  sweepLegacyPlaintext(storage)
 }
 
 /** A notice that will be sealed, so it may carry the label the household needs to identify it. */

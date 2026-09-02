@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Ai;
 
+using HomeHub.Api.Net;
+
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
@@ -25,6 +27,15 @@ public sealed class LocalWhisperSpeechToText : ISpeechToText
 
     public async Task<string> TranscribeAsync(Stream audio, string fileName, string contentType, CancellationToken ct)
     {
+        /*
+         * Checked here as well as at startup and in `IsAvailable`, for the reason the cloud twin gives:
+         * this method is one of the two places in the app that puts raw household audio on the wire,
+         * and a caller that reached it without going through `SttRouter` would otherwise inherit no
+         * check at all. "Local" is a claim about the destination, so the destination is what is checked.
+         */
+        if (EgressGuard.Refuse(_stt.LocalEndpoint, _stt.LocalRule) is { } refusal)
+            throw new InvalidOperationException(refusal);
+
         using var content = new MultipartFormDataContent();
         var file = new StreamContent(audio);
         // Pass the real content type through (the Pi posts wav, the browser posts webm); the sidecar's

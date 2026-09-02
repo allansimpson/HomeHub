@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Ai;
 
+using HomeHub.Api.Net;
+
 using System.ComponentModel.DataAnnotations;
 using Microsoft.Extensions.Options;
 
@@ -160,10 +162,24 @@ public sealed class HermesOptionsValidator : IValidateOptions<HermesOptions>
                 errors.Add("An agent key may not be blank — it is stored on every conversation.");
             if (string.IsNullOrWhiteSpace(agent.Name))
                 errors.Add($"{where}:Name is required.");
+            /*
+             * The gateway's address, checked against what the architecture says it is.
+             *
+             * <b>`BaseUrl` documents a loopback gateway and accepted any absolute URL at all.</b> The
+             * comment on the property explains why loopback matters — the API key has no route-level
+             * scoping, so the gateway is deliberately not exposed to the LAN — and nothing enforced
+             * it. A public or cleartext origin here receives this agent's own `API_SERVER_KEY` and
+             * then the household's conversation content, and sends back tool-bearing responses the
+             * panel acts on. Documentation is not a boundary.
+             *
+             * `EgressReach.Local` rather than loopback exactly: a household running Hermes on the
+             * server and the panel on the wall is a real deployment, and the addresses being screened
+             * at dial time are what makes "local" mean the machine rather than the string.
+             */
             if (string.IsNullOrWhiteSpace(agent.BaseUrl))
                 errors.Add($"{where}:BaseUrl is required, e.g. http://127.0.0.1:8642");
-            else if (!Uri.TryCreate(agent.BaseUrl, UriKind.Absolute, out _))
-                errors.Add($"{where}:BaseUrl is not an absolute URL.");
+            else if (EgressGuard.Refuse(agent.BaseUrl, GatewayRule(key)) is { } refusal)
+                errors.Add(refusal);
             // **A missing ApiKey is deliberately not an error here.** It used to be, and once this
             // validation began running at startup that turned "Geist has no key yet" into "the panel
             // does not boot" — taking the climate, the calendar and the litter box down over an agent
@@ -181,4 +197,11 @@ public sealed class HermesOptionsValidator : IValidateOptions<HermesOptions>
 
         return errors.Count > 0 ? ValidateOptionsResult.Fail(errors) : ValidateOptionsResult.Success;
     }
+
+    /// <summary>
+    /// The rule one agent's gateway must satisfy — shared with the client factory, so the startup
+    /// check and the connection cannot drift apart.
+    /// </summary>
+    public static EgressRule GatewayRule(string agentKey) =>
+        new($"Hermes:Agents:{agentKey}:BaseUrl", EgressReach.Local, []);
 }

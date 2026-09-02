@@ -1,5 +1,6 @@
 namespace HomeHub.Api.Ai;
 
+using HomeHub.Api.Net;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -111,7 +112,38 @@ public sealed class VoiceOptions
     public sealed class SttOptions
     {
         /// <summary>Base URL of the local faster-whisper sidecar (OpenAI-compatible). Empty = local STT off.</summary>
+        /// <remarks>
+        /// <b>"Local" was a name rather than a constraint, and that was the finding.</b> Any non-empty
+        /// string was accepted, and <see cref="LocalWhisperSpeechToText"/> posts raw household audio
+        /// straight to it — so a panel with cloud fallback off, `Prefer=local`, and no egress
+        /// acknowledgement at all could still be sending every recording to a public host over
+        /// cleartext, while the operator, the validator and the panel's own boundary indicator all
+        /// called it local. The privacy claim was resting on the field's name.
+        /// <para>
+        /// It is now checked as what it claims to be: on this machine or this house's own network. A
+        /// destination outside that is not a local sidecar, and if a deployment genuinely wants one it
+        /// belongs behind the same explicit egress consent and destination allowlist as cloud speech —
+        /// see <see cref="LocalAllowedHosts"/>.
+        /// </para>
+        /// </remarks>
         public string? LocalEndpoint { get; set; }
+
+        /// <summary>
+        /// Hosts permitted for <see cref="LocalEndpoint"/> beyond the private-network rule.
+        /// </summary>
+        /// <remarks>
+        /// Empty — and it should stay empty — means the endpoint must resolve onto this machine or this
+        /// house's network, which is the whole meaning of "local". Naming a host here is how a
+        /// deployment says out loud that its "local" sidecar is somewhere else; it then also needs
+        /// <see cref="CloudAudioEgressAcknowledged"/>, because that is exactly what it is.
+        /// </remarks>
+        public List<string> LocalAllowedHosts { get; set; } = [];
+
+        /// <summary>The rule for the local sidecar, shared by startup, availability and the request sink.</summary>
+        public EgressRule LocalRule => new(
+            "Voice:Stt:LocalEndpoint",
+            LocalAllowedHosts.Count > 0 ? EgressReach.Internet : EgressReach.Local,
+            LocalAllowedHosts);
 
         /// <summary>Whisper model the sidecar loads (e.g. <c>tiny.en</c> / <c>base.en</c> / <c>small.en</c>).</summary>
         public string LocalModel { get; set; } = "base.en";
@@ -161,7 +193,17 @@ public sealed class VoiceOptions
         /// <summary>Per-request timeout for the local sidecar (large audio / cold model guard).</summary>
         public int TimeoutSeconds { get; set; } = 120;
 
-        public bool LocalConfigured => !string.IsNullOrWhiteSpace(LocalEndpoint);
+        /// <summary>
+        /// True when a local sidecar is configured <i>and</i> is somewhere audio may be sent.
+        /// </summary>
+        /// <remarks>
+        /// A non-empty string used to be the whole condition. A destination that fails the rule now
+        /// reads as no local engine, so <see cref="SttRouter"/> skips it and no request is built —
+        /// the fail-closed half of the check <see cref="VoiceOptionsValidator"/> makes loudly at
+        /// startup, and the half that still holds in Development where startup is lenient.
+        /// </remarks>
+        public bool LocalConfigured =>
+            !string.IsNullOrWhiteSpace(LocalEndpoint) && EgressGuard.IsPermitted(LocalEndpoint, LocalRule);
 
         /// <summary>Whether this configuration permits household audio to leave the LAN at all.</summary>
         /// <remarks>
@@ -207,6 +249,35 @@ public sealed class VoiceOptionsValidator(bool requiresDeploymentSafeguards) : I
             // which is the right behaviour and the wrong way to arrive at it: nobody would ever learn
             // that the value they set was not a value.
             errors.Add($"Voice:Stt:Prefer must be 'local' or 'cloud'; found '{stt.Prefer}'.");
+        }
+
+        /*
+         * The local sidecar's destination, checked as a destination rather than trusted as a name.
+         *
+         * Checked in every environment, unlike the acknowledgement below, because this is not a policy
+         * question a deployment can answer differently — a URL with userinfo, a query string, or a
+         * public address is not a local sidecar anywhere. A developer pointing at 127.0.0.1 is
+         * unaffected, which is the whole of what Development needs.
+         */
+        if (!string.IsNullOrWhiteSpace(stt.LocalEndpoint)
+            && EgressGuard.Refuse(stt.LocalEndpoint, stt.LocalRule) is { } localRefusal)
+        {
+            errors.Add(localRefusal);
+        }
+
+        /*
+         * A "local" endpoint named as being off the house network is cloud egress wearing another
+         * name, so it needs the same consent. Without this the acknowledgement below could be walked
+         * around entirely by moving the destination rather than changing the routing.
+         */
+        if (requiresDeploymentSafeguards && stt.LocalAllowedHosts.Count > 0
+            && !stt.CloudAudioEgressAcknowledged)
+        {
+            errors.Add(
+                "Voice:Stt:LocalAllowedHosts names a host outside this house's network, which sends "
+                + "household audio off the LAN exactly as cloud speech-to-text does. Set "
+                + "Voice:Stt:CloudAudioEgressAcknowledged=true to confirm that is intended, or leave "
+                + "the list empty so the local sidecar must be local.");
         }
 
         if (requiresDeploymentSafeguards && stt.PermitsCloudAudio && !stt.CloudAudioEgressAcknowledged)

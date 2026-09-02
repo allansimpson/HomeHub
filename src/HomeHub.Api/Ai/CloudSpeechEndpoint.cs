@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Ai;
 
+using HomeHub.Api.Net;
+
 /// <summary>
 /// Where recorded household speech and the cloud credential are permitted to be sent.
 /// </summary>
@@ -44,35 +46,26 @@ public static class CloudSpeechEndpoint
         if (string.IsNullOrWhiteSpace(baseUrl))
             return "Ai:OpenAiBaseUrl is empty; cloud speech-to-text has no destination.";
 
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
-            return "Ai:OpenAiBaseUrl must be an absolute URL, e.g. https://api.openai.com.";
-
-        if (uri.Scheme != Uri.UriSchemeHttps)
-        {
-            return $"Ai:OpenAiBaseUrl must use https; '{uri.Scheme}' would send household audio and "
-                + "the cloud credential in the clear.";
-        }
-
-        // Userinfo in a URL is a credential in a place nothing here expects one, and it is the classic
-        // way a destination is made to *read* as the intended host while resolving somewhere else.
-        if (!string.IsNullOrEmpty(uri.UserInfo))
-            return "Ai:OpenAiBaseUrl must not carry userinfo.";
-
-        if (!string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment))
-            return "Ai:OpenAiBaseUrl must not carry a query string or fragment.";
-
-        var permitted = allowedHosts is { Count: > 0 } ? allowedHosts : DefaultAllowedHosts;
-        if (!permitted.Any(h => string.Equals(h, uri.Host, StringComparison.OrdinalIgnoreCase)))
-        {
-            return $"Ai:OpenAiBaseUrl points at '{uri.Host}', which is not an allowed destination for "
-                + "household audio. Use the provider's own host, or name this one explicitly in "
-                + "Ai:OpenAiAllowedHosts.";
-        }
-
-        return null;
+        return EgressGuard.Refuse(baseUrl, Rule(allowedHosts));
     }
 
     /// <summary>Whether this base URL may receive household audio.</summary>
     public static bool IsPermitted(string? baseUrl, IReadOnlyCollection<string>? allowedHosts = null) =>
         Refuse(baseUrl, allowedHosts) is null;
+
+    /// <summary>
+    /// The rule, shared by the shape check and the connect-time address screen.
+    /// </summary>
+    /// <remarks>
+    /// <b>The shape check alone was not enough, and the gap was redirects.</b> The initial URL was
+    /// validated and the client then followed whatever it was told to: a 307 or 308 from the allowed
+    /// origin preserves the POST and its body, so the same raw household audio was retransmitted to a
+    /// host that had passed no check at all. `EgressGuard.CreateHandler` turns automatic redirects off,
+    /// so a 3xx arrives as an ordinary unsuccessful response and `EnsureSuccessStatusCode` ends the
+    /// exchange before a second request exists.
+    /// </remarks>
+    public static EgressRule Rule(IReadOnlyCollection<string>? allowedHosts = null) => new(
+        "Ai:OpenAiBaseUrl",
+        EgressReach.Internet,
+        allowedHosts is { Count: > 0 } ? allowedHosts : DefaultAllowedHosts);
 }
