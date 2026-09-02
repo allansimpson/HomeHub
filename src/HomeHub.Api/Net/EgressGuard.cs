@@ -24,6 +24,24 @@ public enum EgressReach
     HouseholdLan,
 
     /// <summary>
+    /// Wherever the approved origins say, and nowhere else.
+    /// </summary>
+    /// <remarks>
+    /// <b>Identity, not location.</b> The other three reaches classify an address; this one defers
+    /// entirely to <see cref="EgressRule.AllowedOrigins"/>, because an exact origin is a stronger
+    /// statement than any address class and applying both was a contradiction — the shape check
+    /// accepted an approved non-loopback origin and the dial screen then refused it as "not on this
+    /// machine", so an approved HTTPS gateway could never be connected to at all.
+    /// <para>
+    /// What replaces the address class is the transport. An approved origin over <c>https</c> is
+    /// authenticated by its certificate, which is a better answer to "is this the right machine" than
+    /// any range check; an approved origin over <c>http</c> is authenticated by nothing, so it is
+    /// permitted only to a literal loopback address, where there is no wire to intercept.
+    /// </para>
+    /// </remarks>
+    ApprovedOrigin,
+
+    /// <summary>
     /// This machine, and nothing else.
     /// </summary>
     /// <remarks>
@@ -75,7 +93,7 @@ public sealed record EgressRule(
 
     /// <summary>Exactly these origins and nothing else — the narrowest form. See the parameter note.</summary>
     public static EgressRule Origins(string setting, IReadOnlyCollection<string> approved) =>
-        new(setting, EgressReach.Loopback, [], approved);
+        new(setting, EgressReach.ApprovedOrigin, [], approved);
 }
 
 /// <summary>
@@ -164,22 +182,25 @@ public static class EgressGuard
         if (rule.AllowedOrigins.Count > 0)
         {
             var origin = Origin(uri);
-            return rule.AllowedOrigins.Any(o => MatchesOrigin(o, origin))
-                ? null
-                : $"{rule.Setting} points at '{origin}', which is not one of the approved origins for "
-                  + "this destination.";
+            if (!rule.AllowedOrigins.Any(o => MatchesOrigin(o, origin)))
+            {
+                return $"{rule.Setting} points at '{origin}', which is not one of the approved origins "
+                    + "for this destination.";
+            }
+
+            /*
+             * <b>An approved origin still has to be an authenticated one.</b>
+             *
+             * This used to return success the moment the origin matched, before the transport was
+             * looked at — so naming a plain-http gateway in the allowlist authorised sending it a
+             * bearer and the household's conversations in the clear. Listing a destination says which
+             * machine is meant; it says nothing about whether the machine answering is that one, or
+             * whether anything between them can read what travels. Only TLS answers those.
+             */
+            return RefuseCleartext(uri, rule);
         }
 
-        if (rule.Reach != EgressReach.Internet && uri.Scheme == Uri.UriSchemeHttp)
-        {
-            // Cleartext is allowed on the household's own network and nowhere else: the traffic never
-            // leaves it, and requiring TLS from a sidecar somebody runs on a Pi would mean nobody runs one.
-        }
-        else if (uri.Scheme != Uri.UriSchemeHttps)
-        {
-            return $"{rule.Setting} must use https; '{uri.Scheme}' would send household data and any "
-                + "credential with it in the clear.";
-        }
+        if (RefuseCleartext(uri, rule) is { } cleartext) return cleartext;
 
         if (rule.AllowedHosts.Count > 0
             && !rule.AllowedHosts.Any(h => string.Equals(h, uri.Host, StringComparison.OrdinalIgnoreCase)))
@@ -202,9 +223,47 @@ public static class EgressGuard
         return null;
     }
 
+    /// <summary>
+    /// Plain http is permitted to a literal loopback address, and nowhere else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One rule for every destination class, because the reasoning does not vary by which one: a
+    /// private address, or a named approved origin, says where a listener is and nothing about what it
+    /// is. A device taking that address by DHCP lease, or claiming the name, answers just as well —
+    /// and everything travelling to it is readable on the way. TLS is what authenticates the listener
+    /// and conceals the traffic; an address range does neither.
+    /// </para>
+    /// <para>
+    /// <b>Loopback by literal address, not by name.</b> <c>Uri.IsLoopback</c> is true for the string
+    /// <c>localhost</c>, and a name is what the resolver decides — <c>/etc/hosts</c>, a search domain,
+    /// a DHCP-supplied suffix. The exemption claims the traffic cannot reach a wire, so it is granted
+    /// to addresses that cannot rather than to a string that usually means one.
+    /// </para>
+    /// </remarks>
+    private static string? RefuseCleartext(Uri uri, EgressRule rule)
+    {
+        if (uri.Scheme == Uri.UriSchemeHttps || IsLiteralLoopback(uri)) return null;
+
+        return $"{rule.Setting} uses plain http to a host that is not this machine. Household data and "
+            + "any credential with it would cross the network in the clear, and nothing would "
+            + "authenticate the listener receiving them. Use https with a certificate this machine trusts.";
+    }
+
+    /// <summary>Loopback by literal address. See {@link RefuseCleartext} for why not by name.</summary>
+    private static bool IsLiteralLoopback(Uri uri) =>
+        IPAddress.TryParse(uri.Host.Trim('[', ']'), out var address) && IPAddress.IsLoopback(address);
+
     /// <summary>Whether one resolved address satisfies the rule's reach, and why not when it does not.</summary>
     private static string? RefuseAddress(IPAddress address, EgressRule rule, string host) => rule.Reach switch
     {
+        /*
+         * An approved origin's identity is its origin and its certificate, so the address it resolves
+         * to is not the check — applying one here is what made an approved HTTPS gateway unreachable.
+         * Cleartext to such an origin was already refused at the shape stage unless it is loopback, so
+         * the only http that reaches this point is loopback-bound and is screened as such.
+         */
+        EgressReach.ApprovedOrigin => null,
         EgressReach.Loopback when !IPAddress.IsLoopback(Normalise(address)) =>
             $"{rule.Setting}: '{host}' is not on this machine. This destination holds a credential with "
             + "no route-level scoping, so it may only be reached over loopback.",
@@ -293,6 +352,21 @@ public static class EgressGuard
             {
                 if (RefuseAddress(address, current, host) is { } refusal)
                     throw new BlockedAddressException(refusal);
+
+                /*
+                 * An approved *http* origin is loopback-bound, and that is checked here rather than at
+                 * the shape stage alone: the shape stage sees `127.0.0.1` and this sees what the socket
+                 * will actually dial. An approved https origin needs no address check — its certificate
+                 * is the identity, and TLS verification is what refuses an impostor at that address.
+                 */
+                if (current.Reach == EgressReach.ApprovedOrigin
+                    && ApprovedOriginIsCleartext(current, host, context.DnsEndPoint.Port)
+                    && !IPAddress.IsLoopback(Normalise(address)))
+                {
+                    throw new BlockedAddressException(
+                        $"{current.Setting}: '{host}' is an approved plain-http origin that does not "
+                        + "resolve to this machine.");
+                }
             }
 
             var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
@@ -337,6 +411,13 @@ public static class EgressGuard
     /// any origin whose scheme was wrong, and a connection cannot change the scheme of the request
     /// that opened it.
     /// </remarks>
+    /// <summary>Whether the approved origin matching this host and port is a plain-http one.</summary>
+    private static bool ApprovedOriginIsCleartext(EgressRule rule, string host, int port) =>
+        rule.AllowedOrigins.Any(o =>
+            MatchesHostAndPort(o, host, port)
+            && Uri.TryCreate(o, UriKind.Absolute, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttp);
+
     private static bool MatchesHostAndPort(string approved, string host, int port) =>
         Uri.TryCreate(approved, UriKind.Absolute, out var uri)
         && uri.Port == port

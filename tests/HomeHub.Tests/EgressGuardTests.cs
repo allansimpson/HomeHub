@@ -8,6 +8,7 @@ using HomeHub.Api.Calendar;
 using HomeHub.Api.HomeAssistant;
 using HomeHub.Api.Net;
 using HomeHub.Api.Tasks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -108,16 +109,32 @@ public class EgressGuardTests
 
     [Theory]
     [InlineData("http://127.0.0.1:8080")]
-    [InlineData("http://192.168.1.50:8080")]
-    [InlineData("https://10.0.0.4:8443")]
     [InlineData("http://[::1]:8080")]
-    public void A_local_destination_may_be_cleartext_on_this_house_s_own_network(string url)
+    [InlineData("https://10.0.0.4:8443")]
+    [InlineData("https://192.168.1.50:8443")]
+    public void A_local_destination_is_loopback_cleartext_or_TLS(string url)
     {
         Assert.Null(EgressGuard.Refuse(url, Local));
     }
 
+    /*
+     * <b>The rule extends here, and the extension is deliberate.</b> Geist's decision was about Home
+     * Assistant and the bridge, and the reasoning does not stop at those two: a private address says
+     * where a listener is and nothing about what it is, and a "local" sidecar takes the household's
+     * recorded audio and the text it is about to speak aloud. A device on the LAN answering at that
+     * address hears all of it, and everything between reads it on the way.
+     */
+    [Fact]
+    public void A_local_destination_may_not_be_cleartext_once_it_leaves_this_machine()
+    {
+        var refusal = EgressGuard.Refuse("http://192.168.1.50:8080", Local);
+
+        Assert.NotNull(refusal);
+        Assert.Contains("in the clear", refusal);
+    }
+
     [Theory]
-    [InlineData("http://203.0.113.10:8080")]
+    [InlineData("https://203.0.113.10:8443")]
     [InlineData("https://8.8.8.8")]
     public void A_local_destination_may_not_be_a_public_address(string url)
     {
@@ -139,7 +156,9 @@ public class EgressGuardTests
     [Fact]
     public void A_hostname_is_left_for_the_connection_to_settle()
     {
-        Assert.Null(EgressGuard.Refuse("http://whisper.house.lan:8080", Local));
+        // https, because a named host is not a loopback address and so may not be cleartext. Where it
+        // resolves is the dial screen's question; that it is authenticated is this one's.
+        Assert.Null(EgressGuard.Refuse("https://whisper.house.lan:8443", Local));
     }
 
     [Theory]
@@ -375,6 +394,7 @@ public class EgressGuardTests
     [Theory]
     [InlineData("http://127.0.0.1:8642")]
     [InlineData("http://[::1]:8642")]
+    [InlineData("https://127.0.0.1:8642")]
     public void A_hermes_gateway_on_this_machine_is_accepted(string baseUrl)
     {
         Assert.Empty(HermesErrors(baseUrl));
@@ -391,20 +411,78 @@ public class EgressGuardTests
     public void A_hermes_gateway_merely_somewhere_on_the_LAN_is_not()
     {
         Assert.NotEmpty(HermesErrors("http://192.168.1.10:8642"));
+        // Not even over TLS: without an approved origin the default is this machine.
+        Assert.NotEmpty(HermesErrors("https://192.168.1.10:8642"));
     }
 
     [Fact]
     public void A_deployment_may_approve_an_exact_origin_and_only_that_one()
     {
-        string[] approved = ["http://192.168.1.10:8642"];
+        string[] approved = ["https://hermes.house.lan:8642"];
 
-        Assert.Empty(HermesErrors("http://192.168.1.10:8642", approved));
+        Assert.Empty(HermesErrors("https://hermes.house.lan:8642", approved));
         // The listener beside it is a different listener.
-        Assert.NotEmpty(HermesErrors("http://192.168.1.10:8643", approved));
+        Assert.NotEmpty(HermesErrors("https://hermes.house.lan:8643", approved));
         // And a different machine is a different machine.
-        Assert.NotEmpty(HermesErrors("http://192.168.1.11:8642", approved));
+        Assert.NotEmpty(HermesErrors("https://hermes.other.lan:8642", approved));
         // An approved origin is the whole authorisation, so loopback no longer passes by reach.
         Assert.NotEmpty(HermesErrors("http://127.0.0.1:8642", approved));
+    }
+
+    /*
+     * <b>This test used to approve a plain-http gateway, which is the finding written down as an
+     * assertion.</b> `Refuse` returned the moment the origin matched, before the transport was looked
+     * at — so naming an http origin in the allowlist authorised sending it an agent's own
+     * API_SERVER_KEY and the household's conversations in the clear. Listing a destination says which
+     * machine is meant; it says nothing about whether the machine answering is that one.
+     */
+    [Fact]
+    public void Approving_an_origin_does_not_buy_it_a_transport()
+    {
+        string[] approved = ["http://192.168.1.10:8642"];
+
+        var errors = HermesErrors("http://192.168.1.10:8642", approved).ToList();
+
+        Assert.NotEmpty(errors);
+        Assert.Contains(errors, e => e.Contains("in the clear"));
+    }
+
+    [Fact]
+    public void An_approved_loopback_origin_may_still_be_cleartext()
+    {
+        // Nothing touches a wire, which is the whole of the exemption.
+        Assert.Empty(HermesErrors("http://127.0.0.1:8642", ["http://127.0.0.1:8642"]));
+    }
+
+    /*
+     * The contradiction that made an approved HTTPS gateway unreachable: the shape check accepted it
+     * and the dial screen then refused it as "not on this machine", because `EgressRule.Origins` was
+     * hard-coded to loopback reach. An approved origin's identity is its origin and its certificate.
+     */
+    [Fact]
+    public async Task An_approved_non_loopback_origin_survives_the_dial_screen()
+    {
+        var rule = HermesOptionsValidator.GatewayRule("barnaby", ["https://one.one.one.one:9"]);
+
+        Assert.Null(EgressGuard.Refuse("https://one.one.one.one:9", rule));
+
+        var error = await Dial(rule, "one.one.one.one", 9);
+
+        // Refused by the socket — nothing listens on discard — and not by the screen.
+        Assert.DoesNotContain("not on this machine", Flatten(error));
+        Assert.DoesNotContain("not an approved origin", Flatten(error));
+    }
+
+    [Fact]
+    public async Task An_approved_http_origin_that_does_not_resolve_locally_is_not_dialled()
+    {
+        // The shape check sees `one.one.one.one` and cannot classify it; the dial screen sees what the
+        // socket would actually connect to.
+        var rule = HermesOptionsValidator.GatewayRule("barnaby", ["http://one.one.one.one:9"]);
+
+        var error = await Dial(rule, "one.one.one.one", 9);
+
+        Assert.Contains("does not resolve to this machine", Flatten(error));
     }
 
     /*
@@ -428,7 +506,8 @@ public class EgressGuardTests
     [Fact]
     public async Task A_named_hermes_gateway_that_resolves_off_this_machine_is_not_dialled()
     {
-        Assert.Empty(HermesErrors("http://agent.example:8642"));
+        // Passes the shape check — https, and a name this cannot classify — and is settled at dial.
+        Assert.Empty(HermesErrors("https://agent.example:8642"));
 
         var error = await Dial(HermesOptionsValidator.GatewayRule("barnaby"), "one.one.one.one", 9);
 
@@ -572,6 +651,51 @@ public class EgressGuardTests
 
         // Fail closed: the panel falls back to simulated climate rather than posting the token at it.
         Assert.False(options.IsConfigured);
+    }
+
+    /*
+     * The obsolete acknowledgement, exercised through configuration binding rather than the type.
+     *
+     * <b>This is the regression the previous round should have written.</b> What I offered instead was
+     * a forced fail-open in `RefuseDestination`, which made five tests go red and proved only that the
+     * tests notice when the method stops working. It could not be evidence against the *previous
+     * implementation*, because the tests no longer compile against it: the property they would have to
+     * set does not exist any more.
+     *
+     * Binding from configuration does not care whether the property exists. A deployment carrying the
+     * old key in `homehub.env` — which is exactly what an upgraded one carries — binds cleanly here,
+     * and the question is what the result then permits. Against `016c95b` this configuration allowed
+     * cleartext to a LAN listener; it must not now.
+     */
+    [Fact]
+    public void The_obsolete_cleartext_acknowledgement_no_longer_permits_anything()
+    {
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["HomeAssistant:BaseUrl"] = "http://ha.house.lan:8123",
+                ["HomeAssistant:Token"] = "long-lived",
+                ["HomeAssistant:AllowedOrigins:0"] = "http://ha.house.lan:8123",
+                // The key a deployment upgraded from 016c95b still has in its environment file.
+                ["HomeAssistant:AcknowledgeCleartextLan"] = "true",
+            })
+            .Build();
+
+        var options = configuration.GetSection(HomeAssistantOptions.Section).Get<HomeAssistantOptions>()!;
+
+        Assert.NotNull(options.RefuseDestination());
+        Assert.False(options.IsConfigured);
+    }
+
+    /*
+     * And the key itself is gone rather than ignored, so a deployment that keeps it is not quietly
+     * carrying a setting that reads as meaningful. `IConfiguration` binding tolerates unknown keys, so
+     * nothing breaks; there is simply nothing there to set.
+     */
+    [Fact]
+    public void There_is_no_acknowledgement_property_left_to_set()
+    {
+        Assert.Null(typeof(HomeAssistantOptions).GetProperty("AcknowledgeCleartextLan"));
     }
 
     // ---- The sinks that were missed ----

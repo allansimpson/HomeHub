@@ -61,9 +61,11 @@ public sealed class HomeAssistantOptions
     /// <summary>The reason this configuration may not be used, or null when it may.</summary>
     /// <remarks>
     /// <para>
-    /// Two questions, and the second is why this is not simply <see cref="Rule"/>. <b>Where</b> the
-    /// listener is, which the rule answers by exact origin; and <b>whether anything authenticates it
-    /// and encrypts what travels to it</b>, which only TLS answers.
+    /// Both halves live in <see cref="EgressGuard"/> now — <b>where</b> the listener is, by exact
+    /// origin, and <b>whether anything authenticates it</b>, by requiring https off loopback. This
+    /// class stated the second itself for one round, which is one rule in two places and exactly how
+    /// two places drift apart. Every credentialed destination needs the same answer, so it is asked
+    /// once.
     /// </para>
     /// <para>
     /// <b>There was an acknowledgement flag here and it has been removed.</b> It let a deployment
@@ -74,32 +76,7 @@ public sealed class HomeAssistantOptions
     /// closing it, and the transport is the thing to correct rather than the gate.
     /// </para>
     /// </remarks>
-    public string? RefuseDestination()
-    {
-        if (EgressGuard.Refuse(BaseUrl, Rule) is { } refusal) return refusal;
-
-        var uri = new Uri(BaseUrl!, UriKind.Absolute);
-        if (uri.Scheme == Uri.UriSchemeHttps || IsLiteralLoopback(uri)) return null;
-
-        return "HomeAssistant:BaseUrl uses plain http to a host that is not this machine. The "
-            + "long-lived token would travel the network in the clear on every poll, and nothing would "
-            + "authenticate the listener receiving it. Serve Home Assistant over https with a "
-            + "certificate this machine trusts.";
-    }
-
-    /// <summary>
-    /// Loopback by literal address, not by name.
-    /// </summary>
-    /// <remarks>
-    /// <c>Uri.IsLoopback</c> is true for the string <c>localhost</c> as well as for <c>127.0.0.1</c>,
-    /// and a name is a thing the resolver decides — <c>/etc/hosts</c>, a search domain, a DHCP-supplied
-    /// suffix. The exemption here is "this traffic never touches a wire", which is a claim about an
-    /// address, so it is made about addresses. A named host must be https like any other, and the
-    /// connect screen settles where it actually went.
-    /// </remarks>
-    private static bool IsLiteralLoopback(Uri uri) =>
-        System.Net.IPAddress.TryParse(uri.Host.Trim('[', ']'), out var address)
-        && System.Net.IPAddress.IsLoopback(address);
+    public string? RefuseDestination() => EgressGuard.Refuse(BaseUrl, Rule);
 
     /// <summary>
     /// Configured, and pointing somewhere it is allowed to point.
