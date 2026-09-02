@@ -58,6 +58,21 @@ enumerate the instances: every other store with the same key or lifecycle, every
 same kind of configuration, every other transport reaching the same boundary. Fix the class. If only
 one instance is fixed, say in the handoff which others were checked and why they were left.
 
+**Closed by a mechanism, 2026-09-02.** After the fifth occurrence the class stopped being a thing to
+remember: `AddGuardedHttpClient` attaches both halves of the egress guard or neither, a source scan
+fails any bare `AddHttpClient`, and a runtime sweep discovers every registered client from the
+container and proves each one cannot reach a destination no rule permits. The general lesson, for the
+next class that behaves like this one: **when a fix claims to close a class, make the class a
+mechanism and enumerate it from the machine.** Five rounds of better habits achieved nothing; one
+registration helper plus two enumerating tests did.
+
+A footnote from building it, which is the same trap as the stale binary above wearing different
+clothes: the sweep's first listener was `HttpListener`, whose prefixes match on the `Host` header, so a
+probe addressed to `localhost` against a listener bound to `127.0.0.1` was rejected inside the
+framework and never counted. The test passed whether or not the guard existed. **A test that cannot
+observe the failure is indistinguishable from one that prevents it** — running the revert is what
+tells them apart, every time.
+
 **Fifth occurrence, 2026-09-02, and the habit-shaped guards have now failed twice.** Two of three
 findings in the next review were the same shape again: a cleartext rule applied to the local STT
 sidecar and not to Chatterbox *in the same options class*, and a plaintext sweep applied to the

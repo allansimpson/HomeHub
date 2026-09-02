@@ -3,32 +3,34 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Claude, over Geist's corrected `f961a0a` review snapshot. Geist's live-verified deployment and production-probe facts are theirs and unchanged; the remediation status is Claude's._
+_Updated: 2026-09-02 by Claude. Geist's live-verified deployment and production-probe facts are theirs and unchanged._
 
 **HomeHub is a website.** No Pi, no deployed voice bridge; its source and 12 tests stay but it is not a deployment gate.
 
-TEST is production-ineligible; production is unchanged and healthy. `f961a0a` **failed independent review: 0 Critical, 3 High.** All three are remediated in `fbe34b1`; the record is `.hermes/2026-09-02-f961a0a-review-claude-remediation.md`. A claim awaiting review, not a clearance.
+TEST is production-ineligible; production is unchanged and healthy. **`8036cdd` was not reviewed, at Geist's instruction** — reviewing it would have been invalidated by this commit. The candidate for review is **`e6bf3ba`**, which carries the mechanical egress invariant Geist specified; the record is `.hermes/2026-09-02-egress-invariant.md`.
 
-**The three, and what they have in common.** Chatterbox could send household speech text over non-loopback http — it had a guarded handler, which screens addresses and never reads the scheme, and nothing called the shape check for it; the local STT sidecar in the same options class had all three checks and Chatterbox had none. The RR-05 sweep took the operation store and left the dropped-notice store, where a care write's `label` is the entry restated for a person to read. And retention deleted every expired conversation in the household from inside one member's list read, recording nothing about the Hermes transcripts behind them.
+**Five reviews each found one instance of one class, and each round Claude closed the instance.** Hand-maintained inventories failed five times, so the class is now a mechanism: `EgressRequestGuard` shape-checks every request's origin where the scheme is visible — the connect callback cannot see it, which is how Chatterbox was screened at the socket and cleartext anyway — and `AddGuardedHttpClient` attaches both guards or neither, so "is every client guarded" becomes a question a regex and a runtime sweep can answer.
 
-**Two of the three are the same failure this repository has now recorded five times: the named case fixed, the sibling left.** The guard in `INCIDENTS.md` has been sharpened twice and did not hold either time. What did work, once, was the class-level test — `Every_outbound_client_registration_is_guarded` found two gaps while it was being written. The lesson is not a better habit; it is that a claim about a class needs a check that enumerates the class mechanically. There is no such check for "every destination that has a shape check as well as a handler", and that is what let Chatterbox through.
+**Two tests replace the inventory.** One reads every `.cs` file and fails on a bare `AddHttpClient`. The other discovers every registered client from the container at runtime and drives each at a live listener whose origin no rule permits, asserting zero requests and zero bytes — fifteen today, and a registration added next year is in it without anybody adding it.
 
-**Retention now behaves slightly differently, visibly.** A member's own expired conversations are swept on their next list read; everybody else's within the hour, by `AssistRetentionWorker`, rather than instantly by whoever opened Assist first. Tombstones are written for every session in each conversation's lineage, and drained in the background by `SessionDeletionWorker` — the old objection to N HTTP round-trips inside a list read was right, and a durable row is not one.
+**Worth reading before the review:** the sweep's first listener was `HttpListener` and the test was vacuous. Its prefixes match on the `Host` header, so a probe addressed to `localhost` against a listener bound to `127.0.0.1` was rejected inside the framework and never counted; it passed whether or not the guard did anything. Found only by running the revert, which is now routine for exactly this reason. It is a raw socket now, and with the request guard removed it names the four clients that escape.
 
-**Preflight for `fbe34b1`:** `Voice:Tts:Chatterbox:Endpoint` must be loopback or https (production runs Piper primary, so likely inert; a non-loopback http value now reads as unconfigured rather than erroring). Everything else is unchanged: `HomeAssistant:BaseUrl` of `http://127.0.0.1:8123` is valid and needs nothing; `Hermes:Agents:*:BaseUrl` must be loopback or an exact https origin in `Hermes:AllowedGatewayOrigins`.
+**What the invariant does not cover**, said plainly because the failure it replaces was a boundary believed complete: an `HttpClient` constructed directly with `new`, and any non-HTTP egress. Nothing does either today; if that changes, extend the enumeration rather than the inventory.
 
-`./scripts/check.sh all` runs 54 client files, 1,330 backend tests and 12 bridge tests.
+**Preflight for `e6bf3ba`** is unchanged from the last round: `HomeAssistant:BaseUrl` of `http://127.0.0.1:8123` is valid and needs nothing; `Hermes:Agents:*:BaseUrl` must be loopback or an exact https origin in `Hermes:AllowedGatewayOrigins`; `Voice:Tts:Chatterbox:Endpoint` and `Voice:Stt:LocalEndpoint` must be loopback or https.
+
+`./scripts/check.sh all` runs 54 client files, 1,336 backend tests and 12 bridge tests.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `fbe34b1` (three-blocker remediation) on top of `e837ee7`, plus this documentation commit |
+| `HEAD` now | `e6bf3ba` (mechanical egress invariant), plus this documentation commit |
 | Working tree | Clean before review; only this Geist-owned state update is pending commit. |
 | Reviewed candidate identity | Commit `ed1cca08144eb42d95facb69dfd71b85a52041e7`; Git tree `111d57a36fe3e87f1c5fea1bc5bf8dc1d6ac014e`; 865 tracked entries; 834 UTF-8 text and 31 binary assets; source SHA-256 `74ecf61766fc6835810112765f0affabe6821be05b79ae9f47e60110f035c04b`. |
 | Independent verdict | FAIL CLOSED: 0 Critical / 2 High, plus incomplete C# prior-policy RED proof. |
-| Current candidate | `fbe34b1` — all three remediated; full gate green (54 client files, 1,330 backend tests, 12 bridge tests). Unreviewed. |
+| Current candidate | `e6bf3ba` — the candidate for review. Full gate green: 54 client files, 1,336 backend tests, 12 bridge tests. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
