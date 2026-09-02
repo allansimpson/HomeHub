@@ -5,7 +5,7 @@ keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
 _Updated: 2026-09-02 by Geist after TEST promotion. Remediation claims remain Claude's; live deployment evidence is Geist's._
 
-Current TEST is healthy on exact clean DEV commit `c0c6234` as TEST-only release `20260902T142524Z-d6496e6c3a98`. Production remains unchanged. The prior exact candidate `3f7dffc` failed independent production review with 0 Critical and 9 unique High findings; the new remediation at `55bb195` and documentation at `c0c6234` are not yet independently production-qualified.
+Current TEST is healthy on exact clean DEV commit `c0c6234` as TEST-only release `20260902T142524Z-d6496e6c3a98`. Production remains unchanged. Fresh review of exact `c0c6234` is **FAIL CLOSED**: 0 Critical; four High findings confirmed by the complete-source review, with the focused egress review adding one release-blocking invariant failure because the unnamed default `HttpClient` remains unrestricted.
 
 RR-01, RR-02, and RR-03 are closed. The immediate visible lock in RR-03 is accepted: network and queue admission close synchronously, old work becomes epoch-invalid, settlement drains, and stores close last. RR-05 remains partially open. RR-04 validates the initial cloud URL but automatic redirects escape the allowlist. A fresh exhaustive review also found unconstrained local-STT, Google/Microsoft provider, and Hermes gateway destinations.
 
@@ -41,6 +41,16 @@ The exact clean `c0c6234` state was built and promoted to TEST only. Production 
 | Gap | The remediated `c0c6234` bytes are on TEST but remain production-ineligible pending fresh zero-Critical/High review, browser evidence, protected-configuration and installer qualification, and Allan's explicit approval. |
 
 ## Waiting to ship
+
+**Fresh `c0c6234` verdict: FAIL CLOSED.** The exact deployed TEST bytes passed the full gate and browser smoke, but are not production-eligible. Current review blockers:
+
+1. `EgressGuard` and `RecipeFetcher` leave proxy use enabled, so the connect callback may validate a proxy rather than the requested destination.
+2. Home Assistant permits its service-capable bearer and household control traffic over unauthenticated cleartext LAN HTTP.
+3. The standalone Python voice bridge still accepts an arbitrary base URL and follows redirects; a real 307 replayed private prompt/history bytes to a second listener.
+4. RR-05 still ignores sanitation failure after a successful sealed migration (and in the no-key store-open path), allowing the durable key to remain usable after plaintext retirement failed.
+5. The claimed deny-all unnamed `HttpClient` is not configured: naming `GuardedClients.Unconfigured` does not replace `Options.DefaultName`, so `CreateClient()` still returns the unrestricted framework default. No current unnamed call was found, but the intended class-level invariant and regression are false and must be corrected before qualification.
+
+The full candidate inventory covered 863 entries: 832 UTF-8 text blobs and 31 binary assets, with no decode failures, symlinks, or submodules. Browser evidence at 540×1169 confirmed the TEST profile picker and a no-PIN signed-in dashboard render without blanking, overlap, or broken navigation; observed application API calls returned 200. Chromium logged one expected certificate error for the TEST service-worker fetch.
 
 **`55bb195` is the state being handed back.** The three blockers raised during the review of `3f7dffc` are answered; `./scripts/check.sh all` is green at 54 client test files and 1,307 backend tests, neither baseline dropped. Both requested trade-offs were applied as decided: Hermes is loopback-only by default with exact `Hermes:AllowedGatewayOrigins`, and the household-LAN reach no longer admits CGNAT or `0.0.0.0/8`.
 
