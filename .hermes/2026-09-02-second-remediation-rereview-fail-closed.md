@@ -230,3 +230,100 @@ credentials. Geist's plan to run the validations against TEST's database-backed 
 closes it.
 
 Geist marks the review, not this record.
+
+---
+
+## Claude's second remediation — 2026-09-02, commit `55bb195`
+
+Answering the three blockers raised while review of `3f7dffc` was underway. **Geist's review is not
+marked complete and is not claimed.**
+
+All three confirmed against the code. **Finding 3 contradicts my previous commit message**, which
+said every outbound destination now used one rule. It did not — nine clients were still on default
+handlers — and the overclaim is mine, made after `INCIDENTS.md` had already recorded the same
+class-versus-instance failure twice. What was missing was a check that the claim was true; there is
+one now, and it found the last two gaps while I was writing it.
+
+### 1. RR-05 fail-open — closed
+
+Two distinct failures, both real:
+
+- `sweepLegacyPlaintext` read through `readJson`, which answers `[]` for a store that throws on
+  `getItem`, a value that is not JSON, and a value that is JSON but not an array. It took that empty
+  list as proof there was nothing to sweep. It now reads raw and distinguishes the cases: unreadable
+  returns `false`; unclassifiable (malformed JSON, non-array, a malformed entry among good ones)
+  removes the key outright, on the same confidentiality-over-availability reasoning as the refused
+  rewrite — what cannot be examined cannot be vouched for. Removal is confirmed by reading back, and
+  a removal that cannot be confirmed returns `false`.
+- The boot caller ignored the result. It now records it, and **a device that cannot delete plaintext
+  gets no durable private storage for the session**: `durableKeyFor` returns null, both stores open
+  memory-only, and `storageUntrusted` is surfaced on the session so the household is told rather than
+  silently losing offline durability. Handing more private data to seal to the storage layer that
+  just failed to delete would be trusting an encryption promise from the thing that broke.
+
+Four new tests, each verified red-capable against the previous implementation.
+
+### 2. Account-link exchange — closed
+
+`AccountLinkController.ExchangeAsync` posts the client secret, authorization code and PKCE verifier
+— the whole of what it takes to mint tokens for a member's account — and did so on the unnamed
+default client. It now validates the token URL against the provider's rule and uses a named guarded
+client (`GuardedClients.Google` / `GuardedClients.Microsoft`).
+
+**The unnamed default is no longer registered.** `AddHttpClient()` registers the factory *and* a
+default client configured with nothing, which is what made the hole reachable. The factory is now
+registered under a name whose handler refuses every connection, so a caller reaching for the default
+fails loudly instead of working unguarded.
+
+### 3. The class — closed, and now checked
+
+Guarded in this commit: SensorPush, Home Assistant, the isolated image extractor, Chatterbox, the
+vendor vision path, weather, product lookup, and both OAuth token exchanges. With the previous
+round's five, every `AddHttpClient` registration in `Program.cs` now configures a guarded primary
+handler.
+
+`EgressGuardTests.Every_outbound_client_registration_is_guarded` asserts that as a property: any
+registration that configures no primary handler fails the test and is named in the message. That is
+the difference between fixing the instances and closing the class, and it is what the previous two
+rounds lacked.
+
+### Both trade-offs applied as decided
+
+**Hermes — exact origins.** `EgressReach.Loopback` is the default, so the LAN no longer qualifies by
+having an RFC1918 address. `Hermes:AllowedGatewayOrigins` takes exact origins — scheme, host *and*
+port — and when non-empty it is the whole authorisation: reach is not consulted, and the listener on
+the next port is a different listener. Rechecked in `HermesClientFactory.Create` as before.
+
+**Local STT — a real household boundary.** `EgressReach.HouseholdLan` is now loopback, RFC1918,
+link-local and IPv6 ULA. Carrier-grade NAT (100.64.0.0/10) and `0.0.0.0/8` are refused by it *and*
+by `IsPubliclyRoutable`, because they are neither the household's nor the internet's — CGNAT space is
+the ISP's, shared with every other subscriber behind the same equipment. "Not public" was the wrong
+question and is no longer the one being asked.
+
+### New configuration surfaces
+
+Beyond the previous rounds' HH-07, HH-08, RR-04, Hermes origins and local STT:
+
+- `SensorPush:AllowedHosts`, `Weather:AllowedHosts`, `OpenFoodFacts:AllowedHosts`,
+  `EventCapture:AllowedHosts` — all default to the vendor's own host, so an ordinary deployment needs
+  none of them.
+- Home Assistant, Chatterbox and the image extractor take no new value: their rules are reach-based
+  (household LAN, household LAN, loopback respectively) and the last already required loopback.
+
+### Full gate
+
+```text
+./scripts/check.sh all
+  ok  typecheck      6s
+  ok  lint           0s
+  ok  tests          5s   Test Files  54 passed (54)
+  ok  backend-tests 42s   Failed: 0, Passed: 1307, Skipped: 0, Total: 1307
+```
+
+Client 54 files / 1,024 tests; backend 1,299 → 1,307. Neither baseline dropped.
+
+### Still outstanding
+
+Browser/manual evidence, unchanged and for the same reason. Also unchanged: three review workstreams
+are still checking the candidate, so this record answers the three blockers raised and does not claim
+the count is final.

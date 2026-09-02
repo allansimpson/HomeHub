@@ -22,13 +22,14 @@ No candidate was built or promoted. Production prerequisite inspection remains d
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `3f164ae` (egress remediation), on top of the reviewed `d94666a` |
+| `HEAD` now | `55bb195` (second egress remediation), on top of `3f7dffc` |
 | `HEAD` reviewed | `d94666a` (`a25eb83` remediation plus `d94666a` evidence), on top of `7e92322` |
 | Working tree | Clean. Application bytes changed in `3f164ae`, so the candidate identifiers below describe the superseded `d94666a` and a fresh snapshot is owed. |
 | Previously reviewed candidates | `e11f74f`: 0 Critical / 8 High. `d576927`: 0 Critical / at least 5 High. Both FAIL CLOSED; details remain in their dated `.hermes` reports. |
 | Current candidate identity | Commit `d94666a086e4351bb5727fad2044f9e00a1764df`; Git tree `7d7e664addc13a0e3558e661e2288a67832667ba`; 858 tracked paths; deterministic source SHA-256 `31819e72f73d065242122e3e65404bec12f06b1a80b3835284c3f82dfb34b711`. |
 | Independent verdict on `d94666a` | FAIL CLOSED: 0 Critical / 5 unique High. Details in `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. |
-| Current candidate | `3f164ae` — all five remediated, full gate green (54 client files, 1,299 backend tests), unreviewed. |
+| Reviewed in progress | `3f7dffc` — three blockers raised mid-review (RR-05 fail-open, account-link exchange unguarded, egress class incomplete). |
+| Current candidate | `55bb195` — those three answered; full gate green (54 client files, 1,307 backend tests). Unreviewed, and the review of `3f7dffc` was still running across three workstreams, so the finding count is not final. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
@@ -41,7 +42,9 @@ No candidate was built or promoted. Production prerequisite inspection remains d
 
 ## Waiting to ship
 
-**`3f164ae` is the state being handed back.** All five second-review findings are remediated; `./scripts/check.sh all` is green at 54 client test files and 1,299 backend tests, neither baseline dropped.
+**`55bb195` is the state being handed back.** The three blockers raised during the review of `3f7dffc` are answered; `./scripts/check.sh all` is green at 54 client test files and 1,307 backend tests, neither baseline dropped. Both requested trade-offs were applied as decided: Hermes is loopback-only by default with exact `Hermes:AllowedGatewayOrigins`, and the household-LAN reach no longer admits CGNAT or `0.0.0.0/8`.
+
+**One of those blockers contradicted a claim in Claude's own commit message** — that every outbound destination used one rule. Nine clients were still on default handlers, including the OAuth token exchange that posts a client secret and PKCE verifier. That is the third round of the same class-versus-instance failure, and `INCIDENTS.md` now carries the stronger guard: when a fix claims to close a class, write the test that asserts the class is closed. `EgressGuardTests.Every_outbound_client_registration_is_guarded` is that test, and it found the last two gaps while it was being written.
 
 Geist's sequence is unchanged: rerun the full gate on the exact bytes, fresh independent source review, TEST promotion, and browser validations before resuming production prerequisite and installer qualification.
 

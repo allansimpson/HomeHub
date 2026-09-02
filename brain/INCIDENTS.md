@@ -58,6 +58,16 @@ enumerate the instances: every other store with the same key or lifecycle, every
 same kind of configuration, every other transport reaching the same boundary. Fix the class. If only
 one instance is fixed, say in the handoff which others were checked and why they were left.
 
+**Third occurrence, 2026-09-02, and the guard above was not enough.** The next round fixed five
+outbound destinations, and the commit message claimed every outbound destination now used one rule.
+Nine clients were still on default handlers, including the OAuth token exchange that posts a client
+secret and a PKCE verifier. Enumerating from memory is not enumerating. **The stronger guard: when a
+fix claims to close a class, write the test that asserts the class is closed** — here,
+`EgressGuardTests.Every_outbound_client_registration_is_guarded`, which fails and names any
+`AddHttpClient` registration configuring no primary handler. It found the last two gaps while it was
+being written, which is the point: a claim about a class needs a check that runs, not a careful read.
+And do not write a completeness claim into a commit message that no test backs.
+
 **Second guard, from the same round.** A regression test written for a fix can pass against the unfixed
 code for reasons unrelated to the fix — one here did, because the value under test happened to be
 removed by a `removeItem` the stub had not intercepted. Run every new regression against the reverted
