@@ -58,6 +58,20 @@ enumerate the instances: every other store with the same key or lifecycle, every
 same kind of configuration, every other transport reaching the same boundary. Fix the class. If only
 one instance is fixed, say in the handoff which others were checked and why they were left.
 
+**Fifth occurrence, 2026-09-02, and the habit-shaped guards have now failed twice.** Two of three
+findings in the next review were the same shape again: a cleartext rule applied to the local STT
+sidecar and not to Chatterbox *in the same options class*, and a plaintext sweep applied to the
+operation store and not to the notice store beside it. Both siblings were one grep away, in files
+already open.
+
+**What actually worked, once.** `Every_outbound_client_registration_is_guarded` enumerates its class
+mechanically and found two gaps while it was being written. The guards that ask the author to remember
+something have not held; the one that made the machine enumerate did. **So: when a fix claims to close
+a class, prefer a check that lists the members from the source over a promise to have looked.** Where
+that is not possible — "every destination with both a shape check and a handler" has no mechanical
+enumeration — say so in the handoff and name what was checked by hand, so the gap is visible rather
+than assumed closed.
+
 **Fourth occurrence, 2026-09-02, and it was the guard itself that failed.** The round after the one
 below registered a *named* `HttpClient` called "unconfigured" in the belief that it left the unnamed
 default unregistered, asserted a deny-all invariant on that basis, and wrote

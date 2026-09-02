@@ -3,32 +3,32 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Claude, over Geist's `ed1cca` review snapshot. Geist's live-verified deployment and production-probe facts are theirs and unchanged; the remediation status is Claude's._
+_Updated: 2026-09-02 by Claude, over Geist's corrected `f961a0a` review snapshot. Geist's live-verified deployment and production-probe facts are theirs and unchanged; the remediation status is Claude's._
 
-**HomeHub is a website.** There is no Pi and no deployed voice bridge. Earlier handoffs listed the Pi's certificate trust and `HOMEHUB_ALLOWED_ORIGINS` as release prerequisites; that was wrong and is corrected. The bridge source and its 12 tests stay — the code is in the tree and is now correct — but it is not a deployment gate.
+**HomeHub is a website.** No Pi, no deployed voice bridge; its source and 12 tests stay but it is not a deployment gate.
 
-TEST is healthy on exact pushed tip `f961a0a` with zero pending migrations; production is unchanged and healthy. Fresh independent production review of exact `f961a0a` **failed closed: 0 Critical / 3 High**. The earlier `ed1cca` exact-origin and coupled-RED blockers are closed, but three newly confirmed release blockers remain: Chatterbox bypasses non-loopback cleartext refusal; RR-05 ignores and fails to verify legacy dropped-operation plaintext; and a conversation-list read by one member globally expires other profiles' conversations without durable Hermes transcript-deletion tombstones. TEST remains diagnostic-only and is not cleared for production.
+TEST is production-ineligible; production is unchanged and healthy. `f961a0a` **failed independent review: 0 Critical, 3 High.** All three are remediated in `fbe34b1`; the record is `.hermes/2026-09-02-f961a0a-review-claude-remediation.md`. A claim awaiting review, not a clearance.
 
-**Both blockers were in the previous round's own work.** `EgressGuard.Refuse` returned success the moment a URL matched `AllowedOrigins`, before looking at the transport — so an approved plain-http Hermes gateway received an agent's `API_SERVER_KEY` and the household's conversations in the clear, **and the test written to pin that boundary asserted it as correct**. Separately, `EgressRule.Origins` hard-coded loopback reach, so an approved non-loopback HTTPS origin passed the shape check and was then refused at dial as "not on this machine" — accepted configuration that could never work. Both fixed; origins now carry their own reach, and one `RefuseCleartext` applies to every destination class.
+**The three, and what they have in common.** Chatterbox could send household speech text over non-loopback http — it had a guarded handler, which screens addresses and never reads the scheme, and nothing called the shape check for it; the local STT sidecar in the same options class had all three checks and Chatterbox had none. The RR-05 sweep took the operation store and left the dropped-notice store, where a care write's `label` is the entry restated for a person to read. And retention deleted every expired conversation in the household from inside one member's list read, recording nothing about the Hermes transcripts behind them.
 
-**The evidence criticism is the most useful of the three and is recorded in `INCIDENTS.md`.** The previous round's five C# failures were a forced fail-open — mutation testing, which shows the tests notice when a method stops working and is not evidence against the prior implementation. The replacement binds the obsolete `AcknowledgeCleartextLan` key through `IConfiguration`, which does not care whether the property still exists. Verifying it exposed a second trap: restoring only the file the finding names was not enough, because the guard had also changed and refused the configuration before the acknowledgement was consulted. A revert must restore every file the behaviour depends on.
+**Two of the three are the same failure this repository has now recorded five times: the named case fixed, the sibling left.** The guard in `INCIDENTS.md` has been sharpened twice and did not hold either time. What did work, once, was the class-level test — `Every_outbound_client_registration_is_guarded` found two gaps while it was being written. The lesson is not a better habit; it is that a claim about a class needs a check that enumerates the class mechanically. There is no such check for "every destination that has a shape check as well as a handler", and that is what let Chatterbox through.
 
-**One extension beyond Geist's decision, flagged rather than folded in.** `RefuseCleartext` also applies to `EgressReach.HouseholdLan`, covering the local STT sidecar and Chatterbox — both take the household's recorded audio or the text it is about to speak, to a LAN listener nothing authenticates. Consequence: such an endpoint over http now reads as unconfigured and the panel falls back to browser STT and Piper rather than erroring. Production reports `localStt=false` with Piper primary, so it should be inert there. **If that should be narrowed to Home Assistant only, it is a one-line change.**
+**Retention now behaves slightly differently, visibly.** A member's own expired conversations are swept on their next list read; everybody else's within the hour, by `AssistRetentionWorker`, rather than instantly by whoever opened Assist first. Tombstones are written for every session in each conversation's lineage, and drained in the background by `SessionDeletionWorker` — the old objection to N HTTP round-trips inside a list read was right, and a durable row is not one.
 
-**Preflight for `8ad755a`:** `http://127.0.0.1:8123` is a valid Home Assistant value and needs no `AllowedOrigins` or certificate work, since HA runs on the same server. Any other HA host must be https and named. `Hermes:Agents:*:BaseUrl` must be loopback or an exact https origin in `Hermes:AllowedGatewayOrigins` — a LAN gateway over http no longer starts. A leftover `HomeAssistant:AcknowledgeCleartextLan` is inert and refused anyway.
+**Preflight for `fbe34b1`:** `Voice:Tts:Chatterbox:Endpoint` must be loopback or https (production runs Piper primary, so likely inert; a non-loopback http value now reads as unconfigured rather than erroring). Everything else is unchanged: `HomeAssistant:BaseUrl` of `http://127.0.0.1:8123` is valid and needs nothing; `Hermes:Agents:*:BaseUrl` must be loopback or an exact https origin in `Hermes:AllowedGatewayOrigins`.
 
-`./scripts/check.sh all` runs 54 client files, 1,328 backend tests and 12 bridge tests.
+`./scripts/check.sh all` runs 54 client files, 1,330 backend tests and 12 bridge tests.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `8ad755a` (approved-origin transport fix) on top of `ed1cca0`, plus this documentation commit |
+| `HEAD` now | `fbe34b1` (three-blocker remediation) on top of `e837ee7`, plus this documentation commit |
 | Working tree | Clean before review; only this Geist-owned state update is pending commit. |
 | Reviewed candidate identity | Commit `ed1cca08144eb42d95facb69dfd71b85a52041e7`; Git tree `111d57a36fe3e87f1c5fea1bc5bf8dc1d6ac014e`; 865 tracked entries; 834 UTF-8 text and 31 binary assets; source SHA-256 `74ecf61766fc6835810112765f0affabe6821be05b79ae9f47e60110f035c04b`. |
 | Independent verdict | FAIL CLOSED: 0 Critical / 2 High, plus incomplete C# prior-policy RED proof. |
-| Current candidate | `8ad755a` — both release blockers and the evidence blocker answered; full gate green (54 client files, 1,328 backend tests, 12 bridge tests). Unreviewed. |
+| Current candidate | `fbe34b1` — all three remediated; full gate green (54 client files, 1,330 backend tests, 12 bridge tests). Unreviewed. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
