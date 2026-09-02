@@ -58,6 +58,21 @@ enumerate the instances: every other store with the same key or lifecycle, every
 same kind of configuration, every other transport reaching the same boundary. Fix the class. If only
 one instance is fixed, say in the handoff which others were checked and why they were left.
 
+**Fourth occurrence, 2026-09-02, and it was the guard itself that failed.** The round after the one
+below registered a *named* `HttpClient` called "unconfigured" in the belief that it left the unnamed
+default unregistered, asserted a deny-all invariant on that basis, and wrote
+`Every_outbound_client_registration_is_guarded` — which passed, because it read registration lines.
+`CreateClient()` returns whatever sits under `Options.DefaultName`, the empty string, and that slot
+was still the framework's. The same round left `UseProxy` unset on every confined handler, which
+silently voids the whole address screen: with a proxy the connection is made to the proxy, so the
+addresses screened are the proxy's.
+
+**Guard.** A test for an invariant must exercise the path the caller takes, not the declaration the
+author wrote — resolve it from the container, drive a real connection, assert the property on the
+object that gets used. And when a mechanism is written up at length, ask what bypasses it rather than
+only what it catches: the connect callback's own comment explains DNS rebinding in detail and never
+mentions proxies, which is the thing that made it irrelevant.
+
 **Third occurrence, 2026-09-02, and the guard above was not enough.** The next round fixed five
 outbound destinations, and the commit message claimed every outbound destination now used one rule.
 Nine clients were still on default handlers, including the OAuth token exchange that posts a client

@@ -3,33 +3,33 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Geist after TEST promotion. Remediation claims remain Claude's; live deployment evidence is Geist's._
+_Updated: 2026-09-02 by Claude, over Geist's `c0c6234` review snapshot. Geist's live-verified deployment, browser and production-probe facts are theirs and unchanged; the remediation status is Claude's._
 
-Current TEST is healthy on exact clean DEV commit `c0c6234` as TEST-only release `20260902T142524Z-d6496e6c3a98`. Production remains unchanged. Fresh review of exact `c0c6234` is **FAIL CLOSED**: 0 Critical; four High findings confirmed by the complete-source review, with the focused egress review adding one release-blocking invariant failure because the unnamed default `HttpClient` remains unrestricted.
+TEST is healthy on `c0c6234` with zero pending migrations; production is unchanged and healthy. That candidate **failed independent production review: 0 Critical, 5 High.** All five are remediated in `9db29e0`; the record is `.hermes/2026-09-02-c0c6234-review-claude-remediation.md`. It is a claim awaiting review, not a clearance.
 
-RR-01, RR-02, and RR-03 are closed. The immediate visible lock in RR-03 is accepted: network and queue admission close synchronously, old work becomes epoch-invalid, settlement drains, and stores close last. RR-05 remains partially open. RR-04 validates the initial cloud URL but automatic redirects escape the allowlist. A fresh exhaustive review also found unconstrained local-STT, Google/Microsoft provider, and Hermes gateway destinations.
+**Two of the five were faults in Claude's own previous round, and one of them was the guard.** A deny-all invariant on the unnamed `HttpClient` was asserted, was false, and the class-level regression written to protect it agreed — because it read registration lines rather than resolving what a caller actually gets. The same round left `UseProxy` unset on every confined handler, which voids the address screen entirely: with a proxy the connection is made to the proxy. `INCIDENTS.md` now carries the sharpened guard — a test for an invariant must exercise the caller's path, and a mechanism written up at length should be asked what bypasses it, not only what it catches.
 
-The authoritative second re-review is `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. Existing tests remain genuinely green under Node `v24.13.0` and .NET SDK `10.0.110`: typecheck and lint pass, 54/54 client files, 1,239/1,239 backend tests, and no npm/NuGet production vulnerabilities. Three disposable adversarial tests independently demonstrated the remaining RR-05 plaintext cases.
+**Geist's browser verification at 540×1169 passed** and is the first real-browser pass on any of this — profile picker, no-PIN sign-in, dashboard on real TEST data, 200s, no layout faults. It closes the evidence gap Claude could not. Two changes in `9db29e0` postdate it and are browser-visible: the `storageUntrusted` warning strip and the memory-only demotion behind it.
 
-The exact clean `c0c6234` state was built and promoted to TEST only. Production prerequisite inspection remains deferred until source passes a fresh independent review. Production currently reports no cloud STT availability; SQL's literal configured server/TLS policy still requires privileged read-only preflight later.
+**One decision is put up for review rather than assumed.** Home Assistant now requires exact approved origins, as asked; the transport is where Claude stopped short of the required fix. Cleartext to a non-loopback HA is permitted behind an explicit, defaulted-off `HomeAssistant:AcknowledgeCleartextLan` rather than refused, because household HA commonly has no certificate and a hard TLS requirement would take the climate and sensors off every panel that has one. If that should be refused outright, it is a two-line change.
 
-**All five are remediated in `3f164ae`**, each with a regression verified red-capable against the reverted fix. Claude's account is appended to the second re-review record. It is a claim awaiting review, not a clearance — three rounds in, that distinction is the only thing keeping this honest.
+**Three new configuration surfaces will refuse to configure or start**, and all three want checking against the real deployment before bytes are installed: `HomeAssistant:AllowedOrigins` (required for any HA not on loopback), `HomeAssistant:AcknowledgeCleartextLan` (required alongside it for plain http), and `HOMEHUB_ALLOWED_ORIGINS` on the voice bridge (required for any HomeHub not on loopback). The Pi bridge matters most: it has no screen to report a refusal on.
 
-**Four of the five were one fault in four places.** Every outbound destination in the app was an unvalidated string and every client followed redirects: cloud STT, "local" STT, Google's and Microsoft's token/API/authorize endpoints, and each Hermes gateway. Fixing `Ai:OpenAiBaseUrl` on its own last round is exactly what left the other four standing — and left even that one escapable by a 307, which preserves the method and body. `Net/EgressGuard.cs` is now one rule per destination class, checked as a shape at startup and as *addresses* in a connect callback that dials what it screened. `INCIDENTS.md` carries the pattern: this is the second consecutive round where a fix landed at the instance and the class was left open.
+The gate now includes the voice bridge — `./scripts/check.sh all` runs 54 client files, 1,315 backend tests and 9 bridge tests, two of which stand up real listeners.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `55bb195` (second egress remediation), on top of `3f7dffc` |
+| `HEAD` now | `9db29e0` (c0c6234-review remediation) plus this documentation commit |
 | `HEAD` reviewed | `d94666a` (`a25eb83` remediation plus `d94666a` evidence), on top of `7e92322` |
 | Working tree | Clean. Application bytes changed in `3f164ae`, so the candidate identifiers below describe the superseded `d94666a` and a fresh snapshot is owed. |
 | Previously reviewed candidates | `e11f74f`: 0 Critical / 8 High. `d576927`: 0 Critical / at least 5 High. Both FAIL CLOSED; details remain in their dated `.hermes` reports. |
-| Current candidate identity | Commit `d94666a086e4351bb5727fad2044f9e00a1764df`; Git tree `7d7e664addc13a0e3558e661e2288a67832667ba`; 858 tracked paths; deterministic source SHA-256 `31819e72f73d065242122e3e65404bec12f06b1a80b3835284c3f82dfb34b711`. |
+| Reviewed candidate identity | Commit `c0c62349793e47ab9bd3796df2378a77980be921`; Git tree `841c27cdefdda872ed42e1000064397bf2864182`; 863 tracked entries; source SHA-256 `96191e9c76b9adac4a4270a953de98e7d516e9cdb79b118e77bd95487b2156fc`. Superseded by `9db29e0`; a fresh snapshot is owed. |
 | Independent verdict on `d94666a` | FAIL CLOSED: 0 Critical / 5 unique High. Details in `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. |
 | Reviewed in progress | `3f7dffc` — three blockers raised mid-review (RR-05 fail-open, account-link exchange unguarded, egress class incomplete). |
-| Current candidate | `55bb195` — those three answered; full gate green (54 client files, 1,307 backend tests). Unreviewed, and the review of `3f7dffc` was still running across three workstreams, so the finding count is not final. |
+| Current candidate | `9db29e0` — all five remediated, full gate green (54 client files, 1,315 backend tests, 9 bridge tests). Unreviewed. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
