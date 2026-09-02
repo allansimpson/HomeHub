@@ -509,9 +509,8 @@ var sensorPush = builder.Configuration.GetSection(SensorPushOptions.Section).Get
 if (sensorPush?.IsConfigured == true)
 {
     // Email, password, the access token they mint, and the household's sensor history.
-    builder.Services.AddHttpClient<SensorPushProvider>()
-        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-            () => sp.GetRequiredService<IOptions<SensorPushOptions>>().Value.Rule));
+    builder.Services.AddGuardedHttpClient<SensorPushProvider>(
+        sp => sp.GetRequiredService<IOptions<SensorPushOptions>>().Value.Rule);
     builder.Services.AddScoped<ISensorProvider>(sp => sp.GetRequiredService<SensorPushProvider>());
 }
 else
@@ -534,8 +533,7 @@ builder.Services.AddSingleton<AccountLinkState>();
  * `Options.DefaultName` is the empty string and naming it here is the whole fix: a caller that reaches
  * for the default now gets a handler that refuses every connection, rather than one that works.
  */
-builder.Services.AddHttpClient(Options.DefaultName)
-    .ConfigurePrimaryHttpMessageHandler(EgressGuard.CreateBlockingHandler);
+builder.Services.AddDenyAllDefaultHttpClient();
 
 builder.Services.AddScoped<AlertEngine>();
 
@@ -555,9 +553,8 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 // engine + banner as sensors (no duplicate mechanism).
 builder.Services.Configure<WeatherOptions>(builder.Configuration.GetSection(WeatherOptions.Section));
 // No credential, but a destination all the same, and one the household's coordinates travel to.
-builder.Services.AddHttpClient<IWeatherProvider, NwsWeatherProvider>()
-    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-        () => sp.GetRequiredService<IOptions<WeatherOptions>>().Value.Rule));
+builder.Services.AddGuardedHttpClient<IWeatherProvider, NwsWeatherProvider>(
+    sp => sp.GetRequiredService<IOptions<WeatherOptions>>().Value.Rule);
 builder.Services.AddScoped<WeatherRefresher>();
 
 // --- Stage M2: recipe import ---
@@ -611,9 +608,8 @@ var openFoodFacts = builder.Configuration.GetSection(OpenFoodFactsOptions.Sectio
 if (openFoodFacts?.IsConfigured == true)
 {
     // No credential, and still a destination: every barcode the household scans goes to it.
-    builder.Services.AddHttpClient<IProductLookup, OpenFoodFactsProductLookup>()
-        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-            () => sp.GetRequiredService<IOptions<OpenFoodFactsOptions>>().Value.LookupRule));
+    builder.Services.AddGuardedHttpClient<IProductLookup, OpenFoodFactsProductLookup>(
+        sp => sp.GetRequiredService<IOptions<OpenFoodFactsOptions>>().Value.LookupRule);
 }
 else
 {
@@ -623,9 +619,8 @@ else
 // outside any request. It shares the Microsoft OAuth config with the Tasks provider — one linked
 // account, two things using it — and does nothing at all until a list is chosen, which is a
 // supported way to run the section rather than a broken one (PANTRY_BEHAVIOURS §8).
-builder.Services.AddHttpClient(nameof(GroceryMirrorService))
-    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-        () => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule));
+builder.Services.AddGuardedHttpClient(nameof(GroceryMirrorService),
+    sp => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule);
 builder.Services.AddSingleton<GroceryMirrorService>(sp => new GroceryMirrorService(
     sp.GetRequiredService<IServiceScopeFactory>(),
     sp.GetRequiredService<IHttpClientFactory>().CreateClient(nameof(GroceryMirrorService)),
@@ -651,12 +646,10 @@ if (!string.IsNullOrWhiteSpace(connectionString))
  * default client, which has no address screen and follows redirects. Named, so asking for the wrong
  * one is a visible mistake rather than the default.
  */
-builder.Services.AddHttpClient(GuardedClients.Google)
-    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-        () => sp.GetRequiredService<IOptions<GoogleCalendarOptions>>().Value.Rule));
-builder.Services.AddHttpClient(GuardedClients.Microsoft)
-    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-        () => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule));
+builder.Services.AddGuardedHttpClient(GuardedClients.Google,
+    sp => sp.GetRequiredService<IOptions<GoogleCalendarOptions>>().Value.Rule);
+builder.Services.AddGuardedHttpClient(GuardedClients.Microsoft,
+    sp => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule);
 
 /*
  * Refused at startup rather than at the first sync, because the first sync is where the credential
@@ -676,9 +669,8 @@ if (google?.IsConfigured == true)
     // The client secret and each member's refresh token are posted to Google's token endpoint and the
     // household's calendar travels to its API. Screened, and no redirects: a 307 from an allowed origin
     // would re-post the refresh token to wherever it pointed.
-    builder.Services.AddHttpClient<GoogleCalendarProvider>()
-        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-            () => sp.GetRequiredService<IOptions<GoogleCalendarOptions>>().Value.Rule));
+    builder.Services.AddGuardedHttpClient<GoogleCalendarProvider>(
+        sp => sp.GetRequiredService<IOptions<GoogleCalendarOptions>>().Value.Rule);
 }
 
 // --- E2: reading engagements off a photograph ---
@@ -731,19 +723,19 @@ if (requiresDeploymentSafeguards && imageExtractor?.Configured != true)
 
 if (imageExtractor?.Configured == true)
 {
-    builder.Services.AddHttpClient<IImageExtractionClient, ImageExtractionClient>(http =>
-    {
-        http.BaseAddress = new Uri(imageExtractor.BaseUrl.TrimEnd('/') + "/");
-        http.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", imageExtractor.ApiKey);
-        // The per-call budget is enforced inside the client, which needs to tell a timeout from a
-        // cancellation; this is only the backstop for a socket that never answers at all.
-        http.Timeout = TimeSpan.FromSeconds(Math.Clamp(imageExtractor.TimeoutSeconds, 5, 180) + 30);
-    })
     // A bearer with no route-level scoping and the household's photographs. `Configured` already
-    // requires a loopback URL; this is the half a string check cannot do, and it turns redirects off.
-    .ConfigurePrimaryHttpMessageHandler(() => EgressGuard.CreateHandler(
-        () => EgressRule.Loopback("ImageExtractor:BaseUrl")));
+    // requires a loopback URL; the guard adds the address screen and the transport check.
+    builder.Services.AddGuardedHttpClient<IImageExtractionClient, ImageExtractionClient>(
+        _ => EgressRule.Loopback("ImageExtractor:BaseUrl"),
+        (_, http) =>
+        {
+            http.BaseAddress = new Uri(imageExtractor.BaseUrl.TrimEnd('/') + "/");
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", imageExtractor.ApiKey);
+            // The per-call budget is enforced inside the client, which needs to tell a timeout from a
+            // cancellation; this is only the backstop for a socket that never answers at all.
+            http.Timeout = TimeSpan.FromSeconds(Math.Clamp(imageExtractor.TimeoutSeconds, 5, 180) + 30);
+        });
     builder.Services.AddSingleton<IEventExtractor, ExtractorEventReader>();
     // The Kitchen's two modes ride the same isolated listener. A recipe page and a delivery
     // screenshot are a stranger's printed words exactly as a flyer is, so they get the same
@@ -755,9 +747,8 @@ else if (eventCapture?.UsesHouseAgent == false && eventCapture.Configured)
     // Legacy: a vision vendor. Kept reachable by explicit configuration, no longer a default — it is
     // a second destination for the household's post and a second bill for a job now done in-house.
     // The vendor reading path: an API key and the household's photographs leave the house on it.
-    builder.Services.AddHttpClient<IEventExtractor, VisionEventExtractor>()
-        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-            () => sp.GetRequiredService<IOptions<EventCaptureOptions>>().Value.Rule));
+    builder.Services.AddGuardedHttpClient<IEventExtractor, VisionEventExtractor>(
+        sp => sp.GetRequiredService<IOptions<EventCaptureOptions>>().Value.Rule);
 }
 else if (eventCapture?.UsesHouseAgent != false)
 {
@@ -814,9 +805,8 @@ if (microsoft?.IsConfigured == true)
 {
     // As Google, and wider: the grocery mirror shares these endpoints, so the shopping list travels
     // the same route as the tasks and the credentials.
-    builder.Services.AddHttpClient<MicrosoftTodoProvider>()
-        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-            () => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule));
+    builder.Services.AddGuardedHttpClient<MicrosoftTodoProvider>(
+        sp => sp.GetRequiredService<IOptions<MicrosoftTodoOptions>>().Value.Rule);
 }
 
 // --- Stage 6: climate (Home Assistant) ---
@@ -830,9 +820,8 @@ if (homeAssistant?.IsConfigured == true)
     // A long-lived bearer with service-call permission, the household's state, and the commands that
     // change it. An exact approved origin rather than a reach test: a private address says where a
     // listener is and not what it is, and any LAN device answering there receives all three.
-    builder.Services.AddHttpClient<HomeAssistantClient>()
-        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
-            () => sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value.Rule));
+    builder.Services.AddGuardedHttpClient<HomeAssistantClient>(
+        sp => sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value.Rule);
     builder.Services.AddScoped<HomeAssistantClimateProvider>();
 }
 
@@ -898,13 +887,11 @@ builder.Services.AddOptions<HermesOptions>()
 // The gateway carries this agent's own `API_SERVER_KEY` and the household's conversation content, and
 // its address is documented as loopback. Screened at dial time so that is true of the machine and not
 // merely of the string, and redirects are off so a gateway cannot hand the credential onward.
-builder.Services.AddHttpClient(HermesClientFactory.ClientName)
-    // One pooled handler serves every agent, so the rule names the gateway class rather than an agent.
-    // It carries no allowlist and only a reach, which is identical for all of them — the per-agent
-    // address is checked by name in the validator and again in `HermesClientFactory.Create`.
-    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(() =>
-        HermesOptionsValidator.GatewayRule(
-            "*", sp.GetRequiredService<IOptionsMonitor<HermesOptions>>().CurrentValue.AllowedGatewayOrigins)));
+// One pooled handler serves every agent, so the rule names the gateway class rather than an agent.
+// The per-agent address is checked by name in the validator and again in `HermesClientFactory.Create`.
+builder.Services.AddGuardedHttpClient(HermesClientFactory.ClientName, sp =>
+    HermesOptionsValidator.GatewayRule(
+        "*", sp.GetRequiredService<IOptionsMonitor<HermesOptions>>().CurrentValue.AllowedGatewayOrigins));
 builder.Services.AddSingleton<HermesClientFactory>();
 builder.Services.AddSingleton<HermesClient>();
 
@@ -994,16 +981,11 @@ var voice = builder.Configuration.GetSection(VoiceOptions.Section).Get<VoiceOpti
  * "local" sidecar must reach this machine or this house and never the internet. One rule each, read
  * live so a configuration reload cannot leave a stale one in a pooled handler.
  */
-builder.Services.AddHttpClient<OpenAISpeechToText>()
-    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(() =>
-    {
-        var current = sp.GetRequiredService<IOptions<AiOptions>>().Value;
-        return CloudSpeechEndpoint.Rule(current.OpenAiAllowedHosts);
-    }));
-builder.Services.AddHttpClient<LocalWhisperSpeechToText>(c =>
-        c.Timeout = TimeSpan.FromSeconds(Math.Max(1, voice.Stt.TimeoutSeconds)))
-    .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(() =>
-        sp.GetRequiredService<IOptions<VoiceOptions>>().Value.Stt.LocalRule));
+builder.Services.AddGuardedHttpClient<OpenAISpeechToText>(
+    sp => CloudSpeechEndpoint.Rule(sp.GetRequiredService<IOptions<AiOptions>>().Value.OpenAiAllowedHosts));
+builder.Services.AddGuardedHttpClient<LocalWhisperSpeechToText>(
+    sp => sp.GetRequiredService<IOptions<VoiceOptions>>().Value.Stt.LocalRule,
+    (_, c) => c.Timeout = TimeSpan.FromSeconds(Math.Max(1, voice.Stt.TimeoutSeconds)));
 builder.Services.AddKeyedScoped<ISpeechToText>(SttRouter.LocalKey, (sp, _) => sp.GetRequiredService<LocalWhisperSpeechToText>());
 builder.Services.AddKeyedScoped<ISpeechToText>(SttRouter.CloudKey, (sp, _) => sp.GetRequiredService<OpenAISpeechToText>());
 builder.Services.AddScoped<SttRouter>();
@@ -1014,9 +996,8 @@ builder.Services.AddScoped<SttRouter>();
 builder.Services.AddSingleton<PiperTextToSpeech>();
 // Household text on its way to be spoken aloud — including assistant replies, which quote the
 // household back to itself. A self-hosted server on the house network.
-builder.Services.AddHttpClient<ChatterboxTextToSpeech>()
-    .ConfigurePrimaryHttpMessageHandler(() => EgressGuard.CreateHandler(
-        () => EgressRule.HouseholdLan("Voice:Tts:Chatterbox:Endpoint")));
+builder.Services.AddGuardedHttpClient<ChatterboxTextToSpeech>(
+    sp => sp.GetRequiredService<IOptions<VoiceOptions>>().Value.Tts.Chatterbox.Rule);
 builder.Services.AddKeyedScoped<ITextToSpeech>(VoiceRouter.PiperKey, (sp, _) => sp.GetRequiredService<PiperTextToSpeech>());
 builder.Services.AddKeyedScoped<ITextToSpeech>(VoiceRouter.ChatterboxKey, (sp, _) => sp.GetRequiredService<ChatterboxTextToSpeech>());
 // The phrase cache clears itself at startup when the voice config hash changes, so it is a singleton.

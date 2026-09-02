@@ -759,57 +759,70 @@ public class EgressGuardTests
     }
 
     /*
-     * The class, asserted as a class.
+     * The class, enumerated from the source rather than remembered.
      *
-     * Two consecutive reviews found the same fault in places the previous round had not enumerated —
-     * so what is pinned here is not another instance but the absence of the shape that produced them.
-     * A registration with no primary handler gets the framework's, which follows redirects and screens
-     * nothing; if a future one is added without a guard, this fails and names it.
+     * <b>Five consecutive reviews found five instances of one class-versus-instance failure</b>, and
+     * the guards that asked the author to remember something did not hold. What held, once, was a test
+     * that listed the members mechanically — so this is that, tightened.
+     *
+     * The registration helper is what makes it enumerable. A client used to need a shape check and an
+     * address screen attached separately, which is two facts to maintain per destination and no way to
+     * ask whether both are present. `AddGuardedHttpClient` attaches both or neither, so the question
+     * becomes one a regex can answer: is every `AddHttpClient` in the app either that helper, the
+     * deny-all default, or a named exception that carries its own equivalent invariant test.
      */
     [Fact]
-    public void Every_outbound_client_registration_is_guarded()
+    public void Every_outbound_client_registration_goes_through_the_guarded_helper()
     {
-        var program = File.ReadAllText(SourcePath("src/HomeHub.Api/Program.cs"));
-        var unguarded = new List<string>();
+        /*
+         * The one exception, named rather than pattern-matched. `RecipeFetcher` fetches URLs the
+         * household types, so it screens *outward* — its destination must be public and must not reach
+         * the LAN, which is the opposite rule and predates this helper. It has its own invariant test
+         * below; being on this list is what makes that a stated exception rather than an omission.
+         */
+        string[] exceptions = ["AddHttpClient<RecipeFetcher>"];
 
-        foreach (var line in program.Split('\n'))
+        var offenders = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(SourcePath("src/HomeHub.Api"), "*.cs", SearchOption.AllDirectories))
         {
-            var trimmed = line.Trim();
-            if (!trimmed.StartsWith("builder.Services.AddHttpClient", StringComparison.Ordinal)) continue;
-            // A registration that ends its own statement has no handler configured after it.
-            if (trimmed.EndsWith(");", StringComparison.Ordinal)) unguarded.Add(trimmed);
+            var lines = File.ReadAllLines(file);
+            for (var i = 0; i < lines.Length; i++)
+            {
+                // `AddGuardedHttpClient` and `AddDenyAllDefaultHttpClient` both contain the substring,
+                // so the match is for a bare `AddHttpClient` with nothing in front of it.
+                var line = lines[i].TrimStart();
+                // Prose about the API is not a call to it. Several of these files explain at length
+                // why the bare registration is the hole, and would otherwise report themselves.
+                if (line.StartsWith("//", StringComparison.Ordinal)
+                    || line.StartsWith("*", StringComparison.Ordinal)
+                    || line.StartsWith("/*", StringComparison.Ordinal)) continue;
+                if (!System.Text.RegularExpressions.Regex.IsMatch(line, @"(?<![A-Za-z])AddHttpClient\s*[<(]")) continue;
+                if (exceptions.Any(line.Contains)) continue;
+                // The helper's own implementation is where the bare calls legitimately live.
+                if (file.EndsWith("GuardedHttpClientExtensions.cs", StringComparison.Ordinal)) continue;
+                offenders.Add($"{Path.GetFileName(file)}:{i + 1}  {line}");
+            }
         }
 
         Assert.True(
-            unguarded.Count == 0,
-            "These HttpClient registrations configure no primary handler, so they follow redirects and "
-            + "screen no address:\n  " + string.Join("\n  ", unguarded));
+            offenders.Count == 0,
+            "These register an HttpClient without going through AddGuardedHttpClient. A raw "
+            + "registration gets the framework's handler — redirects on, no address screen, no "
+            + "transport check — and nothing enumerates whether the guards were attached separately:\n  "
+            + string.Join("\n  ", offenders));
     }
 
     /*
-     * And the handler families themselves, since reading registration lines proves only that *a*
-     * handler was configured. Every one this app builds must refuse redirects and refuse a proxy;
-     * a new family that forgets either is a new instance of a fault this has now had three rounds of.
+     * The named exception carries its own invariant, so being excepted is not being unguarded.
      */
     [Fact]
-    public void Every_handler_family_refuses_redirects_and_proxies()
+    public void The_named_exception_screens_its_own_destinations()
     {
-        var handlers = new (string Name, SocketsHttpHandler Handler)[]
-        {
-            ("EgressGuard.CreateHandler", EgressGuard.CreateHandler(() => Internet)),
-            ("EgressGuard.CreateBlockingHandler", EgressGuard.CreateBlockingHandler()),
-            ("RecipeFetcher.CreateGuardedHandler",
-                HomeHub.Api.Meals.RecipeFetcher.CreateGuardedHandler(new HomeHub.Api.Meals.MealsOptions())),
-        };
+        using var handler = HomeHub.Api.Meals.RecipeFetcher.CreateGuardedHandler(new HomeHub.Api.Meals.MealsOptions());
 
-        foreach (var (name, handler) in handlers)
-        {
-            using (handler)
-            {
-                Assert.False(handler.AllowAutoRedirect, $"{name} follows redirects.");
-                Assert.False(handler.UseProxy, $"{name} would use a proxy, which bypasses its address screen.");
-            }
-        }
+        Assert.False(handler.AllowAutoRedirect);
+        Assert.False(handler.UseProxy);
+        Assert.NotNull(handler.ConnectCallback);
     }
 
     /// <summary>The repository root, found by walking up from the test binary.</summary>
