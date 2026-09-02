@@ -3,19 +3,24 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Geist. Deployment facts below were live-verified by Geist; application remediation remains Claude's._
+_Updated: 2026-09-02 by Claude, over Geist's snapshot of the same day. Deployment facts below were live-verified by Geist and are unchanged; the remediation state is Claude's._
 
-Current TEST remains healthy on the exact `e11f74f` candidate. The independent complete-source production review failed closed with **0 Critical and 8 High findings**. Production remains unchanged. Claude's authoritative remediation handoff is `.hermes/2026-09-02-production-security-review-eight-high-claude-handoff.md`.
+Current TEST remains healthy on the exact `e11f74f` candidate. The independent complete-source production review failed closed with **0 Critical and 8 High findings**. Production remains unchanged.
+
+**All eight are remediated in `2a82d53`, in Claude's judgement and Claude's tests. That is a claim awaiting review, not a clearance** — the same distinction the previous five-finding round drew, and it matters here for one specific reason: the browser evidence the handoff asks for has **not** been produced, because this checkout has no development database credentials. See "Remediation matrix" in `.hermes/2026-09-02-production-security-review-eight-high-claude-handoff.md`, which carries the per-finding files, tests, migration behaviour, the settled HH-05 policy, and four retained risks Geist should weigh before promoting.
+
+Two of those risks are deployment prerequisites rather than code questions, and are worth reading before a promotion is attempted: HH-07 will refuse to boot if production's SQL Server is remote and lacks a trusted certificate matching its `Server=` name, and HH-08 will refuse to boot if production currently relies on cloud STT fallback without `Voice:Stt:CloudAudioEgressAcknowledged=true`. Both refusals are intended; both are better found now than at promotion.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` / `origin/main` before this handoff commit | `d6f1540` / `d6f1540` (0 ahead, 0 behind) |
-| Working tree before this handoff | Clean |
+| `HEAD` after remediation | `2a82d53` (remediation) on top of `661f5a1` (the handoff commit) on top of `d6f1540` |
+| Working tree | Clean |
+| Preconditions | Verified before any edit: `git diff --name-only e11f74f 661f5a1` returned only the handoff and two `brain/` files, so all eight cited surfaces were byte-identical to the reviewed commit. |
 | Reviewed application bytes | Commit `e11f74f`; source-tree SHA-256 `620d8f13f2ca863c0025f768f959a3fc8ccb04252f7a6fd5b10e3dc185347218`. Only `brain/DEPLOYMENT.md` and `brain/STATE.md` changed between `e11f74f` and `d6f1540`; all eight cited code/config surfaces were byte-identical. |
-| Independent verdict | FAIL CLOSED: 0 Critical, 8 High. The earlier H1–H5 and later private-boundary labels are reconciled in the new handoff; passing prior tests did not cover the residual races, offline plaintext/lock boundaries, SQL TLS template, or cloud-STT default. |
+| Independent verdict (on `e11f74f`) | FAIL CLOSED: 0 Critical, 8 High. The earlier H1–H5 and later private-boundary labels are reconciled in the new handoff; passing prior tests did not cover the residual races, offline plaintext/lock boundaries, SQL TLS template, or cloud-STT default. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
@@ -28,43 +33,86 @@ Current TEST remains healthy on the exact `e11f74f` candidate. The independent c
 
 ## Waiting to ship
 
-> **FROZEN AS A CANDIDATE — 2026-09-01, at Geist's instruction.** The candidate is **the commit
-> bearing this note**, which is the last commit Claude will make until the review returns. Its
-> identifiers are in the handover below; they cannot be written *into* the commit that carries them,
-> because doing so would change it.
->
-> **Superseded in part, 2026-09-01:** Allan lifted this for two changes after a browser pass found
-> the identity boundary never opening on the candidate — see In flight. The candidate `dc7d026` is
-> unchanged and still reviewable; what follows it is on `main` behind it.
->
-> **No further application changes.** Geist has the deployment half: set and verify
-> `Server:RequiredSans` and `Server:CaPath`, remove and rotate `Mcp:ApiKey` while confirming named
-> credentials, deliberately exercise the fail-closed startup behaviour in TEST, and independently
-> review the exact candidate. **Any changed bytes after that review begins invalidate the candidate
-> and require a fresh gate** — so if something is found, it restarts the gate rather than amending
-> this.
->
-> Accepted by Geist as a candidate handoff, **not** as an independent verdict. The five findings are
-> remediated in Claude's judgement and Claude's tests; that is a claim awaiting review, not a
-> clearance.
+> **The candidate freeze of 2026-09-01 is spent.** It covered the five-finding round, which was
+> reviewed, and the review returned eight new findings — so there is nothing left to freeze against.
+> The remediation for those eight is `2a82d53` and it is the state being handed over.
 
+**`2a82d53` is the state being handed over.** The production gate still stands. What Geist has, in
+order:
+
+1. Read the remediation matrix in
+   `.hermes/2026-09-02-production-security-review-eight-high-claude-handoff.md` — per finding: files,
+   commit, focused tests, migration behaviour, the settled HH-05 policy, and four retained risks.
+2. Note the two deployment prerequisites before building anything, because both are startup refusals
+   that will surface at promotion otherwise: **HH-07** needs production's SQL Server to present a
+   certificate matching its `Server=` name unless it is loopback, and **HH-08** needs
+   `Voice:Stt:CloudAudioEgressAcknowledged=true` if production relies on cloud STT fallback.
+3. Build and promote the exact new artifact to TEST, then re-review the immutable candidate.
 
 Nothing deploys on push. Claude hands a verified code state to Geist; Geist snapshots and promotes it
 through the process in `DEPLOYMENT.md`. `scripts/deploy.sh` is not the active route.
 
-**`0527f3f` is the state being handed over.** The production gate still stands, but for a different
-reason than it did yesterday: all five High findings are remediated on the application side, and what
-remains is Hermes's — rotating the deprecated MCP key out of the deployed environments, exercising the
-three new startup refusals deliberately in TEST, and the fresh full-source review of the changed
-candidate. See Blocked.
+**Startup gates that will refuse to boot**, all intended, now five rather than three: missing or
+invalid `Server:RequiredSans` and `Server:CaPath`; `Mcp:ApiKey` still set; SQL certificate validation
+disabled against a non-loopback host (new, HH-07); and cloud STT permitted without acknowledgement
+(new, HH-08). The earlier H2 change also signs the household out once — every cookie predating it
+carries no security-version claim and is refused.
 
-**Three startup gates will refuse to boot** without valid `Server:RequiredSans` and `Server:CaPath`,
-or with `Mcp:ApiKey` still set. That is intended. **H2 also signs the household out once**: every
-cookie predating it carries no security-version claim and is refused.
-
-TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded one-release exception; its original manifest remains TEST-only.
+TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded
+one-release exception; its original manifest remains TEST-only.
 
 ## In flight
+
+- **The eight production review findings are remediated** (2026-09-02, `2a82d53`, committed, not
+  deployed, **not independently reviewed**). Geist's complete-source review; the handoff carries the
+  full matrix and this is the shape of it.
+  **One key model, settled first, because three findings depended on it.** A profile with no PIN had
+  its Care vault opened `{ kind: 'plaintext' }` on the reasoning that there was no secret to seal
+  under — the premise was wrong, not the conclusion. `deviceKey.ts` mints a per-profile AES-GCM key
+  with `extractable: false` and keeps the `CryptoKey` in IndexedDB, so storage inspection yields a
+  handle the browser will use and will not hand over. Allan chose this over memory-only, which would
+  have cost the kiosk profile its offline log on every restart. The `plaintext` seal is gone from the
+  type; a blob a previous build wrote in the clear is erased on open, and a *sealed* blob that will
+  not open is left alone, because the right key may arrive later.
+  **The write queue was the open window beside the sealed door.** It carried Care bodies, paths and
+  labels into `localStorage` as JSON — the same rows the vault was protecting, on their way to the
+  server. `queueStore.ts` seals it under the same key, per profile. Its migration is asymmetric on
+  purpose: an allowlisted write is adopted, a private one is quarantined as `legacy-plaintext` and
+  the household told, and nothing plaintext is ever replayed as a private write.
+  **A wrong key must read nothing *and* destroy nothing**, which is two claims. The first version
+  satisfied only the first: it started empty, so the next write sealed an empty queue over the
+  rightful owner's unsent work. The acceptance test caught it. An unreadable blob now makes the
+  session memory-only and leaves the blob where it is.
+  **`lockNow` returned without locking whenever the panel was offline.** Sound when written — the
+  PIN was the server's to check, so an offline lock stranded people — and overtaken by
+  `offlineUnlock`, which teaches the device to check the PIN itself. What it had become was a way to
+  suspend the household's own privacy setting from outside: pull the router, wait, and a shared panel
+  sits on a decrypted care log. Deleted, and restated as `locksWhenIdle(profile, online)` which takes
+  the connection reading and ignores it — an absence is not something a test can hold on to.
+  **The transport let go at the response headers.** `authorizedFetch` removed a request from
+  `inFlight` and settled its drain when headers arrived, so a transition's drain reported quiet while
+  JSON bodies, Assist streams and queue settlements were still running under the identity it had just
+  revoked. The unit is the whole operation now (`authorizedOperation`), the epoch is rechecked before
+  a value reaches a caller, and `authorizedFetch` no longer exists — so the fifth transport, the
+  write queue, could not stay outside it. That also closed the queue's silent 401: an expired cookie
+  found by a replay used to break the loop and tell nobody.
+  **A 401 is not one fact.** The client guessed by path and method that any 401 from
+  `PUT|DELETE /profiles/{id}/pin` was a wrong PIN — true of one of the two ways those routes refuse,
+  false of the other, and a member changing their PIN on an expired session is the ordinary way to
+  hit the false one. The server marks credential refusals with `HomeHub-Auth: credential-rejected`
+  and everything unmarked closes the boundary. Fail-closed by absence.
+  **Two production defaults.** `SqlConnectionPolicy` refuses a deployment that disables SQL
+  certificate validation against anything but loopback, and the bootstrap template no longer ships
+  `TrustServerCertificate=True` next to a `Server=` you are told to point elsewhere. Cloud STT
+  fallback defaults off in both the options class and `appsettings.json`; a deployment that wants it
+  must acknowledge audio egress explicitly or startup fails, and the active boundary is logged at boot
+  and reported on `/voice/capabilities` rather than only as a label after each response.
+  `./scripts/check.sh all` green: 53 client test files (was 50), 1,210 backend tests (was 1,157).
+  **The browser evidence is missing and is the honest gap.** Every manual validation the handoff asks
+  for needs a sign-in, which needs a database; there is no `ConnectionStrings:HomeHub` in this
+  checkout's user-secrets and no dev credentials available. A SQL Server listens on `127.0.0.1:1433`
+  and was not guessed at. Given a development connection string this runs through the shared
+  Playwright runtime and lands under `artifacts/homehub-browser-verification/`.
 
 - **The last tab survives a close and reopen, on every device** (2026-09-01, committed, not
   deployed). Asked for by Allan. The mechanism already existed and already persisted — `lastTab.ts`

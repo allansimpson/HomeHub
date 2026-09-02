@@ -349,6 +349,172 @@ The current archive remains `target_environment=test`, `test_only=true`, and `pr
 7. render and independently review a checksum-pinned installer for those exact bytes;
 8. obtain Allan’s explicit production approval before any privileged production action.
 
+## Remediation matrix — Claude, 2026-09-02
+
+**Status:** implementation and development tests complete for all eight. **Geist re-review is not
+marked complete and is not claimed.** One piece of required evidence is outstanding and is stated
+plainly below rather than omitted.
+
+Preconditions were verified before any edit: `/srv/dev/homehub` on `main`, working tree clean, `HEAD`
+at `661f5a1` (a clean descendant of `d6f1540` carrying this handoff), and `git diff --name-only
+e11f74f HEAD` returning only `.hermes/…-claude-handoff.md`, `brain/DEPLOYMENT.md` and
+`brain/STATE.md` — so every cited code/config surface was byte-identical to the reviewed commit.
+
+All eight land in one commit, `2a82d53`, because HH-01/02/03 share one lifecycle contract and
+HH-04/05/06 share one key model; splitting either group would have landed a partial boundary.
+
+| Finding | Changed files | Focused tests |
+|---|---|---|
+| HH-01 | `client/src/api/privateNetwork.ts`, `client/src/api/client.ts`, `client/src/app/speech.ts`, `client/src/app/writeQueue.ts`, `client/src/app/PrivateSession.tsx` | `privateNetwork.test.ts` → *the operation, not the fetch, is what a transition waits for* (4) |
+| HH-02 | `client/src/app/sessionBoundary.ts` (new), `client/src/app/SessionProvider.tsx` | `sessionBoundary.test.ts` (7) |
+| HH-03 | `client/src/api/privateNetwork.ts`, `client/src/app/writeQueue.ts`, `src/HomeHub.Api/Auth/CredentialRefusal.cs` (new), `SessionController.cs`, `ProfilesController.cs` | `privateNetwork.test.ts` → *a 401 closes the session boundary* (8); `writeQueue.test.ts` → 401 retention + replay announcement (3); `CredentialRefusalTests.cs` (9) |
+| HH-04 | `client/src/app/queueStore.ts` (new), `client/src/app/writeQueue.ts`, `client/src/app/WriteQueueProvider.tsx`, `client/src/app/SessionProvider.tsx` | `queueStore.test.ts` (18); `writeQueue.test.ts` → *the plaintext allowlist*, durability refusal |
+| HH-05 | `client/src/app/deviceKey.ts` (new), `client/src/screens/care/careVault.ts`, `client/src/app/SessionProvider.tsx` | `deviceKey.test.ts` (9); `careVault.test.ts` → *the plaintext vault a previous build left behind* (2) |
+| HH-06 | `client/src/app/sessionTrust.ts`, `client/src/app/SessionProvider.tsx` | `sessionTrust.test.ts` → `locksWhenIdle` (4) |
+| HH-07 | `src/HomeHub.Api/Data/SqlConnectionPolicy.cs` (new), `src/HomeHub.Api/Program.cs`, `deploy/bootstrap-server.sh` | `SqlConnectionPolicyTests.cs` (28) |
+| HH-08 | `src/HomeHub.Api/Ai/VoiceOptions.cs`, `src/HomeHub.Api/Ai/SttRouter.cs`, `src/HomeHub.Api/Controllers/VoiceController.cs`, `src/HomeHub.Api/Program.cs`, `src/HomeHub.Api/appsettings.json` | `VoiceBoundaryTests.cs` (16) |
+
+### Root causes, and why each mechanism covers all callers
+
+**HH-01.** `authorizedFetch` returned a `Response` at headers and removed the request from `inFlight`
+there, so a drain reported quiet while bodies, Assist streams and queue settlements were still
+running under the old identity. The unit is now the operation: `authorizedOperation(path, init,
+consume)` holds the entry until `consume` settles and revalidates the epoch twice — once before the
+body is touched, once after it is consumed and before its value reaches a caller. Coverage is
+structural rather than by convention: `authorizedFetch` no longer exists, so all five authenticated
+transports (JSON helper, Assist stream, Assist cancel, server TTS, durable write queue) either pass
+their consumption inside the operation or use `authorizedSend`, which names the no-body case
+explicitly. A future caller reaching for `fetch` is refused by not being in the module at all.
+
+**HH-02.** `refresh` captured `locked` from its defining render and confirmed identity from it after
+awaiting, so a lock landing mid-read was overwritten by the completion. A flag cannot express this —
+sign-out followed by sign-in returns the same state and must still refuse — so the boundary is a
+never-repeating counter. Every transition (`duringSessionTransition`, `lockNow`, the session-lost
+handler, device-only demotion, profile switch, unmount) calls `begin()` synchronously before
+awaiting; every asynchronous flow (`refresh`, boot, device-only promotion) captures `current()` and
+checks `holds()` at **each** await, not only the first.
+
+**HH-03.** Two gaps, one decision. The queue's transport called `fetch` directly and never announced;
+it now goes through `authorizedOperation`, so the announcement is the transport's. The PIN-route
+exemption was a guess by path and method that could not distinguish a wrong PIN from an expired
+cookie on the same route; the server now marks credential refusals with `HomeHub-Auth:
+credential-rejected` and the client treats every unmarked 401 as a lost session. Fail-closed by
+absence: a new endpoint cannot opt into being excused by accident. Separately, `executeDurably` no
+longer sets a 401 aside as a rejected write — a 401 describes the session, not the request.
+
+**HH-04/HH-05.** One key model, because two protection levels is a hole with extra steps. `keyFor`
+is the single place a seal is chosen: a proved PIN's data key; `null` (memory-only) for a PIN profile
+that did not type it; the non-extractable device key for a profile with no PIN. `openPrivateStores`
+opens the care vault and the queue under that one key, and both are per profile. Persisted bytes are
+AES-GCM ciphertext; the queue's read stays synchronous over an in-memory mirror so every durability
+rule keeps its shape, and `executeDurably` awaits `store.flush()` before its fetch, which is where
+the write-ahead invariant now lives explicitly rather than by inheriting `localStorage`'s synchrony.
+
+**HH-06.** The early return on `!online` was a correct fix for a premise that `offlineUnlock` later
+removed. It is deleted, and — because an absence is not testable — restated as `locksWhenIdle(profile,
+online)`, which takes the connection reading and ignores it, so a future edit reintroducing the
+condition fails a test rather than passing quietly.
+
+**HH-07/HH-08.** Both enforce at startup under the existing `requiresDeploymentSafeguards` flag, so
+Development and the automated Test environment are unaffected and a deployment cannot reach the
+unsafe state by copying a template.
+
+### Migration and backward compatibility, where persistence changed
+
+- **Care vault (HH-05).** A stored value is told apart from a plaintext blob by alphabet, not by
+  attempting decryption: sealed blobs are `base64.base64` and JSON opens with `{`. A plaintext blob
+  is **erased** on open and the profile starts from what the server returns. A *sealed* blob that
+  will not open is left exactly where it is — the right key may arrive on a later unlock, and
+  destroying it would be the purge-on-lock behaviour this store exists to replace. Both directions
+  are tested.
+- **Write queue (HH-04).** Asymmetric and explicit. An ordinary (allowlisted) operation is adopted
+  into the seal and its plaintext entry removed; a **private operation is quarantined**, never
+  replayed, and surfaced to the household as a set-aside notice with reason `legacy-plaintext`; an
+  operation with no owner is quarantined as `legacy-orphaned`. Another profile's plaintext entries
+  are left for that profile. The migration is persisted at open so it is decided once rather than
+  re-announced every boot. A session with no key does not migrate at all — reading the plaintext
+  store into memory and deleting it would destroy the writes it was migrating.
+- **Wrong key does not destroy data.** An unreadable blob makes the session memory-only rather than
+  starting empty; starting empty satisfied "cannot read it" and would have sealed an empty queue over
+  the rightful owner's unsent work on the very next write. Found by the acceptance test, fixed, and
+  the test now writes under the wrong key to hold it.
+- **Cost carried over from the existing design:** a PIN changed on another device strands what was
+  sealed under the old key until sign-out clears it. This is the limit `offlineUnlock.enrol` already
+  documents for the care vault; the queue now shares it rather than introducing a new one.
+
+### Settled policy decision — HH-05
+
+**Option 1 was chosen, on Allan's explicit selection: a per-profile device-backed key.**
+
+A per-profile AES-GCM key is generated with `extractable: false` and stored in IndexedDB as a
+`CryptoKey` object rather than as bytes. A structured clone of a non-extractable key is still
+non-extractable, so reading the database back yields a handle and not a secret, and `exportKey`
+throws. That is what makes it different in kind from a key written beside the ciphertext it opens.
+No-PIN offline Care data therefore survives restart, which memory-only would not have.
+
+The claim is deliberately narrower than "encrypted", and stated in `deviceKey.ts` at length: any
+script on the panel's own origin can *use* the key, because that is what it is for. This defends the
+record at rest — a device picked up, a storage inspection, another profile's turn on the shared panel
+— and not against code already running as the panel. A PIN remains the stronger boundary. Clearing
+site data destroys the key and the records with it, which is the honest cost of having no PIN to
+re-derive from.
+
+A browser that cannot hold a key at all (no IndexedDB, private mode, plain HTTP with no
+`crypto.subtle`) returns `null`, and every caller reads `null` as memory-only. **There is no path
+from the new code that ends in a private record being written in the clear.**
+
+### Full gate
+
+```text
+./scripts/check.sh all
+  ok  typecheck      6s
+  ok  lint           0s
+  ok  tests          5s   Test Files  53 passed (53)
+  ok  backend-tests 48s   Failed: 0, Passed: 1210, Skipped: 0, Total: 1210
+```
+
+Both baselines increased and neither dropped: client test **files** 50 → 53, holding 997 individual
+tests; backend tests 1,157 → 1,210. The stated baseline was in files for the client, so that is the
+figure to reconcile against; the per-test count is given because it is the more sensitive number and
+it also rose.
+
+### Outstanding — browser/manual evidence
+
+**Not done, and not claimable.** Every manual validation this handoff asks for (HH-01 delayed
+body/stream across a profile switch; HH-04 storage inspection after offline Care writes; HH-05
+cross-profile and restart exercise on the kiosk profile; HH-06 offline idle lock, local unlock and
+reconnect) requires signing in, which requires a database. This checkout has no
+`ConnectionStrings:HomeHub` in user-secrets and no dev credentials are available to me; a SQL Server
+is listening on `127.0.0.1:1433` but I have neither a login for it nor Docker access, and I did not
+attempt to guess either.
+
+What this means for the review: the automated acceptance criteria above are met and the mechanisms
+are unit-tested at the seams, but **no claim is made that these paths have been exercised in a real
+browser.** Give me a development connection string and I will run the four validations through the
+shared Playwright runtime at `/srv/dev/tools/playwright` and record them under
+`artifacts/homehub-browser-verification/`. Until then this is the one gap between "implementation and
+development tests complete" and the evidence the handoff asked for, and it is Geist's to weigh.
+
+### Intentionally retained risk — a decision is requested, not assumed
+
+1. **A PIN profile that reaches an unlocked panel without typing its PIN writes nothing durable** —
+   neither care log nor queued writes. This was already the vault's behaviour and is now the queue's,
+   because the alternative is either plaintext or sealing a PIN-holder's records under a key the PIN
+   is not needed to open. The cost is a write made after connectivity drops in such a session, lost
+   on reload. Flagged rather than assumed acceptable.
+2. **An idle lock while offline can strand a profile never enrolled on this device** until the house
+   is back in range. This is the fail-closed direction and the Lock screen already says so through
+   its `unavailable` state, but it is a behaviour change from a panel that previously never locked
+   offline at all.
+3. **HH-07 permits `TrustServerCertificate=True` for loopback only.** If production's SQL Server is
+   remote, this remediation will refuse to start until a trusted certificate whose subject or SAN
+   matches the `Server=` name is installed. That is intended, and it is a deployment prerequisite
+   Geist should confirm before promoting — a panel that will not boot is a better failure than one
+   that trusts anything, but it is still a failure if discovered at promotion time.
+4. **HH-08 changes a shipped default.** A deployment currently relying on cloud STT fallback will
+   fail startup until `Voice:Stt:CloudAudioEgressAcknowledged=true` is set. Also intended, and also
+   worth confirming against production configuration before promotion.
+
 ## Closure rule
 
 Claude may mark implementation and development tests complete. Only Geist may mark independent re-review complete. Production remains blocked until the newly built exact candidate has **zero unresolved Critical and zero unresolved High findings** and every operational gate passes.
