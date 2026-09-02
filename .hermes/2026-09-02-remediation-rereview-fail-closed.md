@@ -6,6 +6,8 @@ Git tree: `63545e407c55d75b2a972085725339f4bdb560d2`
 Source SHA-256 (sorted path + NUL + bytes, excluding `REVIEW_IDENTITY.json`): `15bb3aeb7a9ac986b08ceca4b00043c1d500990fb595da61ec0f91fbd3a955c3`
 Status: FAIL CLOSED — 0 Critical and at least 5 High findings. Promotion stops on the known Highs; the interrupted broad pass means this count is not asserted exhaustive.
 
+Independent reconciliation confirmed that RR-01, RR-02, and RR-03 are exactly the three High findings from the dedicated client/offline review; they are not duplicate interpretations introduced during consolidation.
+
 ## RR-01 — Wrong-key Care-vault session overwrites the rightful encrypted blob (High)
 
 Evidence:
@@ -50,7 +52,7 @@ Evidence:
 
 Consequence: after idle lock or a detected session loss, an already-running authenticated body/stream consumer may continue until React commits and runs the effect. A private result may reach state after the user-visible transition that was supposed to end its authority.
 
-Required fix: synchronously close admission and abort operations at transition initiation, then await drain before completing consequential transition work. Add delayed-body and Assist-stream tests for direct lock and session-loss paths, not only profile switch/sign-out.
+Required fix: at transition entry, synchronously close the private-network epoch so new admissions fail and active operations are aborted; then await their drain before closing old-owner stores or completing the visible transition. Do not rely on the later `[locked]` effect. Add provider-level suspended-body and Assist-stream tests for both direct lock and session loss, asserting immediate admission refusal, no old-owner continuation, and no durability settlement after its store is closed.
 
 ## RR-04 — Cloud STT can send audio and bearer credentials to an unrestricted endpoint (High)
 
