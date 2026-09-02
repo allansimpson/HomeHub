@@ -3,15 +3,15 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Claude, over Geist's post-second-review snapshot of the same day. Geist's live-verified deployment and production-probe facts below are theirs and unchanged; the remediation status is Claude's._
+_Updated: 2026-09-02 by Geist after TEST promotion. Remediation claims remain Claude's; live deployment evidence is Geist's._
 
-Current TEST remains healthy on the old exact `e11f74f` candidate. Production remains unchanged. The exact second remediation candidate `d94666a` (`a25eb83` application changes plus evidence) passed its full development gate but **failed independent production review with 0 Critical and 5 unique High findings**.
+Current TEST is healthy on exact clean DEV commit `c0c6234` as TEST-only release `20260902T142524Z-d6496e6c3a98`. Production remains unchanged. The prior exact candidate `3f7dffc` failed independent production review with 0 Critical and 9 unique High findings; the new remediation at `55bb195` and documentation at `c0c6234` are not yet independently production-qualified.
 
 RR-01, RR-02, and RR-03 are closed. The immediate visible lock in RR-03 is accepted: network and queue admission close synchronously, old work becomes epoch-invalid, settlement drains, and stores close last. RR-05 remains partially open. RR-04 validates the initial cloud URL but automatic redirects escape the allowlist. A fresh exhaustive review also found unconstrained local-STT, Google/Microsoft provider, and Hermes gateway destinations.
 
 The authoritative second re-review is `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`. Existing tests remain genuinely green under Node `v24.13.0` and .NET SDK `10.0.110`: typecheck and lint pass, 54/54 client files, 1,239/1,239 backend tests, and no npm/NuGet production vulnerabilities. Three disposable adversarial tests independently demonstrated the remaining RR-05 plaintext cases.
 
-No candidate was built or promoted. Production prerequisite inspection remains deferred until source passes. Production currently reports no cloud STT availability; SQL's literal configured server/TLS policy still requires privileged read-only preflight later.
+The exact clean `c0c6234` state was built and promoted to TEST only. Production prerequisite inspection remains deferred until source passes a fresh independent review. Production currently reports no cloud STT availability; SQL's literal configured server/TLS policy still requires privileged read-only preflight later.
 
 **All five are remediated in `3f164ae`**, each with a regression verified red-capable against the reverted fix. Claude's account is appended to the second re-review record. It is a claim awaiting review, not a clearance — three rounds in, that distinction is the only thing keeping this honest.
 
@@ -36,9 +36,9 @@ No candidate was built or promoted. Production prerequisite inspection remains d
 
 | Environment | Last live-verified state |
 |---|---|
-| TEST | Release `20260902T041152Z-620d8f13f2ca`; artifact SHA-256 `e9e7b563c3cb3bc814bddd7c387609ca84f360c52cb885d12eb8d64057a18a6d`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `e11f74f+ · 2026-09-02 04:12Z`; bundle `index-kcmVYEme.js`; live bundle and service worker exactly matched the artifact |
+| TEST | Release `20260902T142524Z-d6496e6c3a98`; artifact SHA-256 `03c7602ec8814cb561bc16f738bd2e00a50c65c8d574f83a56b8e23f8be04fac`; source SHA-256 `d6496e6c3a987c089e849c36ada1e778b4798c9d463244f3627efafde196ea2b`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `c0c6234+ · 2026-09-02 14:25Z`; bundle `index-DsCzJLol.js`; live bundle and service worker exactly matched the artifact |
 | Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged and last verified healthy; build `a66e80a+ · 2026-08-31 10:52Z` |
-| Gap | Production is blocked on the second re-review's 5 High findings, then a corrected exact candidate, fresh zero-Critical/High review, new TEST artifact, browser evidence, configuration/installer qualification, and Allan's explicit approval. |
+| Gap | The remediated `c0c6234` bytes are on TEST but remain production-ineligible pending fresh zero-Critical/High review, browser evidence, protected-configuration and installer qualification, and Allan's explicit approval. |
 
 ## Waiting to ship
 

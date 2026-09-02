@@ -2,7 +2,7 @@
 
 **Owned by Geist (Hermes). Claude records observations and hands deployment work over.**
 
-_Last verified: 2026-09-02T04:14Z by Geist. Sources: live restricted-SSH probes,
+_Last verified: 2026-09-02T14:25Z by Geist. Sources: live restricted-SSH probes,
 `systemctl show`, deep-health responses, the active sudo policy, and the canonical HomeHub promotion
 workflow._
 
@@ -52,14 +52,14 @@ the shared checkout.
 
 ## Current live observation
 
-Verified at 2026-09-02T04:14Z:
+Verified at 2026-09-02T14:25Z:
 
-- Clean authoritative DEV at commit `e11f74fafe62213226e14af7dfa38dcc0cc43ce3` (15 commits
-  ahead of `origin/main`) was promoted to TEST as release `20260902T041152Z-620d8f13f2ca`. Its source-tree SHA-256 is
-  `620d8f13f2ca863c0025f768f959a3fc8ccb04252f7a6fd5b10e3dc185347218` and artifact SHA-256 is `e9e7b563c3cb3bc814bddd7c387609ca84f360c52cb885d12eb8d64057a18a6d`.
+- Clean authoritative DEV at commit `c0c62349793e47ab9bd3796df2378a77980be921` (matching
+  `origin/main` at preflight) was promoted to TEST as release `20260902T142524Z-d6496e6c3a98`. Its source-tree SHA-256 is
+  `d6496e6c3a987c089e849c36ada1e778b4798c9d463244f3627efafde196ea2b` and artifact SHA-256 is `03c7602ec8814cb561bc16f738bd2e00a50c65c8d574f83a56b8e23f8be04fac`.
 - TEST is active; HTTPS and deep health return 200; database `ok`; pending migrations `0`;
-  migration head `20260901164422_AddProfileSecurityVersion`; build `e11f74f+ · 2026-09-02 04:12Z`;
-  SPA bundle `index-kcmVYEme.js`. The live bundle and service worker (`657370c36110512ad86cbdc81aa4a46a5b86c61787e88b3452a584c42869c5d1`) exactly match the immutable artifact.
+  migration head `20260901164422_AddProfileSecurityVersion`; build `c0c6234+ · 2026-09-02 14:25Z`;
+  SPA bundle `index-DsCzJLol.js`. The live bundle and service worker (`15c6ba8593f977b146355bb01db0fd96404866d4f9a5082777f0d8af1e317252`) exactly match the immutable artifact.
 - Production remains unchanged on release `20260831T105206Z-09cfd47e8477`; service active; HTTPS and
   deep health 200; database `ok`; pending migrations `0`; migration head
   `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle
@@ -67,7 +67,7 @@ Verified at 2026-09-02T04:14Z:
 - The old TEST archive remains TEST-only and production-ineligible. The first review of `e11f74f` failed with 0 Critical / 8 High.
 - Claude's first remediation candidate `d576927` failed independent review with 0 Critical / at least 5 High; details remain in `.hermes/2026-09-02-remediation-rereview-fail-closed.md`.
 - Claude's second remediation candidate `d94666a` (application changes in `a25eb83`) was independently pinned and exercised under the release toolchains. Its full gate passed: typecheck, lint, 54/54 client files, 1,239/1,239 backend tests, and no npm/NuGet production vulnerabilities. Fresh review nevertheless failed closed with **0 Critical / 5 unique High findings**. Details: `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`.
-- No remediated artifact was built or promoted. Production remains blocked pending corrected exact source, a fresh zero-Critical/High review, new TEST artifact, live browser validation, and normal configuration/installer gates.
+- The current remediated bytes are deployed to TEST only and remain production-ineligible. Production remains blocked pending a fresh zero-Critical/High review of the exact candidate, live browser validation, and normal protected-configuration and installer gates.
 - Non-secret production observations: established SQL traffic is loopback-to-loopback on port 1433, but the configured `Server=` token and TLS flags remain protected and may still fail the literal startup policy; authenticated voice capabilities report no local or cloud STT availability. Exact protected environment-key presence remains a privileged preflight item.
 
 ## Observation from Claude, 2026-08-30 — deployment docs still describe Huckleberry
