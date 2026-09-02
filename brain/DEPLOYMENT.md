@@ -52,23 +52,16 @@ the shared checkout.
 
 ## Current live observation
 
-Verified at 2026-09-02T14:25Z:
+Verified at 2026-09-02T17:55Z:
 
-- Clean authoritative DEV at commit `c0c62349793e47ab9bd3796df2378a77980be921` (matching
-  `origin/main` at preflight) was promoted to TEST as release `20260902T142524Z-d6496e6c3a98`. Its source-tree SHA-256 is
-  `d6496e6c3a987c089e849c36ada1e778b4798c9d463244f3627efafde196ea2b` and artifact SHA-256 is `03c7602ec8814cb561bc16f738bd2e00a50c65c8d574f83a56b8e23f8be04fac`.
-- TEST is active; HTTPS and deep health return 200; database `ok`; pending migrations `0`;
-  migration head `20260901164422_AddProfileSecurityVersion`; build `c0c6234+ · 2026-09-02 14:25Z`;
-  SPA bundle `index-DsCzJLol.js`. The live bundle and service worker (`15c6ba8593f977b146355bb01db0fd96404866d4f9a5082777f0d8af1e317252`) exactly match the immutable artifact.
-- Production remains unchanged on release `20260831T105206Z-09cfd47e8477`; service active; HTTPS and
-  deep health 200; database `ok`; pending migrations `0`; migration head
-  `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle
-  `index-D3pqF7Ee.js`.
-- The old TEST archive remains TEST-only and production-ineligible. The first review of `e11f74f` failed with 0 Critical / 8 High.
-- Claude's first remediation candidate `d576927` failed independent review with 0 Critical / at least 5 High; details remain in `.hermes/2026-09-02-remediation-rereview-fail-closed.md`.
-- Claude's second remediation candidate `d94666a` (application changes in `a25eb83`) was independently pinned and exercised under the release toolchains. Its full gate passed: typecheck, lint, 54/54 client files, 1,239/1,239 backend tests, and no npm/NuGet production vulnerabilities. Fresh review nevertheless failed closed with **0 Critical / 5 unique High findings**. Details: `.hermes/2026-09-02-second-remediation-rereview-fail-closed.md`.
-- The current remediated bytes are deployed to TEST only and remain production-ineligible. Production remains blocked pending a fresh zero-Critical/High review of the exact candidate, live browser validation, and normal protected-configuration and installer gates.
-- Non-secret production observations: established SQL traffic is loopback-to-loopback on port 1433, but the configured `Server=` token and TLS flags remain protected and may still fail the literal startup policy; authenticated voice capabilities report no local or cloud STT availability. Exact protected environment-key presence remains a privileged preflight item.
+- Clean authoritative DEV at exact pushed commit `f961a0a87541ecd96fb1b3ddca83814ecd861abc` was promoted to TEST as release `20260902T175515Z-079f8643db9b`.
+- Source-tree SHA-256: `079f8643db9b291007d2367a0262c0da44ba462359ed9f172976f095c190326b`.
+- Artifact SHA-256: `caded0f466a56cb185a261d0a82fe2b007b579ebe43a6830246916d789a7b474`.
+- TEST is active; HTTPS and deep health return 200; database `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `f961a0a+ · 2026-09-02 17:55Z`; SPA bundle `index-BWovjJC4.js`.
+- The live bundle returned 200 and the service worker exactly matched the artifact at SHA-256 `f7fd97f0900e49e43eff565cd207039ea5a9ffc9354a5f3bb86e94a8818a3c94`.
+- Fresh Chromium sessions at 540×1169 verified the normal dashboard and a forced browser-storage refusal. Both rendered without horizontal overflow or page errors; every observed application API response returned 200; the private-storage warning was visible in the failure path. Both configured Hermes agents were reachable through the deployed application. The expected development-CA service-worker certificate console message remains.
+- Production remains unchanged on release `20260831T105206Z-09cfd47e8477`; service active; HTTPS and deep health 200; database `ok`; pending migrations `0`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle `index-D3pqF7Ee.js`.
+- This artifact is TEST-only and production-ineligible. Exact `f961a0a` still requires fresh zero-Critical/High qualification before production.
 
 ## Observation from Claude, 2026-08-30 — deployment docs still describe Huckleberry
 

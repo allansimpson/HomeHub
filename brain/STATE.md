@@ -7,7 +7,7 @@ _Updated: 2026-09-02 by Claude, over Geist's `ed1cca` review snapshot. Geist's l
 
 **HomeHub is a website.** There is no Pi and no deployed voice bridge. Earlier handoffs listed the Pi's certificate trust and `HOMEHUB_ALLOWED_ORIGINS` as release prerequisites; that was wrong and is corrected. The bridge source and its 12 tests stay — the code is in the tree and is now correct — but it is not a deployment gate.
 
-TEST is healthy on `c0c6234` with zero pending migrations; production is unchanged and healthy. `ed1cca` **failed independent review: 0 Critical, 2 High release blockers, 1 evidence blocker.** All three are answered in `8ad755a`; the record is `.hermes/2026-09-02-ed1cca-review-claude-remediation.md`. A claim awaiting review, not a clearance.
+TEST is healthy on exact pushed tip `f961a0a` with zero pending migrations; production is unchanged and healthy. `ed1cca` **failed independent review: 0 Critical, 2 High release blockers, 1 evidence blocker.** All three are answered in `8ad755a`; the record is `.hermes/2026-09-02-ed1cca-review-claude-remediation.md`. The remediation is now running in TEST for browser/runtime validation, not cleared for production.
 
 **Both blockers were in the previous round's own work.** `EgressGuard.Refuse` returned success the moment a URL matched `AllowedOrigins`, before looking at the transport — so an approved plain-http Hermes gateway received an agent's `API_SERVER_KEY` and the household's conversations in the clear, **and the test written to pin that boundary asserted it as correct**. Separately, `EgressRule.Origins` hard-coded loopback reach, so an approved non-loopback HTTPS origin passed the shape check and was then refused at dial as "not on this machine" — accepted configuration that could never work. Both fixed; origins now carry their own reach, and one `RefuseCleartext` applies to every destination class.
 
@@ -35,9 +35,10 @@ TEST is healthy on `c0c6234` with zero pending migrations; production is unchang
 
 | Environment | Last live-verified state |
 |---|---|
-| TEST | Release `20260902T142524Z-d6496e6c3a98`; artifact SHA-256 `03c7602ec8814cb561bc16f738bd2e00a50c65c8d574f83a56b8e23f8be04fac`; source SHA-256 `d6496e6c3a987c089e849c36ada1e778b4798c9d463244f3627efafde196ea2b`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `c0c6234+ · 2026-09-02 14:25Z`; bundle `index-DsCzJLol.js`; live bundle and service worker exactly matched the artifact |
-| Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged and last verified healthy; build `a66e80a+ · 2026-08-31 10:52Z` |
-| Gap | The remediated `c0c6234` bytes are on TEST but remain production-ineligible pending fresh zero-Critical/High review, browser evidence, protected-configuration and installer qualification, and Allan's explicit approval. |
+| TEST | Release `20260902T175515Z-079f8643db9b`; exact source commit `f961a0a87541ecd96fb1b3ddca83814ecd861abc`; source SHA-256 `079f8643db9b291007d2367a0262c0da44ba462359ed9f172976f095c190326b`; artifact SHA-256 `caded0f466a56cb185a261d0a82fe2b007b579ebe43a6830246916d789a7b474`; active; HTTPS/deep health 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; bundle `index-BWovjJC4.js`; live bundle and service worker matched the artifact. |
+| Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged and verified healthy; build `a66e80a+ · 2026-08-31 10:52Z`; bundle `index-D3pqF7Ee.js`. |
+| Browser | Fresh 540×1169 TEST sessions passed normal and forced-storage-failure paths: no horizontal overflow or page errors; all observed application API responses were 200; the storage warning rendered visibly; both configured Hermes agents were reachable. |
+| Gap | TEST artifact is explicitly TEST-only and production-ineligible. Exact `f961a0a` still needs fresh zero-Critical/High qualification before any production decision. |
 
 ## Waiting to ship
 
