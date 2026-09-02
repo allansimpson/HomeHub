@@ -93,7 +93,27 @@ public sealed class VoiceOptions
             [nameof(Ai.Prosody.Subdued)] = new() { Exaggeration = 0.4, Cfg = 0.5, Speed = 0.95 },
         };
 
-        public bool IsConfigured => !string.IsNullOrWhiteSpace(Endpoint);
+        /// <summary>The rule for the speech server, shared by startup, availability and the request sink.</summary>
+        /// <remarks>
+        /// <b>The handler alone was not enough, and that gap is the finding.</b> A guarded primary
+        /// handler screens the addresses a connection is made to; it does not read the scheme, so a
+        /// `Voice:Tts:Chatterbox:Endpoint` of `http://server.lan:8004` passed every check and sent the
+        /// household's text — assistant replies, which quote the household back to itself — across the
+        /// LAN in the clear to a listener nothing authenticates. The shape check is what refuses that,
+        /// and nothing was calling it for this endpoint.
+        /// </remarks>
+        public EgressRule Rule => EgressRule.HouseholdLan("Voice:Tts:Chatterbox:Endpoint");
+
+        /// <summary>
+        /// Configured, and pointing somewhere it is allowed to point.
+        /// </summary>
+        /// <remarks>
+        /// A non-empty string used to be the whole condition. A destination that fails the rule now
+        /// reads as no Chatterbox at all, so <see cref="VoiceRouter"/> falls back to Piper rather than
+        /// posting household text at it — the fail-closed half of the startup check.
+        /// </remarks>
+        public bool IsConfigured =>
+            !string.IsNullOrWhiteSpace(Endpoint) && EgressGuard.IsPermitted(Endpoint, Rule);
     }
 
     /// <summary>Chatterbox emotion controls for one prosody.</summary>
@@ -262,6 +282,20 @@ public sealed class VoiceOptionsValidator(bool requiresDeploymentSafeguards) : I
             && EgressGuard.Refuse(stt.LocalEndpoint, stt.LocalRule) is { } localRefusal)
         {
             errors.Add(localRefusal);
+        }
+
+        /*
+         * The speech server, checked as a destination for the same reason the sidecar is.
+         *
+         * It was left out when the sidecar was done, which is the class-versus-instance failure this
+         * repository has now recorded four times: both take household content to a LAN listener, both
+         * are configured as a bare URL, and only one of them was being checked.
+         */
+        var tts = options.Tts.Chatterbox;
+        if (!string.IsNullOrWhiteSpace(tts.Endpoint)
+            && EgressGuard.Refuse(tts.Endpoint, tts.Rule) is { } ttsRefusal)
+        {
+            errors.Add(ttsRefusal);
         }
 
         /*

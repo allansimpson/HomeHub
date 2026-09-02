@@ -945,6 +945,21 @@ builder.Services.AddScoped<AssistTurnService>();
 // The retention/deletion queue. Registered as a singleton *and* as the hosted service so the delete
 // endpoint can drain it immediately — the ordinary case finishes before the response lands, and
 // anything that fails is already durable and retried in the background.
+/*
+ * Retention, applied on a schedule rather than on somebody's read.
+ *
+ * It used to run inside a member's conversation-list read and delete every expired conversation in
+ * the household — one member opening Assist destroying another's chats. The read now sweeps only its
+ * own caller; this is the half that reaches everybody, and without it a member who stopped opening
+ * Assist would keep their old conversations for ever.
+ */
+if (!string.IsNullOrWhiteSpace(connectionString))
+{
+    // Both need a database, so neither is registered without one — the no-database shell must still
+    // validate its service graph at startup.
+    builder.Services.AddScoped<HomeHub.Api.Assist.AssistRetention>();
+    builder.Services.AddHostedService<HomeHub.Api.Assist.AssistRetentionWorker>();
+}
 builder.Services.AddSingleton<HomeHub.Api.Assist.SessionDeletionWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<HomeHub.Api.Assist.SessionDeletionWorker>());
 // Names a chat once its first turn has been answered. Singleton because it outlives the request that

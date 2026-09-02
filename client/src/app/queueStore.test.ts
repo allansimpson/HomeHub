@@ -373,6 +373,68 @@ describe('the boot sweep', () => {
     expect(sweepLegacyPlaintext(storage)).toBe(false)
   })
 
+  /*
+   * The notices were missed the first time, and the omission is the whole of it: a notice carries
+   * `label`, which for a care write is the entry restated for a person to read. The records were
+   * removed from one key and left legible in the one beside it.
+   */
+  it('sweeps a previous build\'s set-aside notices, which name the entries', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.dropped.v1', JSON.stringify([
+      { id: 'c', label: 'Bottle 120ml for Wren', domain: 'care', ownerProfileId: 2, reason: 'rejected', at: 1 },
+      { id: 'g', label: 'Add Olive oil', domain: 'grocery', ownerProfileId: 2, reason: 'rejected', at: 2 },
+    ]))
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    const notices = storage.getItem('homehub.writequeue.dropped.v1') ?? ''
+    expect(notices).not.toContain('Bottle')
+    expect(notices).not.toContain('Wren')
+    // The ordinary one is somebody's telling about their own shopping, and stays.
+    expect(notices).toContain('Olive oil')
+  })
+
+  it('sweeps a legible notice even when the operation store is already clean', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.dropped.v1', JSON.stringify([
+      { id: 'c', label: 'Bottle 120ml for Wren', domain: 'care', ownerProfileId: 2, reason: 'rejected', at: 1 },
+    ]))
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.dropped.v1') ?? '').not.toContain('Wren')
+  })
+
+  /*
+   * The notices this sweep writes are private-domain too, so a rule that swept by domain would delete
+   * the household's own telling on the next boot. They are recognised by the exact sentence they carry.
+   */
+  it('does not sweep away its own redacted notices on the next boot', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+
+    sweepLegacyPlaintext(storage)
+    const afterFirst = storage.getItem('homehub.writequeue.dropped.v1')
+    expect(afterFirst).toContain('could not be carried over')
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.dropped.v1')).toBe(afterFirst)
+  })
+
+  it('reports failure when a legible notice cannot be removed', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.dropped.v1', JSON.stringify([
+      { id: 'c', label: 'Bottle 120ml for Wren', domain: 'care', ownerProfileId: 2, reason: 'rejected', at: 1 },
+    ]))
+    storage.setItem = () => { throw new DOMException('quota', 'QuotaExceededError') }
+    storage.removeItem = () => undefined
+
+    // Claiming the sweep succeeded while the entry is still legible is the failure being closed.
+    expect(sweepLegacyPlaintext(storage)).toBe(false)
+  })
+
   it('leaves a store with nothing sensitive in it exactly as it found it', () => {
     const storage = new MemoryStorage()
     const legacy = JSON.stringify([groceryOp('g')])

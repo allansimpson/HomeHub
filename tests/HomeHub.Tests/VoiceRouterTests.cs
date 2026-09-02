@@ -56,7 +56,10 @@ public class VoiceRouterTests
                 CacheDirectory = cacheDir ?? Path.Combine(Path.GetTempPath(), "homehub-voice-tests-" + Guid.NewGuid()),
                 PiperPath = "piper",
                 VoiceModel = "voice.onnx",
-                Chatterbox = new VoiceOptions.ChatterboxOptions { Endpoint = "http://gpu.test:8004" },
+                // https, because the speech server takes household text — including assistant replies,
+                // which quote the household back to itself — and a named LAN host authenticates nothing
+                // over plain http. Same rule as the local STT sidecar beside it.
+                Chatterbox = new VoiceOptions.ChatterboxOptions { Endpoint = "https://gpu.test:8004" },
             },
         });
 

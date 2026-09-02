@@ -33,6 +33,8 @@ public sealed class ChatterboxTextToSpeech : ITextToSpeech
         _options = _tts.Chatterbox;
         _logger = logger;
 
+        // `IsConfigured` now includes the destination check, so an endpoint that is not permitted
+        // leaves this client unaddressed and `IsAvailable` false — the router uses Piper instead.
         if (_options.IsConfigured)
         {
             _http.BaseAddress = new Uri(_options.Endpoint!.TrimEnd('/') + "/");

@@ -373,6 +373,96 @@ public class AssistApiTests
         Assert.Empty(list!.Conversations);
     }
 
+    /*
+     * <b>Retention used to be somebody else's read.</b> `SweepAsync` ran inside the conversation-list
+     * endpoint and deleted every expired conversation in the household — so profile 1 opening Assist
+     * destroyed profile 2's chats. That is the boundary AUDIT A1.2 exists to hold, crossed by a side
+     * effect rather than by a request anybody made.
+     */
+    [Fact]
+    public async Task One_member_s_list_read_does_not_delete_another_member_s_conversations()
+    {
+        using var app = new HubAppFactory();
+        var mine = app.CreateSeededClient(1);
+        var theirs = app.CreateSeededClient(2);
+
+        var ours = await Post(mine, Turn("Mine, and old"));
+        var yours = await Post(theirs, Turn("Theirs, and old"));
+
+        var policy = await mine.PutAsJsonAsync("/api/settings/conversation-policy",
+            new SetConversationPolicyRequest(true, 1));
+        policy.EnsureSuccessStatusCode();
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            foreach (var id in new[] { ours.ConversationId, yours.ConversationId })
+                db.Conversations.First(c => c.Id == id).LastAtUtc = DateTime.UtcNow.AddYears(-3);
+            db.SaveChanges();
+        }
+
+        await mine.GetFromJsonAsync<ConversationListDto>("/api/assist/conversations");
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            Assert.Null(db.Conversations.FirstOrDefault(c => c.Id == ours.ConversationId));
+            Assert.NotNull(db.Conversations.FirstOrDefault(c => c.Id == yours.ConversationId));
+        }
+    }
+
+    /*
+     * And the transcripts behind them. Retention removed the HomeHub rows and their lineage without
+     * recording anything about the Hermes sessions, so the agent kept what the panel had just promised
+     * to forget. Tombstones rather than round-trips: a row here, drained by `SessionDeletionWorker`.
+     */
+    [Fact]
+    public async Task Retention_leaves_a_deletion_tombstone_for_every_session_in_the_lineage()
+    {
+        using var app = new HubAppFactory();
+        var client = app.CreateSeededClient();
+
+        var started = await Post(client, Turn("Old news"));
+
+        var policy = await client.PutAsJsonAsync("/api/settings/conversation-policy",
+            new SetConversationPolicyRequest(true, 1));
+        policy.EnsureSuccessStatusCode();
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            var row = db.Conversations.First(c => c.Id == started.ConversationId);
+            row.LastAtUtc = DateTime.UtcNow.AddYears(-3);
+            row.HermesSessionId = "current-session";
+            // An ancestor, from a compression or a restart. Its transcript is as much the household's
+            // words as the last one's, which is why the lineage is walked rather than the tip alone.
+            db.HermesSessionReferences.Add(new HermesSessionReference
+            {
+                ConversationId = row.Id,
+                AgentKey = row.AgentKey,
+                SessionId = "ancestor-session",
+                DiscoveredAtUtc = DateTime.UtcNow.AddYears(-3),
+            });
+            db.SaveChanges();
+        }
+
+        await client.GetFromJsonAsync<ConversationListDto>("/api/assist/conversations");
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            Assert.Null(db.Conversations.FirstOrDefault(c => c.Id == started.ConversationId));
+
+            var tombstoned = db.HermesSessionDeletions
+                .Where(d => d.ConversationId == started.ConversationId)
+                .Select(d => d.SessionId)
+                .ToList();
+
+            Assert.Contains("current-session", tombstoned);
+            Assert.Contains("ancestor-session", tombstoned);
+        }
+    }
+
     [Fact]
     public async Task A_retention_of_never_sweeps_nothing()
     {

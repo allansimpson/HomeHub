@@ -164,6 +164,7 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
             services.AddScoped<ClimateBinder>();
             services.AddScoped<ClimateLoop>();
             services.AddScoped<ClimateCommands>();
+            services.AddScoped<HomeHub.Api.Assist.AssistRetention>();
             services.AddScoped<NotificationService>();
             services.AddScoped<MealNotifier>();
             services.AddScoped<PantryLedger>();

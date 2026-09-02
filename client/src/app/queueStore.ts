@@ -55,6 +55,17 @@ const LEGACY_DROPPED_KEY = 'homehub.writequeue.dropped.v1'
 const MAX_DROPPED = 20
 
 /**
+ * The only label this module writes in the clear.
+ *
+ * A constant because {@link sweepLegacyNotices} recognises its own output by it: the redacted notices
+ * are private-domain like the ones they replace, so sweeping by domain would delete the household's
+ * telling on the next boot. Changing this sentence without changing that check would make every
+ * previous boot's notice sweepable — they are one decision.
+ */
+const REDACTED_LABEL =
+  'An offline entry from an older version could not be carried over. Please re-enter it.'
+
+/**
  * Announced whenever the queue is opened, closed or emptied.
  *
  * `WriteQueueProvider` mirrors the store into React state and had nothing to re-read on: the store
@@ -253,6 +264,22 @@ export function revokeQueueDurability(): void {
  */
 export function sweepLegacyPlaintext(storage: QueueStorage = localStorage): boolean {
   /*
+   * Two stores, swept independently, and the second is why this is not one pass.
+   *
+   * The first version returned early whenever the *operation* store was empty or held nothing
+   * private — and the notice store beside it can be full of care labels either way. A household that
+   * had already retried its set-aside entries has an empty queue and a notice store that still names
+   * every one of them. So the operation sweep produces notices and the notice sweep runs regardless
+   * of whether it produced any.
+   */
+  const ops = sweepLegacyOperations(storage)
+  const notices = sweepLegacyNotices(storage, ops.notices)
+  return ops.swept && notices
+}
+
+/** The operation half. Returns whether it can vouch for the result, and what to announce. */
+function sweepLegacyOperations(storage: QueueStorage): { swept: boolean; notices: DroppedOp[] } {
+  /*
    * <b>Read raw, because "nothing there" and "could not look" are different answers.</b>
    *
    * `readJson` returns `[]` for both — a store that throws on `getItem`, a value that is not JSON, a
@@ -265,9 +292,9 @@ export function sweepLegacyPlaintext(storage: QueueStorage = localStorage): bool
     raw = storage.getItem(LEGACY_KEY)
   } catch {
     // The store refused to be read. Nothing can be proved about what is in it, so nothing is claimed.
-    return false
+    return { swept: false, notices: [] }
   }
-  if (raw == null) return true
+  if (raw == null) return { swept: true, notices: [] }
 
   let parsed: unknown
   try {
@@ -284,14 +311,14 @@ export function sweepLegacyPlaintext(storage: QueueStorage = localStorage): bool
    * key goes. It is the same confidentiality-over-availability trade the refused-rewrite path makes,
    * reached for the same reason: what cannot be examined cannot be vouched for.
    */
-  if (!Array.isArray(parsed)) return purge(storage)
+  if (!Array.isArray(parsed)) return { swept: purge(storage), notices: [] }
 
   const legacy = parsed as QueuedOp[]
   const isSensitive = (op: QueuedOp) =>
     // A malformed entry among well-formed ones is sensitive by the same reasoning as above.
     op == null || typeof op !== 'object' || op.ownerProfileId == null || isPrivateDomain(op.domain)
   const swept = legacy.filter(isSensitive)
-  if (swept.length === 0) return true
+  if (swept.length === 0) return { swept: true, notices: [] }
 
   write(storage, LEGACY_KEY, legacy.filter((op) => !isSensitive(op)))
 
@@ -299,19 +326,47 @@ export function sweepLegacyPlaintext(storage: QueueStorage = localStorage): bool
    * Read back rather than trusted. `write` is best-effort because the legacy store is on its way out
    * either way — which is fine for the ordinary half and not fine for this one.
    */
-  if (stillSensitive(storage, isSensitive) && !purge(storage)) return false
+  if (stillSensitive(storage, isSensitive) && !purge(storage)) return { swept: false, notices: [] }
 
-  /*
-   * A notice for each, and the malformed ones get one too.
-   *
-   * They cannot be described — that is what made them sensitive — so they are announced as orphaned,
-   * which is the truthful reading: nothing about the record establishes whose it was.
-   */
-  const notices = swept.map((op) => redactedNotice(
-    op ?? {} as QueuedOp, op?.ownerProfileId == null ? 'legacy-orphaned' : 'legacy-plaintext'))
-  write(storage, LEGACY_DROPPED_KEY,
-    [...readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY), ...notices].slice(-MAX_DROPPED))
+  return {
+    swept: true,
+    notices: swept.map((op) => redactedNotice(
+      op ?? {} as QueuedOp, op?.ownerProfileId == null ? 'legacy-orphaned' : 'legacy-plaintext')),
+  }
+}
+
+/**
+ * The set-aside notices a previous build left in the clear, and the ones this sweep is adding.
+ *
+ * <b>Missed the first time, and the omission is the whole of it.</b> The sweep took the operation
+ * store and left `homehub.writequeue.dropped.v1` alone — and a notice carries `label`, which for a
+ * care write is the entry restated for a person to read: "Bottle 120ml for Wren". So the records were
+ * removed from one key and left legible in the one beside it, which is not a sweep.
+ *
+ * <b>Told apart by label, not by domain.</b> The notices this function *writes* are private-domain
+ * too, and sweeping by domain would delete the household's own telling on the next boot — so the
+ * redacted ones are recognised by the exact sentence they carry. It is a narrow test and it is
+ * checkable: {@link REDACTED_LABEL} is the only label this module ever writes.
+ */
+function sweepLegacyNotices(storage: QueueStorage, adding: DroppedOp[]): boolean {
+  const held = readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY)
+  const kept = held.filter((notice) => !isLegibleNotice(notice))
+  write(storage, LEGACY_DROPPED_KEY, [...kept, ...adding].slice(-MAX_DROPPED))
+
+  // Read back rather than trusted, as the operation store is. A notice that survived a refused write
+  // is the same disclosure it was before the sweep claimed to have removed it.
+  if (readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY).some(isLegibleNotice)) {
+    remove(storage, LEGACY_DROPPED_KEY)
+    if (readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY).some(isLegibleNotice)) return false
+  }
   return true
+}
+
+/** A notice that names a private record rather than the fact that one was set aside. */
+function isLegibleNotice(notice: DroppedOp): boolean {
+  if (notice == null || typeof notice !== 'object') return true
+  if (notice.label === REDACTED_LABEL) return false
+  return notice.ownerProfileId == null || isPrivateDomain(notice.domain)
 }
 
 /** Remove the whole key, and say whether it is actually gone. */
@@ -466,7 +521,7 @@ function notice(op: QueuedOp, reason: DroppedOp['reason']): DroppedOp {
 function redactedNotice(op: QueuedOp, reason: DroppedOp['reason']): DroppedOp {
   return {
     id: op.id,
-    label: 'An offline entry from an older version could not be carried over. Please re-enter it.',
+    label: REDACTED_LABEL,
     domain: op.domain,
     ownerProfileId: op.ownerProfileId,
     reason,

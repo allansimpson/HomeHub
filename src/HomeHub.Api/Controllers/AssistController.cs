@@ -39,6 +39,7 @@ public class AssistController : ControllerBase
     private readonly ConversationLocks _locks;
     private readonly TurnRegistry _turnRegistry;
     private readonly ConversationTitler _titler;
+    private readonly AssistRetention _retention;
     private readonly ILogger<AssistController> _logger;
 
     public AssistController(
@@ -51,6 +52,7 @@ public class AssistController : ControllerBase
         ConversationLocks locks,
         TurnRegistry turnRegistry,
         ConversationTitler titler,
+        AssistRetention retention,
         ILogger<AssistController> logger)
     {
         _db = db;
@@ -62,6 +64,7 @@ public class AssistController : ControllerBase
         _locks = locks;
         _turnRegistry = turnRegistry;
         _titler = titler;
+        _retention = retention;
         _logger = logger;
     }
 
@@ -82,7 +85,7 @@ public class AssistController : ControllerBase
     {
         var profileId = this.CallerId();
         var settings = await GetSettings(ct);
-        await SweepAsync(settings, ct);
+        await SweepAsync(profileId, settings, ct);
 
         // Resolved against what this member may use, not against the whole roster: an agent they were
         // never given must not become the list they are shown just because the URL named it.
@@ -1202,37 +1205,24 @@ public class AssistController : ControllerBase
         await _db.Settings.AsNoTracking().FirstOrDefaultAsync(s => s.Id == 1, ct) ?? new HouseholdSettings();
 
     /// <summary>
-    /// Apply the retention window on read.
+    /// Apply the household's retention to <b>this member's</b> conversations.
     /// </summary>
     /// <remarks>
-    /// On read rather than on a timer, keeping the panel's original reasoning: a household that has
-    /// been showing the clock for a week has run no sweep, and a policy that only holds while
-    /// something is warm is not a policy.
     /// <para>
-    /// <b>Zero days means never</b>, and it is a real setting rather than an absent one: a household
-    /// that wants to keep its own conversations indefinitely should not have to express that as "365
-    /// days and remember to come back". Nothing is swept in that state — not "swept less often".
+    /// <b>Scoped to the caller, which it was not.</b> This deleted every expired conversation in the
+    /// household, so one member opening Assist destroyed another member's chats — the boundary AUDIT
+    /// A1.2 exists to hold, crossed by a side effect of a read. It also removed the rows and their
+    /// lineage without recording anything about the Hermes transcripts behind them, so the agent kept
+    /// what the panel had just promised to forget.
     /// </para>
     /// <para>
-    /// <b>The agent's sessions are deliberately left alone.</b> Deleting them here would put N HTTP
-    /// round-trips inside a list read that runs on every poll, and Hermes has its own retention for
-    /// its own memory. Expiry is HomeHub forgetting what it heard; the explicit delete is the one that
-    /// promises to reach the agent, and that one is a person's decision with a modal in front of it.
+    /// Both are fixed in <see cref="AssistRetention"/>, which also runs household-wide in the
+    /// background — a member who stops opening Assist still has their old chats forgotten on
+    /// schedule, which scoping this read would otherwise have quietly prevented.
     /// </para>
     /// </remarks>
-    private async Task SweepAsync(HouseholdSettings settings, CancellationToken ct)
-    {
-        if (settings.ConversationRetentionDays <= 0) return; // kept until somebody deletes them
-
-        var cutoff = DateTime.UtcNow.AddDays(-settings.ConversationRetentionDays);
-        var expired = await _db.Conversations.Where(c => c.LastAtUtc < cutoff).ToListAsync(ct);
-        if (expired.Count == 0) return;
-
-        _db.Conversations.RemoveRange(expired);
-        await _db.SaveChangesAsync(ct);
-        _logger.LogInformation("Assist retention swept {Count} conversations older than {Days} days.",
-            expired.Count, settings.ConversationRetentionDays);
-    }
+    private Task SweepAsync(int? profileId, HouseholdSettings settings, CancellationToken ct) =>
+        _retention.SweepForAsync(profileId, settings.ConversationRetentionDays, ct);
 
     /// <summary>
     /// The agents this member may switch between, with their unread counts.
