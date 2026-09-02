@@ -92,17 +92,17 @@ public class SessionController : ControllerBase
         // Deliberately the same answer as a wrong PIN. Distinguishing them turns this endpoint into
         // a way to enumerate which profile ids exist, and the sign-in screen already lists the real
         // ones — so the distinction helps nobody who is meant to be here.
-        if (profile is null) return Unauthorized(new SignInFailure("That did not work.", null));
+        if (profile is null) return this.CredentialRejected(new SignInFailure("That did not work.", null));
 
         if (_lockout.RetryAfterSeconds(profile.Id) is { } cooldown)
-            return Unauthorized(new SignInFailure("Too many attempts. Wait a moment.", cooldown));
+            return this.CredentialRejected(new SignInFailure("Too many attempts. Wait a moment.", cooldown));
 
         if (!string.IsNullOrEmpty(profile.PinHash))
         {
             if (string.IsNullOrEmpty(req.Pin) || !PinHasher.Verify(req.Pin, profile.PinHash))
             {
                 var started = _lockout.RecordFailure(profile.Id);
-                return Unauthorized(new SignInFailure("That PIN is not right.", started));
+                return this.CredentialRejected(new SignInFailure("That PIN is not right.", started));
             }
         }
 

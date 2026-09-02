@@ -188,10 +188,36 @@ DataProtection__KeyPath=/var/lib/homehub/keys
 # The database. REQUIRED for anything beyond the shell — without it the panel still serves, but
 # every data endpoint 500s, so fill this in before the first deploy.
 #
-# `Server=` is localhost only if SQL Server runs on this same box; otherwise use the host or IP that
-# serves it, and make sure that instance accepts TCP connections from here. Use a least-privilege
-# login scoped to the HomeHub database — the app owns and migrates only its own.
-ConnectionStrings__HomeHub=Server=localhost;Database=HomeHub;User Id=homehub_app;Password=REPLACE_ME;TrustServerCertificate=True
+# Use a least-privilege login scoped to the HomeHub database — the app owns and migrates only its own.
+#
+# TLS, and why the line below is written the way it is
+# ----------------------------------------------------
+# This template used to emit `TrustServerCertificate=True` next to a `Server=` you are invited to
+# point at another machine. Those two together mean the app accepts whatever certificate answers on
+# 1433 without checking whose it is — so anything that can take up a position between this host and
+# the database gets the login above and every row that follows it. That is a real hole on a house LAN,
+# and it was shipped as a default because it is also what makes a *local* SQL Server work.
+#
+# So the two cases are separated, and the app enforces the separation at startup
+# (`SqlConnectionPolicy`): a deployment will not boot with certificate validation disabled against
+# anything but loopback.
+#
+#   SQL Server on this same box (the default below). The connection never leaves the machine, there is
+#   no network position to take up, and the certificate would be one SQL Server signed for itself.
+#   `TrustServerCertificate=True` is accepted here and only here.
+#
+#   SQL Server on another host. Install a certificate that host presents whose subject or SAN matches
+#   the name you put in `Server=`, make sure this machine's trust store contains the issuing CA, and
+#   drop `TrustServerCertificate` entirely:
+#
+#     ConnectionStrings__HomeHub=Server=sql.house.lan;Database=HomeHub;User Id=homehub_app;Password=REPLACE_ME;Encrypt=True
+#
+#   The `Server=` value must be the name on the certificate, not an IP address that happens to reach
+#   it — validation compares the two, and an IP will not match a hostname SAN.
+#
+# `Encrypt=True` is stated rather than left to the driver default, so the intent survives a driver
+# upgrade that changes it.
+ConnectionStrings__HomeHub=Server=localhost;Database=HomeHub;User Id=homehub_app;Password=REPLACE_ME;Encrypt=True;TrustServerCertificate=True
 
 # The schema is applied at startup, and a failure there is logged but deliberately non-fatal so the
 # shell still loads. `deploy.sh` reports pending migrations for that reason. Set false to apply them

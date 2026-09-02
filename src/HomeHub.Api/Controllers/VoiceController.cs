@@ -27,10 +27,18 @@ public class VoiceController : ControllerBase
     }
 
     /// <summary>Tells the client whether to use server STT/TTS (and which engines) or the browser.</summary>
+    /// <remarks>
+    /// <b><c>CloudStt</c> reports whether cloud speech may run, not whether it is configured.</b> It
+    /// used to report the latter, which is a different question and became the misleading one once
+    /// cloud fallback stopped being on by default: a panel could be told the cloud engine was there
+    /// while the policy would never let it run, or — before the default changed — be told nothing at
+    /// all about a boundary that was open. <c>AudioLeavesLan</c> says the same thing in one word so a
+    /// surface can show it without reasoning about three booleans.
+    /// </remarks>
     [HttpGet("capabilities")]
     public VoiceCapabilities Capabilities() =>
-        new(ServerStt: _stt.AnyAvailable, LocalStt: _stt.LocalAvailable, CloudStt: _stt.CloudAvailable,
-            ServerTts: _tts.IsAvailable, TtsEngine: _tts.PrimaryEngine);
+        new(ServerStt: _stt.AnyAvailable, LocalStt: _stt.LocalAvailable, CloudStt: _stt.CloudUsable,
+            ServerTts: _tts.IsAvailable, TtsEngine: _tts.PrimaryEngine, AudioLeavesLan: _stt.Boundary);
 
     /// <summary>
     /// Synthesize text to speech in the app's central voice. 501 when no engine is configured.
@@ -89,7 +97,15 @@ public class VoiceController : ControllerBase
 }
 
 /// <summary>Which voice capabilities the server offers, and which engines back them.</summary>
-public record VoiceCapabilities(bool ServerStt, bool LocalStt, bool CloudStt, bool ServerTts, string TtsEngine = "piper");
+public record VoiceCapabilities(
+    bool ServerStt,
+    bool LocalStt,
+    /// <summary>Whether cloud speech-to-text may actually run — the policy, not the configuration.</summary>
+    bool CloudStt,
+    bool ServerTts,
+    string TtsEngine = "piper",
+    /// <summary><c>local-only</c> or <c>cloud-permitted</c>. See <see cref="SttRouter.Boundary"/>.</summary>
+    string AudioLeavesLan = "local-only");
 
 /// <summary>
 /// Text to synthesize. <paramref name="Prosody"/> is how the line should be delivered

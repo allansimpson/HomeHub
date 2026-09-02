@@ -1,4 +1,4 @@
-import { authorizedFetch } from '../api/privateNetwork'
+import { authorizedOperation } from '../api/privateNetwork'
 
 /**
  * Swappable speech layer. The default is the browser's on-device recognizer (Web Speech API) +
@@ -193,20 +193,34 @@ async function speakViaServer(text: string, handlers?: SpeakHandlers, prosody: P
     // and a panel that has not confirmed who is asking must not be sending it text to speak. The
     // refusal lands in the `catch` below and falls back to the browser voice, which is the same
     // behaviour as a server that is not configured for TTS — so a device-only panel still talks.
-    const res = await authorizedFetch('/voice/speak', {
+    /*
+     * The audio is read inside the operation, not after it.
+     *
+     * The house voice is one member speaking to another member's ear, and it used to be downloaded
+     * after the transport had let go of the request — so a lock or a profile switch could complete
+     * while a reply addressed to whoever had just left was still arriving, and then play it out loud
+     * to whoever was standing there. See `authorizedOperation`.
+     */
+    const spoken = await authorizedOperation('/voice/speak', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // Assistant replies are one-off text; caching them would fill the cache with lines never
       // spoken twice. Fixed phrases (alerts, cues) leave allowCache on.
       body: JSON.stringify({ text, prosody, allowCache: prosody !== 'warm' }),
+    }, async (res) => {
+      if (!res.ok) return null // 501 (not configured) / 502 — this session uses the browser voice
+      return res.blob()
     })
-    if (!res.ok) {
-      serverTts = false // 501 (not configured) / 502 — this session uses the browser voice
+
+    if (spoken == null) {
+      serverTts = false
       speakViaBrowser(text, handlers)
       return
     }
     serverTts = true
-    const url = URL.createObjectURL(await res.blob())
+    // Outside the operation on purpose: a URL minted inside it would be leaked by a transition that
+    // refused the reply on its way out, and there is nothing left to revoke it.
+    const url = URL.createObjectURL(spoken)
     const audio = new Audio(url)
     activeAudio = audio
     const cleanup = () => {

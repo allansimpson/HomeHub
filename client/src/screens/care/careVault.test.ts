@@ -137,20 +137,7 @@ describe('closing versus erasing', () => {
   })
 })
 
-describe('the seals that are not sealed', () => {
-  /* A profile with no PIN has no secret to seal under; storing it plainly is the honest form. */
-  it('stores a PIN-less profile in the clear, and reads it back', async () => {
-    const storage = new MemoryStorage()
-    await openCareVault(1, { kind: 'plaintext' }, storage)
-    writeVault((cur) => ({ ...cur, entries: { baby: [entry(7)] } }))
-    await flushCareVault()
-
-    closeCareVault()
-    await openCareVault(1, { kind: 'plaintext' }, storage)
-
-    expect(readVault().entries.baby).toHaveLength(1)
-  })
-
+describe('the seal that is not sealed', () => {
   /*
    * The case that is easy to get wrong: a profile that *has* a PIN reached an unlocked panel
    * without typing it. There is no key, so the records must not be written down at all — writing
@@ -203,8 +190,49 @@ describe('damage', () => {
     ]) storage.setItem(key, 'private')
     storage.setItem('unrelated', 'keep')
 
-    await openCareVault(1, { kind: 'plaintext' }, storage)
+    await openCareVault(1, { kind: 'sealed', key: await aKey() }, storage)
 
     expect([...storage.values.keys()]).toEqual(['unrelated'])
+  })
+})
+
+/**
+ * The no-PIN profile's blob, which a previous build wrote in the clear.
+ *
+ * Two things have to be true and the second is the one worth a test: the store must not hand a
+ * plaintext record to a sealed session, and it must not leave it sitting there either. Re-sealing it
+ * would be the tempting third option and is refused — see `openCareVault`.
+ */
+describe('the plaintext vault a previous build left behind', () => {
+  const legible = JSON.stringify({
+    entries: { baby: [entry(7)] }, summary: {}, pending: [], timers: [],
+  })
+
+  it('does not read it back, and does not leave it on the device', async () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.care.vault.v1.1', legible)
+
+    await openCareVault(1, { kind: 'sealed', key: await aKey() }, storage)
+
+    expect(readVault().entries).toEqual({})
+    expect(storage.getItem('homehub.care.vault.v1.1')).toBeNull()
+  })
+
+  /*
+   * The distinction the erasure turns on. A sealed blob that will not open is somebody's log waiting
+   * for the right key — a PIN changed on another device, a key not yet loaded — and destroying it
+   * would be the purge-on-lock behaviour this whole store exists to replace.
+   */
+  it('leaves a sealed blob it cannot open exactly where it is', async () => {
+    const storage = new MemoryStorage()
+    await openCareVault(1, { kind: 'sealed', key: await aKey() }, storage)
+    writeVault((cur) => ({ ...cur, entries: { baby: [entry(7)] } }))
+    await flushCareVault()
+    const sealed = storage.getItem('homehub.care.vault.v1.1')
+
+    await openCareVault(1, { kind: 'sealed', key: await aKey() }, storage)
+
+    expect(readVault().entries).toEqual({})
+    expect(storage.getItem('homehub.care.vault.v1.1')).toBe(sealed)
   })
 })

@@ -455,6 +455,21 @@ if (requiresDeploymentSafeguards && !runMigrationsOnStartup)
     throw new InvalidOperationException(
         "Production requires RunMigrationsOnStartup=true; serving an unverified schema is forbidden.");
 }
+/*
+ * The SQL connection has to prove the host answering is the host asked for.
+ *
+ * The bootstrap template shipped `TrustServerCertificate=True` beside a `Server=` the operator is
+ * told to point at another machine, which together accept whatever certificate answers on 1433 — so a
+ * redirected endpoint on the house LAN is handed the database login and every row after it. Refused
+ * at startup rather than warned about: a panel that will not boot gets fixed, and a panel that logged
+ * a line about its database trust at 3am does not. The rule and the one exemption are in
+ * `SqlConnectionPolicy`; the message it returns names no credential.
+ */
+if (requiresDeploymentSafeguards && !string.IsNullOrWhiteSpace(connectionString)
+    && SqlConnectionPolicy.Refuse(connectionString) is { } refusal)
+{
+    throw new InvalidOperationException(refusal);
+}
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
     builder.Services.AddDbContext<HomeHubDbContext>(options =>
@@ -846,7 +861,15 @@ builder.Services.AddSingleton<HomeHub.Api.Assist.ConversationTitler>();
 // Local-first STT: a faster-whisper sidecar on the LAN behind the seam, with OpenAI Whisper as cloud
 // fallback, fronted by SttRouter (mirrors the assistant router). Browser on-device STT+TTS remains the
 // demoable default. TTS is done in the browser. No database needed.
-builder.Services.Configure<VoiceOptions>(builder.Configuration.GetSection(VoiceOptions.Section));
+// Validated at boot rather than on first use, for the same reason the Hermes roster is: a privacy
+// setting that is only checked when somebody speaks is one that fails on a headless box, hours after
+// the deploy that caused it, to whoever happened to walk up. Here the failure would be quieter still —
+// audio leaving the house — so it is a startup error instead.
+builder.Services.AddSingleton<IValidateOptions<VoiceOptions>>(
+    new VoiceOptionsValidator(requiresDeploymentSafeguards));
+builder.Services.AddOptions<VoiceOptions>()
+    .Bind(builder.Configuration.GetSection(VoiceOptions.Section))
+    .ValidateOnStart();
 var voice = builder.Configuration.GetSection(VoiceOptions.Section).Get<VoiceOptions>() ?? new VoiceOptions();
 builder.Services.AddHttpClient<OpenAISpeechToText>();
 builder.Services.AddHttpClient<LocalWhisperSpeechToText>(c =>
@@ -1160,6 +1183,34 @@ using (var probe = app.Services.CreateScope())
             + "are sent to that endpoint, which is off the LAN.",
             eventCapture.Model,
             eventCapture.BaseUrl);
+    }
+}
+
+/*
+ * Where the household's speech goes, said at boot rather than inferred later.
+ *
+ * The engine that ran is reported on each transcription, which answers "where did that one go" and
+ * never "where will the next one go" — so a panel could export speech for weeks and the only evidence
+ * would be on responses nobody read. This is the operator's half of the same answer; the panel's half
+ * is `AudioLeavesLan` on `/voice/capabilities`.
+ */
+using (var probe = app.Services.CreateScope())
+{
+    var stt = probe.ServiceProvider.GetRequiredService<SttRouter>();
+    if (stt.CloudUsable)
+    {
+        app.Logger.LogWarning(
+            "Speech-to-text may leave the LAN ({Boundary}). Recorded household audio is sent to the "
+            + "cloud provider when local STT is unavailable or when Voice:Stt:Prefer=cloud. Unset "
+            + "Voice__Stt__AllowCloudFallback to keep every recording on the house network.",
+            stt.Boundary);
+    }
+    else
+    {
+        app.Logger.LogInformation(
+            "Speech-to-text is {Boundary}: no recorded audio leaves the house. A local outage is "
+            + "reported as an error rather than answered by the cloud.",
+            stt.Boundary);
     }
 }
 

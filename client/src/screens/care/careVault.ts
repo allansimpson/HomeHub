@@ -68,21 +68,37 @@ export interface CareVault {
 const EMPTY: CareVault = { entries: {}, summary: {}, pending: [], timers: [] }
 
 /**
- * How this session may hold the records — the three answers, kept apart on purpose.
+ * How this session may hold the records — two answers, and there is deliberately no third.
  *
- * The middle one is the case that is easy to miss and easy to get wrong. A profile with a PIN can
+ * <b>There used to be a third, and it was the finding.</b> A profile with no PIN was given a
+ * `plaintext` seal on the reasoning that there was no secret to seal under, so the kiosk profile's
+ * care log sat in `localStorage` as it reads. The premise was wrong rather than the conclusion: a
+ * device can hold a key nobody typed — see `../../app/deviceKey` — and "this member chose not to set
+ * a PIN" was never a statement about whether their record may be read off the device by whoever picks
+ * it up next. The seal is now `sealed` for every profile that can hold a key at all.
+ *
+ * The remaining case is the one that is easy to miss and easy to get wrong. A profile with a PIN can
  * reach an unlocked panel without typing it: `requirePinWhenIdle` off means a cold boot with a live
  * cookie goes straight in. There is then no key in hand, and the two obvious moves are both wrong —
- * writing the cache in the clear undoes the sealing, and opening the sealed blob is impossible. So
- * that session remembers things in memory and writes none of it down. The log works (the server is
- * evidently reachable, or the session would not have been confirmed); what it costs is that a
- * reload starts from the last blob somebody actually typed a PIN for.
+ * writing the cache in the clear undoes the sealing, and opening the blob sealed under the PIN is
+ * impossible. So that session remembers things in memory and writes none of it down. The log works
+ * (the server is evidently reachable, or the session would not have been confirmed); what it costs is
+ * that a reload starts from the last blob somebody actually typed a PIN for. Reaching for the device
+ * key there would be the same mistake in a new place — it would seal a PIN-holding member's records
+ * under something the PIN is not needed to open.
  */
 export type VaultSeal =
-  /** A PIN was proved and its data key is in hand: records are sealed under it. */
+  /**
+   * A key is in hand: records are sealed under it.
+   *
+   * Two different keys arrive as this one shape, and keeping them one shape is deliberate. A PIN
+   * profile's key is unwrapped from four digits by `../../app/offlineUnlock`; a profile with no PIN
+   * gets the non-extractable device key from `../../app/deviceKey`. They protect against different
+   * things and are worth different amounts — the modules that mint them say so at length — but what
+   * this store does with either is identical, and a store that knew the difference would eventually
+   * act on it.
+   */
   | { kind: 'sealed'; key: CryptoKey }
-  /** The profile has no PIN. There is no secret to seal under, so the blob is stored as it reads. */
-  | { kind: 'plaintext' }
   /** No key available. Nothing is written to the device this session. */
   | { kind: 'memory' }
 
@@ -121,15 +137,29 @@ export async function openCareVault(
   openStorage = storage
   for (const legacy of LEGACY_KEYS) remove(storage, legacy)
 
-  const raw = seal.kind === 'memory' ? null : read(storage, vaultKey(profileId))
-  if (!raw) {
+  const raw = seal.kind === 'sealed' ? read(storage, vaultKey(profileId)) : null
+  if (seal.kind !== 'sealed' || !raw) {
+    vault = { entries: {}, summary: {}, pending: [], timers: [] }
+    return
+  }
+
+  /*
+   * A blob the previous build wrote in the clear, discarded rather than adopted.
+   *
+   * The no-PIN profile's vault used to be stored as JSON under this exact key, so an upgraded panel
+   * finds one there. Re-sealing it would be the tempting move and is the wrong one: the records have
+   * already been legible on the device for as long as that build ran, sealing them now proves nothing
+   * about who wrote them, and the migration this needs is one that leaves nothing readable behind.
+   * Removed on sight, and the profile starts from what the server sends back.
+   */
+  if (!isSealed(raw)) {
+    remove(storage, vaultKey(profileId))
     vault = { entries: {}, summary: {}, pending: [], timers: [] }
     return
   }
 
   try {
-    const json = seal.kind === 'sealed' ? await decrypt(seal.key, raw) : raw
-    vault = normalise(JSON.parse(json) as Partial<CareVault>)
+    vault = normalise(JSON.parse(await decrypt(seal.key, raw)) as Partial<CareVault>)
   } catch {
     vault = { entries: {}, summary: {}, pending: [], timers: [] }
   }
@@ -195,8 +225,7 @@ export function writeVault(update: (current: CareVault) => CareVault): void {
 
   persisting = persisting.then(async () => {
     try {
-      const json = JSON.stringify(snapshot)
-      write(storage, vaultKey(profileId), seal.kind === 'sealed' ? await encrypt(seal.key, json) : json)
+      write(storage, vaultKey(profileId), await encrypt(seal.key, JSON.stringify(snapshot)))
     } catch {
       /* best effort — see above */
     }
@@ -223,6 +252,19 @@ async function encrypt(key: CryptoKey, json: string): Promise<string> {
     { name: 'AES-GCM', iv }, key, new TextEncoder().encode(json),
   )
   return `${toBase64(iv)}.${toBase64(new Uint8Array(sealed))}`
+}
+
+/**
+ * Whether a stored value has the shape this module writes.
+ *
+ * Told apart from a plaintext blob by the alphabet rather than by trying to decrypt and seeing what
+ * happens: JSON opens with `{`, which is not a base64 character, so a record written in the clear can
+ * never be mistaken for a sealed one that failed to open — and the two need different answers. A
+ * failed decrypt starts the profile empty and leaves the blob alone, because the right key may arrive
+ * later. A plaintext blob is erased.
+ */
+function isSealed(raw: string): boolean {
+  return /^[A-Za-z0-9+/]+={0,2}\.[A-Za-z0-9+/]+={0,2}$/.test(raw)
 }
 
 async function decrypt(key: CryptoKey, raw: string): Promise<string> {

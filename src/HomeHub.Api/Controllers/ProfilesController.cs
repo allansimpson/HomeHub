@@ -372,12 +372,12 @@ public class ProfilesController : ControllerBase
         if (string.IsNullOrEmpty(profile.PinHash)) return null;
 
         if (_lockout.RetryAfterSeconds(profile.Id) is { } cooldown)
-            return Unauthorized(new SignInFailure("Too many attempts. Wait a moment.", cooldown));
+            return this.CredentialRejected(new SignInFailure("Too many attempts. Wait a moment.", cooldown));
 
         if (string.IsNullOrEmpty(currentPin) || !PinHasher.Verify(currentPin, profile.PinHash))
         {
             var started = _lockout.RecordFailure(profile.Id);
-            return Unauthorized(new SignInFailure("That PIN is not right.", started));
+            return this.CredentialRejected(new SignInFailure("That PIN is not right.", started));
         }
 
         return null;

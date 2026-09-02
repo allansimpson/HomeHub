@@ -36,10 +36,28 @@ public sealed class SttRouter
     private bool PrefersCloud => string.Equals(_stt.Prefer, "cloud", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Cloud may run only as the explicit preference or when fallback is allowed (privacy toggle).</summary>
-    private bool CloudUsable => _cloud.IsAvailable && (_stt.AllowCloudFallback || PrefersCloud);
+    /// <remarks>
+    /// Public because it is the honest answer to "can this house's speech leave it", and the surfaces
+    /// that report the boundary have to read the same value the router acts on. It used to be private,
+    /// and <c>/voice/capabilities</c> reported <see cref="CloudAvailable"/> instead — which says a
+    /// cloud engine is <i>configured</i>, not that it may run, and those came apart the moment the
+    /// fallback default changed.
+    /// </remarks>
+    public bool CloudUsable => _cloud.IsAvailable && (_stt.AllowCloudFallback || PrefersCloud);
 
     public bool LocalAvailable => _local.IsAvailable;
     public bool CloudAvailable => _cloud.IsAvailable;
+
+    /// <summary>
+    /// The privacy boundary in force, in a word an operator or a household member can read.
+    /// </summary>
+    /// <remarks>
+    /// <b>Stated up front rather than inferred from a label after the fact.</b> The engine that ran is
+    /// reported on each result, which answers "where did that one go" and never "where will the next
+    /// one go" — so a panel could export household speech for weeks and the only evidence would be on
+    /// responses nobody read. This says what is permitted before anybody speaks.
+    /// </remarks>
+    public string Boundary => CloudUsable ? "cloud-permitted" : "local-only";
 
     /// <summary>Whether any engine can actually run under the current fallback policy.</summary>
     public bool AnyAvailable => _local.IsAvailable || CloudUsable;

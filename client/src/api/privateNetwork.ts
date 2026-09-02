@@ -36,36 +36,54 @@ export function armSessionLostNotice(): void {
 }
 
 /**
- * Signing in with the wrong PIN answers 401 and means nothing about the session that made it.
+ * The server's word for "those credentials were wrong", as opposed to "you have no session".
  *
- * Exact operations, for the same reason the allowlist is: `path.includes('/pin')` would excuse a 401
- * from anything with `/pin` anywhere in it, and an excused 401 is a session loss that never reaches
- * the lock screen.
+ * <b>Both are 401 and they mean opposite things, so the server says which.</b> `SessionController`
+ * sets this on a refused sign-in and `ProfilesController` sets it on a PIN re-entry that did not
+ * match; the authentication middleware sets it on nothing, so an expired or revoked cookie arrives
+ * bare. Read {@link CREDENTIAL_REJECTED_HEADER} present as "somebody typed the wrong four digits" and
+ * its absence as "this panel is no longer signed in".
  */
-function isAuthenticationAttempt(method: string, path: string): boolean {
-  const operation = `${method} ${normalisePath(path)}`
-  return operation === 'POST /session'
-    || operation === 'DELETE /session'
-    || /^(PUT|DELETE) \/profiles\/\d+\/pin$/.test(operation)
+export const CREDENTIAL_REJECTED_HEADER = 'HomeHub-Auth'
+const CREDENTIAL_REJECTED = 'credential-rejected'
+
+/**
+ * Whether this 401 is a refused credential rather than a lost session.
+ *
+ * <b>This used to be a list of paths and methods, and that was the finding.</b> `PUT`/`DELETE` on
+ * `/profiles/{id}/pin` were excused wholesale on the reasoning that a 401 from them is a wrong PIN —
+ * true of one of the two ways they answer 401, and false of the other. An expired cookie reaching a
+ * PIN-management route was excused exactly as a mistyped PIN was, so a panel whose session had gone
+ * could sit there unlocked with the household's private screens mounted, because the first call to
+ * notice happened to be the one route that had been told not to care.
+ *
+ * A path cannot tell those apart; only the server knows which of its own refusals it just made. So it
+ * marks the one that is about the credential and this reads the mark. Deny by default in the
+ * direction that matters: an unmarked 401 closes the boundary.
+ */
+function isCredentialRejection(res: Response): boolean {
+  return res.headers.get(CREDENTIAL_REJECTED_HEADER)?.trim().toLowerCase() === CREDENTIAL_REJECTED
 }
 
 /**
  * Every authenticated response passes through here, and a 401 on one closes the boundary.
  *
- * <b>Three of the four authenticated paths used to skip this.</b> The JSON helper announced a lost
- * session on a 401; Assist streaming did not, Assist cancellation swallowed every response and every
- * error, and server TTS read a 401 as "TTS is not configured" and quietly fell back to the browser
- * voice. So a panel whose cookie had expired could keep a stream open, cancel into the void and go on
- * speaking, while the one path that noticed was the one nobody had touched — and the privacy
- * transition a lost session is supposed to trigger never happened.
+ * <b>Three of the four authenticated paths used to skip this, and the durable write queue was a
+ * fifth.</b> The JSON helper announced a lost session on a 401; Assist streaming did not, Assist
+ * cancellation swallowed every response and every error, server TTS read a 401 as "TTS is not
+ * configured" and quietly fell back to the browser voice, and the queue's own transport treated it as
+ * an ordinary error and broke out of the replay loop without telling anybody. So a panel whose cookie
+ * had expired could keep a stream open, cancel into the void, go on speaking and grind its queue,
+ * while the one path that noticed was the one nobody had touched — and the privacy transition a lost
+ * session is supposed to trigger never happened.
  *
- * Centralised at the transport because that is the only place all four meet. A rule at each call
- * site is one three of them had already failed to follow.
+ * Centralised at the transport because that is the only place all five meet. A rule at each call site
+ * is one four of them had already failed to follow.
  */
-function noteAuthenticatedResponse(method: string, path: string, status: number): void {
-  if (status !== 401) return
+function noteAuthenticatedResponse(res: Response): void {
+  if (res.status !== 401) return
   // A wrong PIN is not a lost session. Everything else that answers 401 is.
-  if (isAuthenticationAttempt(method, path)) return
+  if (isCredentialRejection(res)) return
   if (sessionLostAnnounced) return
   sessionLostAnnounced = true
   window.dispatchEvent(new Event(SESSION_LOST_EVENT))
@@ -229,16 +247,35 @@ export function isPrivateNetworkAllowed(method: string | undefined, path: string
 }
 
 /**
- * The one way to reach an authenticated HomeHub endpoint.
+ * The one way to reach an authenticated HomeHub endpoint, from the request to the last thing it causes.
  *
  * <b>A single primitive rather than a check at each call site.</b> Checks at call sites are a rule
  * somebody has to remember; this is a rule they have to circumvent. A future caller that reaches for
  * `fetch` directly is refused by not being here at all, rather than by being forgotten.
  *
+ * <b>`consume` is the whole shape of this function, and the reason it is not simply a fetch.</b> The
+ * transport used to hand back a `Response` the moment headers arrived and consider itself finished:
+ * the request left `inFlight`, its drain promise settled, and a transition waiting on that drain was
+ * told nothing was running. It was not true. A JSON body was still being read, an Assist stream was
+ * still delivering deltas and firing `onDone`, a queued write was still classifying its answer and
+ * deciding whether to stay durable — all of it under the old identity, all of it after the lock,
+ * sign-out, revocation or profile switch that was supposed to have ended it. Headers are the middle
+ * of an authenticated operation, not the end of one.
+ *
+ * So the operation is the unit. Everything the reply causes happens inside `consume`, the request
+ * stays tracked until `consume` settles, and a transition's drain therefore waits for the real end.
+ * The epoch is checked twice for the same reason: once before the body is touched, and once after it
+ * has been consumed and before its value is handed to a caller who will render or store it — the last
+ * point at which the data is still nobody's.
+ *
  * Prefixes `/api` so callers name operations the way the policy does, and so a caller cannot
  * accidentally authorise a different origin.
  */
-export async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
+export async function authorizedOperation<T>(
+  path: string,
+  init: RequestInit | undefined,
+  consume: (res: Response) => Promise<T>,
+): Promise<T> {
   const method = normaliseMethod(init?.method)
   if (!isPrivateNetworkAllowed(method, path)) {
     throw new PrivateNetworkError(`${method} ${normalisePath(path)}`)
@@ -258,6 +295,10 @@ export async function authorizedFetch(path: string, init?: RequestInit): Promise
   const entry = { controller, settled: new Promise<void>((resolve) => { settle = resolve }) }
   inFlight.add(entry)
 
+  const outlived = () => new PrivateNetworkError(
+    `${method} ${normalisePath(path)} outlived the session it was sent for `
+    + `(profile ${startedFor?.profileId ?? 'none'}, epoch ${startedIn}; now epoch ${currentEpoch})`)
+
   try {
     const res = await fetch(`/api${path}`, {
       // Since AUDIT A1 the session cookie is what authorises every one of these, so "cookies travel"
@@ -271,20 +312,31 @@ export async function authorizedFetch(path: string, init?: RequestInit): Promise
      * The reply arrived under a different identity than the one that asked.
      *
      * Refused rather than returned, and refused *before* the body is read: the response was produced
-     * for whoever the cookie names now, and handing it back would render one member's data inside
-     * another's session. This is the race the epoch exists for — a lock or a profile switch that
-     * lands between a request starting and finishing.
+     * for whoever the cookie names now, and reading it would already be one member's data moving
+     * inside another's session. This is the race the epoch exists for — a lock or a profile switch
+     * that lands between a request starting and finishing.
      */
-    if (startedIn !== currentEpoch) {
-      throw new PrivateNetworkError(
-        `${method} ${normalisePath(path)} outlived the session it was sent for `
-        + `(profile ${startedFor?.profileId ?? 'none'}, epoch ${startedIn}; now epoch ${currentEpoch})`)
-    }
+    if (startedIn !== currentEpoch) throw outlived()
 
-    noteAuthenticatedResponse(method, path, res.status)
-    return res
+    noteAuthenticatedResponse(res)
+    const value = await consume(res)
+    // The last point before the value becomes somebody's. A transition can land while a body is being
+    // read or a stream is being drained, and everything after this line is out of this module's hands.
+    if (startedIn !== currentEpoch) throw outlived()
+    return value
   } finally {
     inFlight.delete(entry)
     settle()
   }
+}
+
+/**
+ * An authenticated request whose reply needs nothing read off it.
+ *
+ * The narrow case — a fire-and-forget `POST` whose status is the entire answer. Written as its own
+ * name so that reaching for it is a statement that there is no body, rather than the accident
+ * {@link authorizedOperation} exists to prevent.
+ */
+export function authorizedSend(path: string, init?: RequestInit): Promise<void> {
+  return authorizedOperation(path, init, async () => undefined)
 }

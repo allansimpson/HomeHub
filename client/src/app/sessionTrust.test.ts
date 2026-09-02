@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  clearUnlock, mayAccessPrivateCache, shouldAskForPin, TRUST_WINDOW_MS, withinTrustWindow,
+  clearUnlock, locksWhenIdle, mayAccessPrivateCache, shouldAskForPin, TRUST_WINDOW_MS,
+  withinTrustWindow,
 } from './sessionTrust'
 import type { UnlockNote } from './sessionTrust'
 import type { ProfileDto } from '../api/types'
@@ -98,5 +99,64 @@ describe('private offline cache boundary', () => {
     } as ProfileDto
 
     expect(shouldAskForPin(profile)).toBe(true)
+  })
+})
+
+/**
+ * The idle lock, and the condition that is deliberately not in it — HH-06.
+ *
+ * <b>`lockNow` used to begin `if (!onlineRef.current) return`.</b> The reasoning was sound when it was
+ * written: unlocking was a round trip to `signIn`, so an idle timeout with no connection would strand
+ * somebody behind a keypad that rejects every correct PIN. What it also was, once `requirePinWhenIdle`
+ * is read as the privacy control it is, is a way to switch the household's own setting off from
+ * outside — pull the router, wait, and a shared wall panel sits indefinitely on a decrypted care log.
+ *
+ * These take the connection reading as an argument precisely so that a future edit which starts
+ * consulting it fails here rather than passing quietly. An absence is not something a test can hold.
+ */
+describe('locksWhenIdle', () => {
+  const locking = { id: 1, hasPin: true, requirePinWhenIdle: true } as ProfileDto
+
+  it('locks a profile that asked for it whether or not the house is reachable', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => null, setItem: () => undefined, removeItem: () => undefined,
+    })
+
+    expect(locksWhenIdle(locking, true)).toBe(true)
+    expect(locksWhenIdle(locking, false)).toBe(true)
+  })
+
+  it('reaches the same answer as the boot path, connected or not', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => null, setItem: () => undefined, removeItem: () => undefined,
+    })
+
+    for (const online of [true, false]) {
+      // Two copies of this rule would be two places for them to drift apart, and the symptom would be
+      // a panel that locks in one situation and not the other for no reason anybody could see.
+      expect(locksWhenIdle(locking, online)).toBe(shouldAskForPin(locking))
+    }
+  })
+
+  it('still never asks a profile that did not opt in, offline included', () => {
+    const open = { id: 2, hasPin: false, requirePinWhenIdle: false } as ProfileDto
+
+    expect(locksWhenIdle(open, false)).toBe(false)
+    expect(locksWhenIdle(null, false)).toBe(false)
+  })
+
+  /*
+   * The trusted window is the remaining condition and is unchanged by any of this — it is asserted
+   * against `withinTrustWindow` above, which is where the decision actually lives. What matters here
+   * is only that `locksWhenIdle` defers to it rather than adding a term of its own.
+   */
+  it('adds no condition of its own beyond the one the boot path uses', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => null, setItem: () => undefined, removeItem: () => undefined,
+    })
+    const at = 1_000_000 + TRUST_WINDOW_MS + 1
+
+    expect(locksWhenIdle(locking, false, at)).toBe(shouldAskForPin(locking, at))
+    expect(locksWhenIdle(locking, true, at)).toBe(shouldAskForPin(locking, at))
   })
 })

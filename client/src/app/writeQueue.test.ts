@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { setPrivateNetworkConfirmed } from '../api/privateNetwork'
+import { armSessionLostNotice, setPrivateNetworkConfirmed } from '../api/privateNetwork'
 import {
-  MAX_ATTEMPTS, canExecuteQueuedOp, closeQueueExecution, executeDurably, isRetryable, keepMine, localQueueStore, persistAhead,
-  queueForProfile, removeOp, replayQueue, setQueueIdentity, updateOp,
+  MAX_ATTEMPTS, canExecuteQueuedOp, closeQueueExecution, executeDurably, isPrivateDomain, isRetryable,
+  keepMine, persistAhead, queueForProfile, removeOp, replayQueue, setQueueIdentity, updateOp,
 } from './writeQueue'
 import type { DroppedOp, QueueStore, QueuedOp } from './writeQueue'
 
@@ -30,8 +30,15 @@ afterEach(() => {
   setPrivateNetworkConfirmed(false)
 })
 
-/** The durable side, in memory — same contract as localStorage, no DOM required. */
-function memStore(initial: QueuedOp[] = []): QueueStore & { ops: QueuedOp[]; gone: DroppedOp[] } {
+/**
+ * The durable side, in memory — same contract as the sealed store, no DOM required.
+ *
+ * `refuse` makes the flush reject, which is how a store that cannot persist reports itself now that
+ * sealing is asynchronous. It used to be a synchronous throw out of `localStorage.setItem`.
+ */
+function memStore(
+  initial: QueuedOp[] = [], refuse = false,
+): QueueStore & { ops: QueuedOp[]; gone: DroppedOp[] } {
   let ops = [...initial]
   let gone: DroppedOp[] = []
   return {
@@ -39,12 +46,17 @@ function memStore(initial: QueuedOp[] = []): QueueStore & { ops: QueuedOp[]; gon
     write: (next) => { ops = [...next] },
     readDropped: () => [...gone],
     writeDropped: (next) => { gone = [...next] },
+    flush: () => refuse
+      ? Promise.reject(new Error('The offline write could not be persisted.'))
+      : Promise.resolve(),
     get ops() { return ops },
     get gone() { return gone },
   }
 }
 
-type Reply = { status: number; body?: unknown; network?: false } | { network: true }
+type Reply =
+  | { status: number; body?: unknown; headers?: Record<string, string>; network?: false }
+  | { network: true }
 
 /** Answers requests in order, recording the paths asked for. */
 function stubFetch(replies: Reply[]): { paths: string[] } {
@@ -54,12 +66,17 @@ function stubFetch(replies: Reply[]): { paths: string[] } {
     paths.push(url)
     const reply = replies[Math.min(i++, replies.length - 1)]
     if ('network' in reply && reply.network) throw new Error('offline')
-    const { status, body } = reply as { status: number; body?: unknown }
+    const { status, body, headers } = reply as {
+      status: number; body?: unknown; headers?: Record<string, string>
+    }
     const text = body == null ? '' : typeof body === 'string' ? body : JSON.stringify(body)
     return {
       ok: status >= 200 && status < 300,
       status,
       statusText: `status ${status}`,
+      // Read by the transport to tell a refused credential from a lost session — see
+      // `privateNetwork.noteAuthenticatedResponse`.
+      headers: new Headers(headers ?? {}),
       text: async () => text,
       json: async () => JSON.parse(text) as unknown,
     } as unknown as Response
@@ -70,6 +87,22 @@ function stubFetch(replies: Reply[]): { paths: string[] } {
 afterEach(() => {
   vi.unstubAllGlobals()
   setQueueIdentity(null)
+})
+
+/**
+ * Which domains may be carried on the device in the clear — HH-04.
+ *
+ * An allowlist rather than a list of private domains, and the direction is the whole of it: a domain
+ * added later is private until somebody writes it down and says why. `care` was the domain that made
+ * this matter, and it is the one that must never appear in it.
+ */
+describe('the plaintext allowlist', () => {
+  it('treats care as private and the household-shared domains as not', () => {
+    expect(isPrivateDomain('care')).toBe(true)
+    for (const domain of ['task', 'calendar', 'climate', 'meal', 'recipe', 'pantry', 'grocery'] as const) {
+      expect(isPrivateDomain(domain)).toBe(false)
+    }
+  })
 })
 
 describe('offline queue identity boundary', () => {
@@ -159,13 +192,22 @@ describe('offline queue identity boundary', () => {
 })
 
 describe('durable storage rules', () => {
-  it('does not report durability when browser persistence rejects the write', () => {
-    vi.stubGlobal('localStorage', {
-      getItem: () => null,
-      setItem: () => { throw new DOMException('quota', 'QuotaExceededError') },
-    })
+  /*
+   * A store that cannot persist must say so rather than let the write look queued.
+   *
+   * The refusal used to be a synchronous throw out of `localStorage.setItem`. Sealing the queue made
+   * persistence asynchronous, so it is a rejected flush now — and `executeDurably` awaits that flush
+   * before its fetch, which is where the write-ahead invariant now lives. The failure this prevents is
+   * unchanged: a caller told its change is safely queued when nothing reached the device.
+   */
+  it('does not send, or report durability, when the store cannot persist the write', async () => {
+    const store = memStore([], true)
+    setQueueIdentity(2)
+    const sent = vi.fn()
+    vi.stubGlobal('fetch', sent)
 
-    expect(() => persistAhead(localQueueStore, op('a', 2))).toThrow(/persist/i)
+    await expect(executeDurably(store, op('a', 2))).rejects.toThrow(/persist/i)
+    expect(sent).not.toHaveBeenCalled()
   })
 
   it('upserts in place so a re-persist keeps its position in the queue', () => {
@@ -272,6 +314,69 @@ describe('error policy', () => {
   it('classifies transient statuses as retryable and deterministic ones as terminal', () => {
     expect([408, 429, 500, 502, 503].every(isRetryable)).toBe(true)
     expect([400, 401, 403, 422].some(isRetryable)).toBe(false)
+  })
+
+  /*
+   * HH-03. A 401 used to fall through to the terminal branch — a 4xx describes the request, so the
+   * request was discarded — and that reasoning is wrong for exactly this status.
+   *
+   * It says nothing about the operation and everything about the session carrying it. The write is
+   * good and will land the moment its owner is confirmed again, so setting it aside punished the
+   * household for a session timeout by deleting the entry they had made.
+   */
+  it('retains a write refused for the session rather than setting it aside', async () => {
+    const store = memStore()
+    setQueueIdentity(2)
+    vi.stubGlobal('window', new EventTarget())
+    stubFetch([{ status: 401 }])
+
+    const { outcome, settled, dropped } = await executeDurably(store, op('a', 2))
+
+    expect(outcome).toMatchObject({ kind: 'error', status: 401 })
+    expect(settled).toBe(false)
+    expect(dropped).toBeUndefined()
+    expect(store.ops.map((o) => o.id)).toEqual(['a'])
+    expect(store.gone).toEqual([])
+  })
+
+  /*
+   * The other half of HH-03: a queued replay is one of the five authenticated transports, and it was
+   * the one that never announced a lost session. An expired cookie first discovered here produced an
+   * ordinary error, the pass broke out of its loop, and the panel stayed unlocked with the
+   * household's private screens mounted behind no session at all.
+   */
+  it('announces the lost session when a replay is the first call to find out', async () => {
+    const store = memStore([op('a', 2), op('b', 2)])
+    setQueueIdentity(2)
+    const target = new EventTarget()
+    vi.stubGlobal('window', target)
+    const seen: Event[] = []
+    target.addEventListener('homehub:session-lost', (e) => seen.push(e))
+    armSessionLostNotice()
+    const { paths } = stubFetch([{ status: 401 }])
+
+    const result = await replayQueue(store, 2)
+
+    expect(seen).toHaveLength(1)
+    // Stopped rather than ground against a cookie that is no longer this profile's, and nothing lost.
+    expect(paths).toHaveLength(1)
+    expect(result.dropped).toEqual([])
+    expect(store.ops.map((o) => o.id)).toEqual(['a', 'b'])
+  })
+
+  it('does not announce a lost session for a credential the server marked as refused', async () => {
+    const store = memStore()
+    setQueueIdentity(2)
+    const target = new EventTarget()
+    vi.stubGlobal('window', target)
+    const seen: Event[] = []
+    target.addEventListener('homehub:session-lost', (e) => seen.push(e))
+    armSessionLostNotice()
+    stubFetch([{ status: 401, headers: { 'HomeHub-Auth': 'credential-rejected' } }])
+
+    await executeDurably(store, op('a', 2))
+
+    expect(seen).toHaveLength(0)
   })
 
   it('sets a deterministic refusal aside, carrying the server\'s own sentence', async () => {

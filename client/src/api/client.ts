@@ -1,6 +1,7 @@
 import {
   armSessionLostNotice as armNotice,
-  authorizedFetch,
+  authorizedOperation,
+  authorizedSend,
   SESSION_LOST_EVENT as SessionLostEvent,
   setPrivateNetworkConfirmed as setConfirmed,
 } from './privateNetwork'
@@ -215,41 +216,52 @@ async function request<T>(path: string, init?: RequestInit, deadlineMs = DEADLIN
   )
 
   try {
-    let res: Response
-    try {
-      res = await authorizedFetch(path, {
-        headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
-        signal: watchdog.signal,
-        ...init,
-      })
-    } catch (cause) {
-      /*
-       * Network failure, or a refusal at the identity boundary — both surface as a 0-status
-       * `ApiError`, and deliberately as the same one.
-       *
-       * Every caller in this app already handles `ApiError(0, …)`: it is what a refused connection
-       * and a timed-out one both raise. So an unconfirmed panel degrades exactly as an unreachable
-       * one does, rather than needing eleven providers to learn a new failure mode — and the
-       * device-only Care log, which is built for a server it cannot reach, needs no changes at all.
-       */
-      throw unreachable(cause)
-    }
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      // Plain-text problem details are the common case (the controllers return BadRequest("…")), so a
-      // parse failure is expected rather than exceptional — the message still carries the text.
-      let body: unknown
-      try { body = text ? JSON.parse(text) : undefined } catch { body = undefined }
-      throw new ApiError(res.status, text || res.statusText, body)
-    }
-    // 204 No Content and other empty bodies decode to undefined.
-    if (res.status === 204) return undefined as T
-    /* The deadline covers the body too, and deliberately. Headers arriving is not the server having
-       answered — a connection that dies between the two leaves `res.text()` hanging exactly as the
-       fetch itself did, which is the same never-ending wait one gate further along. */
-    let text: string
-    try { text = await res.text() } catch (cause) { throw unreachable(cause) }
-    return (text ? JSON.parse(text) : undefined) as T
+    /*
+     * The body is read *inside* the operation, not after it.
+     *
+     * This used to be `res = await authorizedFetch(...)` followed by `res.text()` out here, which
+     * meant the transport had already declared the request finished and let go of it while the reply
+     * was still arriving. A lock or a profile switch could drain to empty in that gap and then find
+     * this body settling into the new session. Everything the reply causes now happens where the
+     * transport can still see it — see `authorizedOperation`.
+     */
+    return await authorizedOperation<T>(path, {
+      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+      signal: watchdog.signal,
+      ...init,
+    }, async (res) => {
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        // Plain-text problem details are the common case (the controllers return BadRequest("…")), so
+        // a parse failure is expected rather than exceptional — the message still carries the text.
+        let body: unknown
+        try { body = text ? JSON.parse(text) : undefined } catch { body = undefined }
+        throw new ApiError(res.status, text || res.statusText, body)
+      }
+      // 204 No Content and other empty bodies decode to undefined.
+      if (res.status === 204) return undefined as T
+      /* The deadline covers the body too, and deliberately. Headers arriving is not the server having
+         answered — a connection that dies between the two leaves `res.text()` hanging exactly as the
+         fetch itself did, which is the same never-ending wait one gate further along. */
+      let text: string
+      try { text = await res.text() } catch (cause) { throw unreachable(cause) }
+      return (text ? JSON.parse(text) : undefined) as T
+    })
+  } catch (cause) {
+    /*
+     * Network failure, or a refusal at the identity boundary — both surface as a 0-status
+     * `ApiError`, and deliberately as the same one.
+     *
+     * Every caller in this app already handles `ApiError(0, …)`: it is what a refused connection
+     * and a timed-out one both raise. So an unconfirmed panel degrades exactly as an unreachable
+     * one does, rather than needing eleven providers to learn a new failure mode — and the
+     * device-only Care log, which is built for a server it cannot reach, needs no changes at all.
+     *
+     * An `ApiError` raised inside the consumer is the server's own answer and passes through
+     * untouched; only the transport's failures are translated. That distinction used to be made by
+     * where the code sat rather than by a condition, which is why it is written down now.
+     */
+    throw cause instanceof ApiError ? cause : unreachable(cause)
   } finally {
     clearTimeout(deadline)
   }
@@ -343,35 +355,15 @@ async function streamAssistTurn(
 
   heard()
 
-  let res: Response
-  try {
-    res = await authorizedFetch('/assist/chat/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify(body),
-      signal: watchdog.signal,
-    })
-    heard()
-  } catch (cause) {
-    stopWatching()
-    if (signal?.aborted) return
-    if (expired) throw new ApiError(0, 'The assistant did not answer.')
-    throw new ApiError(0, cause instanceof Error ? cause.message : 'Network error')
-  }
-
-  if (!res.ok) {
-    stopWatching()
-    const text = await res.text().catch(() => '')
-    throw new ApiError(res.status, text || res.statusText)
-  }
-  if (!res.body) {
-    stopWatching()
-    throw new ApiError(0, 'The assistant stream returned no body.')
-  }
-
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
+  /*
+   * Which half of the turn is running, so the deadline can say what it interrupted.
+   *
+   * The two phases used to be two `try` blocks — a fetch, then a read — and the message differed
+   * between them because the failures do: never answering and stopping mid-answer are different
+   * things to be told. Both now live inside one operation (see below), so the phase is carried in a
+   * flag rather than in the shape of the code.
+   */
+  let streaming = false
 
   const dispatch = (frame: string) => {
     let event = 'message'
@@ -395,30 +387,67 @@ async function streamAssistTurn(
   }
 
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      // Anything at all counts, including the keepalive comment `dispatch` throws away. The question
-      // this answers is whether the other end is still there, and a colon on its own says yes.
+    /*
+     * <b>The whole turn runs inside the operation, and that is the point of this shape.</b>
+     *
+     * The stream used to be consumed after the transport had handed back a `Response` and let go: the
+     * request was out of `inFlight`, its drain promise had settled, and a lock or a profile switch
+     * waiting on that drain was told the panel was quiet. Meanwhile deltas kept arriving, `onDelta`
+     * kept appending them to a screen, and `onDone` settled a stored turn — all of it belonging to
+     * the member who had just been signed out. A stream is the longest-lived authenticated operation
+     * this app has and was the one least covered by the boundary meant to end it.
+     */
+    await authorizedOperation('/assist/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify(body),
+      signal: watchdog.signal,
+    }, async (res) => {
       heard()
-      buffer += decoder.decode(value, { stream: true })
-
-      // A blank line ends a frame. Anything after the last one is a partial frame still arriving.
-      let split: number
-      while ((split = buffer.indexOf('\n\n')) !== -1) {
-        dispatch(buffer.slice(0, split))
-        buffer = buffer.slice(split + 2)
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new ApiError(res.status, text || res.statusText)
       }
-    }
-    if (buffer.trim()) dispatch(buffer)
+      if (!res.body) throw new ApiError(0, 'The assistant stream returned no body.')
+
+      streaming = true
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        // Anything at all counts, including the keepalive comment `dispatch` throws away. The question
+        // this answers is whether the other end is still there, and a colon on its own says yes.
+        heard()
+        buffer += decoder.decode(value, { stream: true })
+
+        // A blank line ends a frame. Anything after the last one is a partial frame still arriving.
+        let split: number
+        while ((split = buffer.indexOf('\n\n')) !== -1) {
+          dispatch(buffer.slice(0, split))
+          buffer = buffer.slice(split + 2)
+        }
+      }
+      if (buffer.trim()) dispatch(buffer)
+    })
   } catch (cause) {
-    // An abort mid-stream is the user's own doing; whatever arrived is already rendered.
+    // An abort is the user's own doing; whatever arrived is already rendered.
     if (signal?.aborted) return
     // The deadline, said as what happened rather than as a broken pipe. The caller decides what to
     // do about it — a turn that got as far as being named is asked about rather than mourned, see
     // `assistTurns.execute` — but either way it ends, which is the whole point of this.
-    if (expired) throw new ApiError(0, 'The assistant stopped sending mid-answer.')
-    throw cause instanceof ApiError ? cause : new ApiError(0, 'The assistant stream ended unexpectedly.')
+    if (expired) {
+      throw new ApiError(0, streaming
+        ? 'The assistant stopped sending mid-answer.'
+        : 'The assistant did not answer.')
+    }
+    if (cause instanceof ApiError) throw cause
+    // A refusal at the identity boundary lands here too, and reads as the transport failure it is.
+    throw new ApiError(0, streaming
+      ? 'The assistant stream ended unexpectedly.'
+      : cause instanceof Error ? cause.message : 'Network error')
   } finally {
     stopWatching()
   }
@@ -779,7 +808,9 @@ export const api = {
    * and the reply is stored whether or not this call arrived.
    */
   cancelAssistTurn: (turnId: string) =>
-    authorizedFetch(`/assist/chat/turns/${encodeURIComponent(turnId)}/cancel`, { method: 'POST' })
+    // `authorizedSend` rather than the operation form: the status is the entire answer, so there is
+    // no body whose consumption could outlive the session that asked for it.
+    authorizedSend(`/assist/chat/turns/${encodeURIComponent(turnId)}/cancel`, { method: 'POST' })
       .then(() => undefined, () => undefined),
   /**
    * What became of a turn whose stream this panel lost.

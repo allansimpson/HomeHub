@@ -1,5 +1,7 @@
 namespace HomeHub.Api.Ai;
 
+using Microsoft.Extensions.Options;
+
 /// <summary>
 /// Voice configuration, bound from the <c>Voice</c> section. Kept separate from <see cref="AiOptions"/>
 /// so speech-to-text can point at a different host than the local LLM and toggle cloud fallback on its
@@ -114,8 +116,44 @@ public sealed class VoiceOptions
         /// <summary>Whisper model the sidecar loads (e.g. <c>tiny.en</c> / <c>base.en</c> / <c>small.en</c>).</summary>
         public string LocalModel { get; set; } = "base.en";
 
-        /// <summary>When local STT is unavailable or errors, fall back to cloud (OpenAI Whisper). Off = LAN-only.</summary>
-        public bool AllowCloudFallback { get; set; } = true;
+        /// <summary>
+        /// When local STT is unavailable or errors, fall back to cloud (OpenAI Whisper). Off = LAN-only.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Off by default, and it used to be on.</b> An ordinary local outage — the sidecar not up
+        /// yet after a reboot, a model still loading, one bad request — silently moved the household's
+        /// speech off the LAN and into a third party's hands. Nothing about that decision was
+        /// deployed: it was the default in this class and in the shipped <c>appsettings.json</c>, so
+        /// the privacy boundary of the house changed because a process was slow to start.
+        /// </para>
+        /// <para>
+        /// Sending recorded household speech to a vendor is a decision somebody has to make on
+        /// purpose. Unset, the panel stays local and says so; a local outage becomes an error the
+        /// operator can see rather than an export nobody was told about.
+        /// </para>
+        /// </remarks>
+        public bool AllowCloudFallback { get; set; }
+
+        /// <summary>
+        /// Acknowledges that enabling cloud speech sends household audio off the LAN.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Required in deployment environments before any cloud STT runs</b> — whether reached by
+        /// <see cref="AllowCloudFallback"/> or by <see cref="Prefer"/><c> = cloud</c>. See
+        /// <see cref="VoiceOptionsValidator"/>: without it, startup fails rather than quietly
+        /// exporting audio.
+        /// </para>
+        /// <para>
+        /// A second key rather than trusting the first, because the two say different things. One is
+        /// a routing preference of the kind an operator changes while chasing a bug; this is the
+        /// household's consent to speech leaving the house, and consent should not be a side effect of
+        /// tuning. Development and the automated Test environment do not require it — the safeguard is
+        /// about deployments, and a developer with no local sidecar should still get a working panel.
+        /// </para>
+        /// </remarks>
+        public bool CloudAudioEgressAcknowledged { get; set; }
 
         /// <summary>Preferred engine when both are available: <c>local</c> or <c>cloud</c>.</summary>
         public string Prefer { get; set; } = "local";
@@ -124,5 +162,64 @@ public sealed class VoiceOptions
         public int TimeoutSeconds { get; set; } = 120;
 
         public bool LocalConfigured => !string.IsNullOrWhiteSpace(LocalEndpoint);
+
+        /// <summary>Whether this configuration permits household audio to leave the LAN at all.</summary>
+        /// <remarks>
+        /// The one place the question is answered, so the router, the validator and the status the
+        /// operator reads cannot disagree about it. <see cref="SttRouter"/> asks the same question of
+        /// the engines it actually holds; this asks it of the configuration alone, which is what can
+        /// be checked at startup and printed.
+        /// </remarks>
+        public bool PermitsCloudAudio =>
+            AllowCloudFallback || string.Equals(Prefer, "cloud", StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+/// <summary>
+/// Refuses to start a deployment that would send household speech to a third party by accident.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The failure this exists to prevent is silence, not misconfiguration.</b> Cloud STT was reached
+/// by an ordinary local outage under a default nobody had chosen, and the only trace of it was an
+/// engine label on a response somebody would have had to be looking at. A privacy boundary that moves
+/// without anybody being told is worse than one that is configured wrongly and says so at boot.
+/// </para>
+/// <para>
+/// So enabling cloud audio in a deployment takes two keys that mean different things — the routing
+/// decision and the household's acknowledgement that speech leaves the house — and the absence or
+/// contradiction of either fails startup rather than degrading to the export. Development and the
+/// automated Test environment are exempt: the safeguard is about deployments, and a developer's panel
+/// should work without a consent flag being demanded of it.
+/// </para>
+/// </remarks>
+public sealed class VoiceOptionsValidator(bool requiresDeploymentSafeguards) : IValidateOptions<VoiceOptions>
+{
+    public ValidateOptionsResult Validate(string? name, VoiceOptions options)
+    {
+        var errors = new List<string>();
+        var stt = options.Stt;
+
+        if (!string.Equals(stt.Prefer, "local", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(stt.Prefer, "cloud", StringComparison.OrdinalIgnoreCase))
+        {
+            // A misspelling used to mean "local" by falling through the comparison in `SttRouter`,
+            // which is the right behaviour and the wrong way to arrive at it: nobody would ever learn
+            // that the value they set was not a value.
+            errors.Add($"Voice:Stt:Prefer must be 'local' or 'cloud'; found '{stt.Prefer}'.");
+        }
+
+        if (requiresDeploymentSafeguards && stt.PermitsCloudAudio && !stt.CloudAudioEgressAcknowledged)
+        {
+            errors.Add(
+                "Cloud speech-to-text sends household audio to a third party. Set "
+                + "Voice:Stt:CloudAudioEgressAcknowledged=true to confirm that is intended, or leave "
+                + "Voice:Stt:AllowCloudFallback unset and Voice:Stt:Prefer=local to stay on the LAN.");
+        }
+
+        // Acknowledged but not enabled is not an error — it is a household that has consented and
+        // switched the routing back off, which is a state they are entitled to be in.
+
+        return errors.Count > 0 ? ValidateOptionsResult.Fail(errors) : ValidateOptionsResult.Success;
     }
 }

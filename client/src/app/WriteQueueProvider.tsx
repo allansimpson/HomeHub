@@ -2,10 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { useConnection } from './ConnectionProvider'
 import {
-  discardConflict, executeDurably, keepMine, localQueueStore, newId, persistAhead,
+  discardConflict, executeDurably, keepMine, newId, persistAhead,
   queueForProfile, removeOp, replayQueue, updateOp,
 } from './writeQueue'
 import type { DroppedOp, ExecOutcome, QueuedOp } from './writeQueue'
+import { QUEUE_STORE_EVENT, flushQueueStore, sealedQueueStore } from './queueStore'
 import { useSession } from './SessionProvider'
 
 /** A surfaced edit-vs-edit conflict awaiting the user's choice. */
@@ -71,7 +72,7 @@ export interface WriteQueueState {
 
 const WriteQueueContext = createContext<WriteQueueState | null>(null)
 
-const store = localQueueStore
+const store = sealedQueueStore
 
 function fireSync() {
   window.dispatchEvent(new Event('homehub:sync'))
@@ -98,6 +99,21 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
     setPending(store.read())
     setDropped(store.readDropped())
   }, [])
+
+  /*
+   * Re-read whenever the store itself opens or closes.
+   *
+   * <b>This has to exist now that the queue is sealed.</b> It used to be plain `localStorage`, so it
+   * was readable at every moment of the app's life and a mirror taken once at mount was never wrong
+   * about whether there was anything in it. A sealed store is shut until `SessionProvider` opens it
+   * with the session's key — which happens after this component has mounted and read an empty one —
+   * and the queued writes waiting inside it would otherwise appear only after some unrelated action
+   * happened to call `sync`. The replay effect below reads `owned`, so "otherwise" includes "never".
+   */
+  useEffect(() => {
+    window.addEventListener(QUEUE_STORE_EVENT, sync)
+    return () => window.removeEventListener(QUEUE_STORE_EVENT, sync)
+  }, [sync])
 
   const owned = useMemo(
     () => queueForProfile(pending, locked ? null : activeProfileId),
@@ -127,8 +143,17 @@ export function WriteQueueProvider({ children }: { children: ReactNode }) {
         ownerProfileId: activeProfileId,
       }
       if (!online) {
-        // Durable before the caller is told it is queued — not one render later.
+        // Durable before the caller is told it is queued — not one render later, and not before the
+        // seal has actually reached the device. The flush is what the old synchronous
+        // `localStorage.setItem` was: a refusal has to reach the caller, which still holds the only
+        // copy of what it just wrote (notably a completed care timer).
         persistAhead(store, op)
+        try {
+          await flushQueueStore()
+        } catch {
+          sync()
+          return { kind: 'error', status: 0, message: 'The change could not be saved on this device.' }
+        }
         sync()
         return { kind: 'queued', opId: op.id }
       }

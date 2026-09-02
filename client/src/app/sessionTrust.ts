@@ -120,6 +120,40 @@ export function shouldAskForPin(
   return !withinTrustWindow(profile.id, loadUnlock(), now)
 }
 
+/**
+ * Whether an idle timeout locks the panel. <b>Connectivity is deliberately not a term.</b>
+ *
+ * The `online` argument is taken and ignored, and that is the whole reason this function exists
+ * rather than the call site simply asking {@link shouldAskForPin}. `SessionProvider.lockNow` used to
+ * begin `if (!onlineRef.current) return`, and an absence is not something a test can hold on to — so
+ * the removed condition is written here as an explicit non-condition, where a future edit that
+ * reintroduces it fails rather than passes.
+ *
+ * <b>Why it was there, and why it is wrong.</b> Locking is client-side and instant; unlocking was a
+ * round trip to `signIn`, because the PIN is the server's to check. Offline those two disagreed, and
+ * the idle timer would lock a panel that could not then be unlocked at all. Suspending the lock was
+ * the version of that which could not strand anybody.
+ *
+ * What it also was: a way to switch the household's own privacy setting off from outside. Pull the
+ * router, wait, and a shared wall panel sits indefinitely on a decrypted care log — at the moment it
+ * is least attended. Connectivity is not consent, and a lock a passer-by can suspend is not a lock.
+ *
+ * The premise is gone in any case. `offlineUnlock` teaches this device to check the PIN for itself on
+ * the far side of one successful online sign-in, and `completeUnlock` falls through to it when the
+ * server cannot be reached, so an offline lock is answerable by the person who knows the four digits.
+ * A profile never enrolled on this device cannot open it until the house is back in range, which is
+ * the fail-closed direction and is what the Lock screen's `unavailable` state says out loud.
+ */
+export function locksWhenIdle(
+  profile: ProfileDto | null | undefined,
+  // Underscored so the compiler accepts a parameter that is deliberately unread. The name is kept in
+  // the signature because the argument the caller passes is the point.
+  _online: boolean,
+  now: number = Date.now(),
+): boolean {
+  return shouldAskForPin(profile, now)
+}
+
 // ---- who this device is, when there is no server to ask ----
 
 /**

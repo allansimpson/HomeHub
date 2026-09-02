@@ -115,11 +115,12 @@ export function PrivateSession({ children }: { children: ReactNode }) {
    *
    * What is enforced now, and where: `api/privateNetwork.ts` authorises a normalised method and exact
    * path, deny-by-default, and binds each request to the subject and epoch that authorised it — a
-   * reply that outlived its identity is refused before its body is read. `authorizedFetch` is the only
-   * way to reach an authenticated endpoint and carries the JSON helper, both Assist paths and server
-   * TTS; `executeDurably` checks the same policy directly, because routing it through the JSON helper
-   * would cost its abort, deadline and drain semantics. Every session transition drains what is in
-   * flight before the cookie changes.
+   * reply that outlived its identity is refused before its body is read, and again before its value
+   * reaches a caller. `authorizedOperation` is the only way to reach an authenticated endpoint and
+   * carries all five: the JSON helper, both Assist paths, server TTS, and the write queue's durable
+   * transport — which keeps its own abort, deadline and drain semantics inside it rather than beside
+   * it. Every session transition drains what is in flight before the cookie changes, and what is "in
+   * flight" now means the whole operation rather than its response headers.
    *
    * Keyed by profile: a switch discards the tree rather than handing the next member the last one's
    * answers, and if confirmation returns somebody else the key changes and the decrypted Care view

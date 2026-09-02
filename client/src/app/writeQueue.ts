@@ -1,10 +1,10 @@
-import { isPrivateNetworkAllowed } from '../api/privateNetwork'
+import { authorizedOperation, isPrivateNetworkAllowed } from '../api/privateNetwork'
 
 /**
- * Offline write-queue (Stage 9b). User mutations that can't reach the server are persisted here
- * (localStorage, survives reload) and replayed in order on reconnect. Conditional writes carry the
- * version last seen so the server can 409 an edit-vs-edit conflict, which we surface rather than
- * silently overwrite (conservative policy). Climate set-points carry no version (last-write-wins).
+ * Offline write-queue (Stage 9b). User mutations that can't reach the server are sealed to the device
+ * (see `queueStore.ts`, which survives reload) and replayed in order on reconnect. Conditional writes
+ * carry the version last seen so the server can 409 an edit-vs-edit conflict, which we surface rather
+ * than silently overwrite (conservative policy). Climate set-points carry no version (last-write-wins).
  *
  * <b>The durability invariant.</b> A write exists durably in the owning profile's queue *before* its
  * fetch begins, and is removed only after a terminal server answer has been classified and that
@@ -74,6 +74,14 @@ export type ExecOutcome =
 export type DropReason =
   /** Queued before the queue knew whose it was. Never replayed, never adopted. */
   | 'legacy-orphaned'
+  /**
+   * A private write found in the plaintext store a previous build used. Never replayed.
+   *
+   * Kept apart from `legacy-orphaned` because the two are refused for different reasons and the
+   * distinction is worth having in a log: that one has no owner, this one has an owner and no
+   * integrity — nothing about a plaintext record says it was not edited on the way here.
+   */
+  | 'legacy-plaintext'
   /** Retryable, but the budget ran out. */
   | 'retry-exhausted'
   /** The server refused it deterministically — a 4xx that will refuse it again. */
@@ -93,50 +101,52 @@ export interface DroppedOp {
 }
 
 /**
+ * Which domains may be held on the device in the clear. <b>Private is the default.</b>
+ *
+ * An allowlist rather than a list of private domains, and the direction is the point: a domain added
+ * later is private until somebody writes it down here and says why, rather than plaintext until
+ * somebody remembers to classify it. `care` is absent because its bodies are the household's record —
+ * feed volumes, nappy contents, times, a child's name — and its paths and labels identify the same
+ * thing as plainly as the bodies do.
+ *
+ * The only thing that consults this is `queueStore`'s migration off the plaintext store a previous
+ * build used. Everything the queue writes now is sealed whichever domain it belongs to; this decides
+ * what may be *carried across* from bytes that were already legible.
+ */
+const NON_PRIVATE_DOMAINS: ReadonlySet<WriteDomain> = new Set<WriteDomain>([
+  'task', 'calendar', 'climate', 'meal', 'recipe', 'pantry', 'grocery',
+])
+
+/** Whether a queued write of this domain carries private household content. */
+export function isPrivateDomain(domain: WriteDomain): boolean {
+  return !NON_PRIVATE_DOMAINS.has(domain)
+}
+
+/**
  * The durable side of the queue, injected so the rules can be tested without a DOM and so the
  * storage layer can change underneath them without touching a single rule.
+ *
+ * <b>Reads and writes are synchronous and durability is not.</b> The rules below re-read the store on
+ * every turn of a replay precisely so a concurrent enqueue is never overwritten, and a rule that had
+ * to await could not do that. So a write lands in the store's memory synchronously and is sealed to
+ * the device behind {@link QueueStore.flush} — see `queueStore.ts` for why the seal cannot be
+ * synchronous. The write-ahead invariant is unchanged and is now explicit rather than implied by
+ * `localStorage` being synchronous: {@link executeDurably} awaits the flush before its fetch begins.
  */
 export interface QueueStore {
   read(): QueuedOp[]
   write(ops: QueuedOp[]): void
   readDropped(): DroppedOp[]
   writeDropped(ops: DroppedOp[]): void
+  /** Resolves when every write so far is on the device; rejects when one could not be. */
+  flush(): Promise<void>
 }
-
-const KEY = 'homehub.writequeue.v1'
-const DROPPED_KEY = 'homehub.writequeue.dropped.v1'
 
 /** Beyond this a set-aside notice is a wall of text nobody reads. Oldest fall off first. */
 const MAX_DROPPED = 20
 
 /** Retryable failures tolerated before a write is set aside. */
 export const MAX_ATTEMPTS = 5
-
-function readJson<T>(key: string): T[] {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? (JSON.parse(raw) as T[]) : []
-  } catch {
-    return []
-  }
-}
-
-function writeJson(key: string, value: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch (cause) {
-    // A write-ahead queue that silently ignores persistence failure is not durable. Callers must
-    // retain their source data (notably a completed care timer) and surface the refusal.
-    throw new Error('The offline write could not be persisted.', { cause })
-  }
-}
-
-export const localQueueStore: QueueStore = {
-  read: () => readJson<QueuedOp>(KEY),
-  write: (ops) => writeJson(KEY, ops),
-  readDropped: () => readJson<DroppedOp>(DROPPED_KEY),
-  writeDropped: (ops) => writeJson(DROPPED_KEY, ops),
-}
 
 /** The only operations visible or replayable in the current authenticated profile. */
 export function queueForProfile(ops: QueuedOp[], profileId: number | null): QueuedOp[] {
@@ -244,14 +254,16 @@ const SEND_DEADLINE_MS = 20_000
 export async function executeOp(
   op: QueuedOp,
   forceOverwrite = false,
-  beforeDrain?: (outcome: ExecOutcome) => void,
+  // Awaited, so a durability decision that has to reach storage can hold the drain open until it has.
+  // The return value is the caller's own business — `executeDurably` hands back a `DurableResult`.
+  beforeDrain?: (outcome: ExecOutcome) => unknown,
 ): Promise<ExecOutcome> {
   if (!canExecuteQueuedOp(op)) {
     return { kind: 'error', status: 401, message: 'Queued operation belongs to another profile.' }
   }
   const useVersion = !forceOverwrite && op.baseVersion != null
   const sep = op.path.includes('?') ? '&' : '?'
-  const url = `/api${op.path}${useVersion ? `${sep}baseVersion=${op.baseVersion}` : ''}`
+  const path = `${op.path}${useVersion ? `${sep}baseVersion=${op.baseVersion}` : ''}`
 
   const controller = new AbortController()
   let markDrained!: () => void
@@ -273,63 +285,98 @@ export async function executeOp(
   let expired = false
   const deadline = setTimeout(() => { expired = true; controller.abort() }, SEND_DEADLINE_MS)
 
-  try {
-    let outcome: ExecOutcome
-    let res: Response
+  /** The server's answer, once there is one. Null until the reply has been read and classified. */
+  let classified: ExecOutcome | null = null
 
+  try {
     /*
-     * The identity boundary, checked here rather than by routing this through the JSON helper.
-     *
-     * This transport is not that one: it owns a send deadline, an abort controller a profile
-     * transition can pull, and an outcome vocabulary that decides whether an operation is retained,
-     * retried or set aside. Sending it through `request` to inherit the boundary would cost all of
-     * that, so it inherits the *policy* instead.
+     * The identity boundary, asked before the transport is entered rather than inside it.
      *
      * <b>Reported as `offline`, which is exactly what it is.</b> An unconfirmed panel and an
      * unreachable one are the same situation from the queue's point of view — the write has not been
      * sent and is still owed — and `offline` already means "retained, try again". Anything else here
      * would be a new outcome for a condition the queue already handles correctly.
      *
+     * Asked here as well as inside `authorizedOperation` so the two refusals can be told apart: a
+     * boundary that was already shut is `offline`, and one that closed *underneath* a request in
+     * flight is `cancelled`. They are both retained, and they are not the same event.
+     *
      * This is the reconnect hole it closes: `WriteQueueProvider` already refuses to *replay* while
      * locked or device-only, but a fresh write goes straight to `executeDurably`, and connectivity
      * returning before confirmation would have let it send under a cookie nobody had checked.
      */
     if (!isPrivateNetworkAllowed(op.method, op.path)) {
-      outcome = { kind: 'offline' }
-      beforeDrain?.(outcome)
-      return outcome
+      const refused: ExecOutcome = { kind: 'offline' }
+      await beforeDrain?.(refused)
+      return refused
     }
 
-    try {
-      res = await fetch(url, {
-        method: op.method,
-        headers: op.body != null ? { 'Content-Type': 'application/json' } : undefined,
-        body: op.body != null ? JSON.stringify(op.body) : undefined,
-        cache: 'no-store',
-        signal: controller.signal,
-      })
-    } catch {
-      // Both are retained rather than forgotten, but they are not the same event: `cancelled` is a
-      // profile transition and `offline` is a server that is not there. A deadline is the latter.
-      outcome = controller.signal.aborted && !expired ? { kind: 'cancelled' } : { kind: 'offline' }
-      beforeDrain?.(outcome)
+    /*
+     * <b>Through the authorised transport, which it used to sidestep.</b>
+     *
+     * This transport is genuinely not the JSON helper — it owns a send deadline, an abort controller
+     * a profile transition can pull, and an outcome vocabulary that decides whether an operation is
+     * retained, retried or set aside — and it used to inherit only the *policy* while calling `fetch`
+     * itself. The cost of that was one specific thing: nothing here announced a lost session. An
+     * expired cookie first discovered by a queued replay produced an ordinary `error 401`, the pass
+     * broke out of its loop, and the panel stayed unlocked over the household's private screens with
+     * no session behind them. Every other authenticated path had been brought under one decision and
+     * this one had not.
+     *
+     * Everything it owns survives the move: the deadline is still this function's, the controller is
+     * still what a transition pulls, and the classification below still happens inside the operation —
+     * which is now also what holds the transition's drain open until the durability decision has run.
+     */
+    return await authorizedOperation(path, {
+      method: op.method,
+      headers: op.body != null ? { 'Content-Type': 'application/json' } : undefined,
+      body: op.body != null ? JSON.stringify(op.body) : undefined,
+      cache: 'no-store',
+      signal: controller.signal,
+    }, async (res) => {
+      let outcome: ExecOutcome
+      if (res.ok) {
+        const text = await res.text().catch(() => '')
+        outcome = { kind: 'ok', data: text ? JSON.parse(text) : undefined }
+      } else if (res.status === 409) {
+        const current = await res.json().catch(() => undefined)
+        outcome = { kind: 'conflict', current }
+      } else if (res.status === 404) {
+        outcome = { kind: 'gone' }
+      } else {
+        const detail = await res.text().catch(() => '')
+        outcome = { kind: 'error', status: res.status, message: detail.trim() || res.statusText }
+      }
+      // A cookie transition cannot pass its barrier until this durability decision has run — which is
+      // now true because the operation is what the barrier waits on, rather than the headers.
+      classified = outcome
+      await beforeDrain?.(outcome)
       return outcome
-    }
+    })
+  } catch {
+    /*
+     * The server's answer, once classified, is what happened — whatever the transport does next.
+     *
+     * `authorizedOperation` refuses on its way out when the boundary closed while the body was being
+     * read, and that refusal must not be re-read as "the write never went". It went, it was answered,
+     * and the durability decision on that answer has already been persisted; re-reporting it as
+     * offline would leave the queue holding an operation the server has already applied.
+     */
+    if (classified) return classified
 
-    if (res.ok) {
-      const text = await res.text().catch(() => '')
-      outcome = { kind: 'ok', data: text ? JSON.parse(text) : undefined }
-    } else if (res.status === 409) {
-      const current = await res.json().catch(() => undefined)
-      outcome = { kind: 'conflict', current }
-    } else if (res.status === 404) {
-      outcome = { kind: 'gone' }
-    } else {
-      const detail = await res.text().catch(() => '')
-      outcome = { kind: 'error', status: res.status, message: detail.trim() || res.statusText }
-    }
-    // A cookie transition cannot pass its barrier until this synchronous durability decision ran.
-    beforeDrain?.(outcome)
+    /*
+     * Otherwise: three failures arrive here and two of them are the same answer.
+     *
+     * A dead socket and a deadline are `offline`: the write was not sent and is still owed. An abort
+     * pulled from outside is `cancelled` — a profile transition, not permission to forget an
+     * operation that was durably written before its request started. So is the boundary closing
+     * mid-flight, which `authorizedOperation` refuses for the same reason and which is a transition by
+     * another name. All three are retained; only the telling differs.
+     */
+    const outcome: ExecOutcome = controller.signal.aborted && !expired
+      ? { kind: 'cancelled' }
+      : isPrivateNetworkAllowed(op.method, op.path) ? { kind: 'offline' } : { kind: 'cancelled' }
+    await beforeDrain?.(outcome)
     return outcome
   } finally {
     clearTimeout(deadline)
@@ -367,6 +414,16 @@ export async function executeDurably(
   }
 
   persistAhead(store, op)
+  /*
+   * Sealed to the device before anything is sent — the write-ahead invariant, stated rather than
+   * inherited.
+   *
+   * It used to be enough that `localStorage.setItem` is synchronous. The store now seals its blob
+   * with WebCrypto, which is not, so "persisted before the fetch" is this await and nothing else. A
+   * refusal propagates: the caller has source data to retain (notably a completed care timer) and
+   * must be told, which is the same contract the old synchronous throw had.
+   */
+  await store.flush()
   let settledResult: DurableResult | null = null
   const settle = (outcome: ExecOutcome): DurableResult => {
     if (settledResult) return settledResult
@@ -394,6 +451,23 @@ export async function executeDurably(
         break
 
       case 'error': {
+        /*
+         * <b>A 401 is retained, not set aside.</b>
+         *
+         * It used to fall through to the terminal branch below — a 4xx describes the request, so the
+         * request was discarded — and that reasoning is wrong for exactly this status. A 401 says
+         * nothing about the operation and everything about the session carrying it: the cookie
+         * expired, the profile's security version was bumped, somebody signed out on another tab. The
+         * write is perfectly good and will land the moment its owner is confirmed again, so throwing
+         * it away punished the household for a session timeout by deleting the entry they made.
+         *
+         * The transport announces the session loss (see `privateNetwork.noteAuthenticatedResponse`)
+         * and `replayQueue` stops the pass; this half is only about not losing the work.
+         */
+        if (outcome.status === 401) {
+          settledResult = { outcome, settled: false }
+          break
+        }
         if (!isRetryable(outcome.status)) {
           settledResult = {
             outcome, settled: true, dropped: dropOp(store, op, 'rejected', outcome.message),
@@ -474,8 +548,16 @@ export async function replayQueue(store: QueueStore, profileId: number | null): 
       result.changed = true
     }
     if (outcome.kind === 'error' && outcome.status === 401) {
-      // The execution gate closed underneath us — a sign-out or lock landed mid-pass. Stop rather
-      // than grind the rest of the queue against a cookie that is no longer this profile's.
+      /*
+       * The identity this pass was replaying under is gone.
+       *
+       * Either the execution gate closed underneath us — a sign-out or lock landed mid-pass — or the
+       * server itself refused the cookie, which is the case that used to end here silently. It no
+       * longer does: the transport announces the loss (`privateNetwork.noteAuthenticatedResponse`)
+       * and the panel locks. What this line owns is the other half — stop rather than grind the rest
+       * of the queue against a cookie that is no longer this profile's. The operation stays queued;
+       * see the 401 branch in `executeDurably`.
+       */
       break
     }
   }

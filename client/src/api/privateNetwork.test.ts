@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   armSessionLostNotice,
-  authorizedFetch,
+  authorizedOperation,
+  authorizedSend,
+  CREDENTIAL_REJECTED_HEADER,
   closeAndDrainPrivateNetwork,
   confirmedSubject,
   inFlightPrivateRequests,
@@ -28,6 +30,17 @@ afterEach(() => {
   setPrivateNetworkConfirmed(false)
   vi.unstubAllGlobals()
 })
+
+/**
+ * The request half of an operation, for assertions about what does or does not reach the network.
+ *
+ * Written out here rather than exported from the module on purpose. `authorizedFetch` used to be the
+ * public primitive and handed a `Response` back the moment headers arrived, which is the hole H1
+ * names: everything the reply caused then happened outside the transport's sight. The tests that only
+ * care whether a request was *made* still want that shape, and nothing in the app may have it.
+ */
+const requestOnly = (path: string, init?: RequestInit) =>
+  authorizedOperation(path, init, async (res) => res)
 
 describe('what may precede confirmation', () => {
   it('allows exactly the operations that establish or inspect the session shell', () => {
@@ -111,7 +124,7 @@ describe('the transport primitive', () => {
     const fetched = vi.fn()
     vi.stubGlobal('fetch', fetched)
 
-    await expect(authorizedFetch('/pantry')).rejects.toBeInstanceOf(PrivateNetworkError)
+    await expect(requestOnly('/pantry')).rejects.toBeInstanceOf(PrivateNetworkError)
     // The claim is not "the request failed" — it is that no request was made.
     expect(fetched).not.toHaveBeenCalled()
   })
@@ -120,7 +133,7 @@ describe('the transport primitive', () => {
     const urls: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (url: string) => { urls.push(url); return new Response('[]') }))
 
-    await authorizedFetch('/profiles')
+    await requestOnly('/profiles')
 
     // Prefixed here rather than by each caller, so a caller cannot accidentally authorise a
     // different origin by naming a full URL.
@@ -132,12 +145,12 @@ describe('the transport primitive', () => {
     vi.stubGlobal('fetch', fetched)
 
     setPrivateNetworkConfirmed(true)
-    await authorizedFetch('/pantry')
+    await requestOnly('/pantry')
     expect(fetched).toHaveBeenCalledOnce()
 
     // A lock, a sign-out, an expired cookie, or a confirmation that came back as somebody else.
     setPrivateNetworkConfirmed(false)
-    await expect(authorizedFetch('/pantry')).rejects.toBeInstanceOf(PrivateNetworkError)
+    await expect(requestOnly('/pantry')).rejects.toBeInstanceOf(PrivateNetworkError)
     expect(fetched).toHaveBeenCalledOnce()
   })
 
@@ -187,7 +200,7 @@ describe('a 401 closes the session boundary', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
 
     // The Assist stream's own path — one of the three that used to say nothing.
-    await authorizedFetch('/assist/chat/stream', { method: 'POST' })
+    await requestOnly('/assist/chat/stream', { method: 'POST' })
 
     expect(seen).toHaveLength(1)
     stop()
@@ -200,9 +213,9 @@ describe('a 401 closes the session boundary', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
 
     // A page-load storm of 401s is one lost session, not twenty.
-    await authorizedFetch('/pantry')
-    await authorizedFetch('/tasks')
-    await authorizedFetch('/voice/speak', { method: 'POST' })
+    await requestOnly('/pantry')
+    await requestOnly('/tasks')
+    await requestOnly('/voice/speak', { method: 'POST' })
 
     expect(seen).toHaveLength(1)
     stop()
@@ -212,12 +225,79 @@ describe('a 401 closes the session boundary', () => {
     setPrivateNetworkConfirmed(true)
     armSessionLostNotice()
     const { seen, stop } = listen()
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+    // The server marks its own credential refusals. Both of these are somebody typing four wrong
+    // digits, and neither says anything about the cookie that carried the request.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', {
+      status: 401, headers: { [CREDENTIAL_REJECTED_HEADER]: 'credential-rejected' },
+    })))
 
-    await authorizedFetch('/session', { method: 'POST' })
-    await authorizedFetch('/profiles/1/pin', { method: 'PUT' })
+    await requestOnly('/session', { method: 'POST' })
+    await requestOnly('/profiles/1/pin', { method: 'PUT' })
 
     expect(seen).toHaveLength(0)
+    stop()
+  })
+
+  /*
+   * HH-03. The PIN-management routes used to be excused by path and method alone, so the two
+   * different things they answer 401 about were treated as one.
+   *
+   * A member changing their PIN on a panel whose cookie has expired is the ordinary way to reach
+   * this: the request is refused for the session, not for the digits, and the excuse meant nothing
+   * noticed. The panel stayed unlocked over the household's private screens with no session behind
+   * them, because the first call to find out happened to be the one route told not to care.
+   */
+  it('announces an unmarked 401 from a PIN route, which is a lost session and not a wrong PIN', async () => {
+    setPrivateNetworkConfirmed(true)
+    armSessionLostNotice()
+    const { seen, stop } = listen()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+
+    await requestOnly('/profiles/1/pin', { method: 'PUT' })
+
+    expect(seen).toHaveLength(1)
+    stop()
+  })
+
+  it('announces an unmarked 401 from sign-in too, rather than trusting the path', async () => {
+    setPrivateNetworkConfirmed(true)
+    armSessionLostNotice()
+    const { seen, stop } = listen()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+
+    await requestOnly('/session', { method: 'POST' })
+
+    expect(seen).toHaveLength(1)
+    stop()
+  })
+
+  it('reads the marker case-insensitively and refuses anything else as a mark', async () => {
+    setPrivateNetworkConfirmed(true)
+    armSessionLostNotice()
+    const { seen, stop } = listen()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response('', {
+      status: 401,
+      // A value that is not the agreed one is not a mark. Fail-closed: the boundary closes.
+      headers: { [CREDENTIAL_REJECTED_HEADER]: url.includes('bogus') ? 'something-else' : 'Credential-Rejected' },
+    })))
+
+    await requestOnly('/session', { method: 'POST' })
+    expect(seen).toHaveLength(0)
+
+    await requestOnly('/bogus', { method: 'POST' })
+    expect(seen).toHaveLength(1)
+    stop()
+  })
+
+  it('announces for a send with no body read, which is the cancel path', async () => {
+    setPrivateNetworkConfirmed(true)
+    armSessionLostNotice()
+    const { seen, stop } = listen()
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })))
+
+    await authorizedSend('/assist/chat/turns/x/cancel', { method: 'POST' })
+
+    expect(seen).toHaveLength(1)
     stop()
   })
 
@@ -229,7 +309,7 @@ describe('a 401 closes the session boundary', () => {
 
     // The old exclusion was `path.includes('/pin')`, which would have excused this. An excused 401 is
     // a session loss that never reaches the lock screen.
-    await authorizedFetch('/pantry/pinned')
+    await requestOnly('/pantry/pinned')
 
     expect(seen).toHaveLength(1)
     stop()
@@ -262,7 +342,7 @@ describe('subject and epoch binding', () => {
     let release!: (r: Response) => void
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { release = resolve })))
 
-    const pending = authorizedFetch('/pantry')
+    const pending = requestOnly('/pantry')
 
     // Somebody else unlocks while it is out.
     setPrivateNetworkConfirmed(true, 2)
@@ -293,7 +373,7 @@ describe('draining a transition', () => {
       init?.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
     })))
 
-    const pending = authorizedFetch('/pantry').catch(() => 'ended')
+    const pending = requestOnly('/pantry').catch(() => 'ended')
     expect(inFlightPrivateRequests()).toBe(1)
 
     await closeAndDrainPrivateNetwork()
@@ -309,6 +389,126 @@ describe('draining a transition', () => {
     await closeAndDrainPrivateNetwork()
     vi.stubGlobal('fetch', vi.fn())
 
-    await expect(authorizedFetch('/pantry')).rejects.toBeInstanceOf(PrivateNetworkError)
+    await expect(requestOnly('/pantry')).rejects.toBeInstanceOf(PrivateNetworkError)
+  })
+})
+
+
+/**
+ * An authenticated operation is tracked until everything it causes has happened — HH-01.
+ *
+ * <b>The transport used to let go at the response headers.</b> The request left `inFlight`, its drain
+ * promise settled, and a lock or a profile switch waiting on that drain was told the panel was quiet.
+ * It was not: an ordinary JSON body was still being read, an Assist stream was still delivering deltas
+ * and firing `onDone`, and a queued write was still classifying its answer and deciding whether to
+ * stay durable — all under the identity the transition had just revoked.
+ *
+ * Headers are the middle of an authenticated operation. These say so.
+ */
+describe('the operation, not the fetch, is what a transition waits for', () => {
+  /** A response whose body is released by the test, so a transition can be made to land mid-read. */
+  const suspendedBody = () => {
+    let release!: (text: string) => void
+    const body = new Promise<string>((resolve) => { release = resolve })
+    const res = {
+      ok: true, status: 200, statusText: 'OK', headers: new Headers(),
+      text: () => body,
+    } as unknown as Response
+    return { res, release }
+  }
+
+  it('stays in flight while the body is still being read', async () => {
+    setPrivateNetworkConfirmed(true, 1)
+    const { res, release } = suspendedBody()
+    vi.stubGlobal('fetch', vi.fn(async () => res))
+
+    const reading = authorizedOperation('/care/entries', undefined, (r) => r.text())
+    // Let the fetch resolve, so the operation is past headers and into the body.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // The claim: headers arriving did not end it.
+    expect(inFlightPrivateRequests()).toBe(1)
+
+    release('{"feeds":[]}')
+    await reading
+    expect(inFlightPrivateRequests()).toBe(0)
+  })
+
+  it('does not let a profile switch drain to empty while a body is outstanding', async () => {
+    setPrivateNetworkConfirmed(true, 1)
+    const { res, release } = suspendedBody()
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      // A real body read is abortable, so the drain's abort is what ends it.
+      init?.signal?.addEventListener('abort', () => release(''))
+      return res
+    }))
+
+    const reading = authorizedOperation('/care/entries', undefined, (r) => r.text()).catch(() => 'ended')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(inFlightPrivateRequests()).toBe(1)
+
+    // The transition. It must not return until the body has finished, because everything that body
+    // settles into belongs to the member who is being switched away from.
+    await closeAndDrainPrivateNetwork()
+
+    expect(inFlightPrivateRequests()).toBe(0)
+    expect(await reading).toBe('ended')
+  })
+
+  it('refuses a body that finished after the identity changed, before its value is handed back', async () => {
+    setPrivateNetworkConfirmed(true, 1)
+    const { res, release } = suspendedBody()
+    vi.stubGlobal('fetch', vi.fn(async () => res))
+
+    const reading = authorizedOperation('/care/entries', undefined, (r) => r.text())
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Somebody else unlocks while the first member's body is still arriving.
+    setPrivateNetworkConfirmed(true, 2)
+    release('{"secret":"first member\'s"}')
+
+    // The epoch is checked again at the last point before the value becomes the caller's, which is
+    // the only place that can catch a transition landing *during* the read rather than before it.
+    await expect(reading).rejects.toBeInstanceOf(PrivateNetworkError)
+  })
+
+  it('tracks a stream for its whole life, not for its first frame', async () => {
+    setPrivateNetworkConfirmed(true, 1)
+    let push!: (chunk: string) => void
+    let finish!: () => void
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = (chunk) => controller.enqueue(new TextEncoder().encode(chunk))
+        finish = () => controller.close()
+      },
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200, statusText: 'OK', headers: new Headers(), body: stream,
+    } as unknown as Response)))
+
+    const frames: string[] = []
+    const streaming = authorizedOperation('/assist/chat/stream', { method: 'POST' }, async (r) => {
+      const reader = r.body!.getReader()
+      const decoder = new TextDecoder()
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        frames.push(decoder.decode(value))
+      }
+    })
+
+    push('data: one\n\n')
+    await Promise.resolve()
+    await Promise.resolve()
+    // A stream is the longest-lived authenticated operation this app has, and was the least covered.
+    expect(inFlightPrivateRequests()).toBe(1)
+
+    finish()
+    await streaming
+    expect(frames).toEqual(['data: one\n\n'])
+    expect(inFlightPrivateRequests()).toBe(0)
   })
 })

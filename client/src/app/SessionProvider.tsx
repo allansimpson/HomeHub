@@ -4,13 +4,15 @@ import { api, ApiError, SESSION_LOST_EVENT, armSessionLostNotice, setPrivateNetw
 import { closeAndDrainPrivateNetwork } from '../api/privateNetwork'
 import { useConnection } from './ConnectionProvider'
 import {
-  clearIdentity, clearUnlock, loadIdentity, mayAccessPrivateCache, saveIdentity, saveUnlock,
-  shouldAskForPin,
+  clearIdentity, clearUnlock, loadIdentity, locksWhenIdle, mayAccessPrivateCache, saveIdentity,
+  saveUnlock, shouldAskForPin,
 } from './sessionTrust'
 import type { ProfileDto, SettingsDto } from '../api/types'
 import { clearCareOfflineData, closeCareVault, flushCareVault, openCareVault } from '../screens/care/careOffline'
-import type { VaultSeal } from '../screens/care/careVault'
 import { closeQueueExecution, setQueueIdentity } from './writeQueue'
+import { createSessionBoundary } from './sessionBoundary'
+import { clearQueueStore, closeQueueStore, flushQueueStore, openQueueStore } from './queueStore'
+import { clearDeviceKeys, deviceKeyFor } from './deviceKey'
 import { clearEnrolment, enrol, OfflineUnlockError, unlockOffline } from './offlineUnlock'
 
 /**
@@ -101,15 +103,56 @@ const needsPinToSignIn = (p: ProfileDto | null | undefined): boolean => !!p && p
  */
 
 /**
- * The seal this session may hold the care records under.
+ * The key this session may seal its private records under, or null for a session that writes none.
  *
  * One place, because the alternative is each unlock path deciding for itself and one of them
- * eventually writing a PIN-holding profile's log to the device in the clear. A key in hand always
- * seals; without one it comes down to whether there is a secret to seal under at all.
+ * eventually writing a PIN-holding profile's log to the device in the clear — which is exactly what
+ * happened, in the one branch nobody looked at twice.
+ *
+ * Three answers, in the order they are asked:
+ *
+ * <b>A PIN was proved</b>, so its unwrapped data key is in hand and everything is sealed under it.
+ * That is the strong case and nothing here weakens it.
+ *
+ * <b>The profile has a PIN and this session did not type it</b> — a cold boot into a live cookie with
+ * `requirePinWhenIdle` off. No key, and the device key must not be substituted: it would seal a
+ * member's records under something their PIN is not needed to open, which is the PIN boundary being
+ * quietly moved rather than honoured. The session remembers in memory and writes nothing down.
+ *
+ * <b>The profile has no PIN.</b> This used to be the plaintext case, on the reasoning that there was
+ * no secret to seal under. The reasoning was wrong: `./deviceKey` mints a non-extractable key this
+ * device can use and cannot export, and "nobody set a PIN" was a decision about who may *use* the
+ * panel, never about whether the household's care record may be read out of a browser store by
+ * whoever picks the device up. Null only when the browser cannot hold a key at all, and then the
+ * session is memory-only — never plaintext.
  */
-const sealFor = (profile: ProfileDto | null | undefined, key: CryptoKey | null): VaultSeal => {
-  if (key) return { kind: 'sealed', key }
-  return profile?.hasPin ? { kind: 'memory' } : { kind: 'plaintext' }
+const keyFor = async (
+  profile: ProfileDto | null | undefined,
+  profileId: number,
+  provenKey: CryptoKey | null,
+): Promise<CryptoKey | null> => {
+  if (provenKey) return provenKey
+  if (profile?.hasPin) return null
+  return deviceKeyFor(profileId)
+}
+
+/**
+ * Open both durable private stores for this profile, under one key.
+ *
+ * <b>One key and one call, because two protection levels is a hole with extra steps.</b> The care
+ * vault and the write queue hold the same rows — the log the household reads, and the operations
+ * carrying those rows to the server — so sealing one and not the other protects nothing. They were
+ * separate for exactly as long as it took for the queue to be the one left in the clear.
+ */
+const openPrivateStores = async (profileId: number, key: CryptoKey | null): Promise<void> => {
+  await openCareVault(profileId, key ? { kind: 'sealed', key } : { kind: 'memory' })
+  await openQueueStore(profileId, key)
+}
+
+/** Close both, leaving what is sealed on the device. Closing is not erasing — see `careVault`. */
+const closePrivateStores = (): void => {
+  closeCareVault()
+  closeQueueStore()
 }
 
 /**
@@ -161,16 +204,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [deviceOnly, setDeviceOnly] = useState(false)
 
   /*
-   * The connection, read through a ref.
+   * The connection.
    *
-   * `lockNow` is handed to `useIdleReset`, which re-subscribes its listeners whenever the callback
-   * changes identity — so taking `online` as a dependency would tear down and rebuild the activity
-   * listeners on every probe that flipped. The ref keeps the reading current without that, and the
-   * value is only ever read at the instant the idle timer fires.
+   * <b>Read through a ref until recently, and no longer.</b> The ref existed so `lockNow` could
+   * consult connectivity without taking it as a dependency — `useIdleReset` re-subscribes its
+   * activity listeners whenever that callback changes identity, so a value that flips on every probe
+   * would have rebuilt them constantly. `lockNow` does not consult it any more (see the note there on
+   * why an offline panel must still lock), so the ref has nothing left to keep current.
    */
   const { online } = useConnection()
-  const onlineRef = useRef(online)
-  onlineRef.current = online
 
   /*
    * The roster, readable from a callback that must not re-identify when it changes.
@@ -182,10 +224,36 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const profilesRef = useRef<ProfileDto[]>([])
   profilesRef.current = profiles
 
+  /*
+   * Which identity boundary the panel is on. The rule, and why it is a counter, is in
+   * `sessionBoundary.ts`; what is here is the wiring.
+   *
+   * A ref rather than state, and deliberately: this has to be readable and writable inside a callback
+   * that must not re-identify, and it has to change *now* rather than at the next render.
+   */
+  const boundary = useRef(createSessionBoundary())
+  const beginTransition = useCallback((): number => boundary.current.begin(), [])
+  /** Whether the flow that started in this generation may still act. */
+  const stillCurrent = useCallback((began: number): boolean => boundary.current.holds(began), [])
+
+  /*
+   * A transition on the way out.
+   *
+   * Unmounting is the one boundary change with no successor to supersede a stale completion, so it
+   * takes a number of its own. Without it, a session read still in flight when the provider goes away
+   * resumes into `setState` calls on a dead tree — and, worse, into a `confirmIdentity` that would
+   * reopen the request layer's boundary with nothing left to close it again.
+   */
+  const closing = useRef(boundary.current)
+  useEffect(() => () => { closing.current.begin() }, [])
+
   // Cookie-changing actions are one-at-a-time. Without this, two quick profile choices can both
   // drain the old owner and then race their sign-ins, leaving UI identity and HttpOnly cookie split.
   const sessionTransition = useRef<Promise<void>>(Promise.resolve())
   const duringSessionTransition = useCallback(async <T,>(work: () => Promise<T>): Promise<T> => {
+    // Numbered before anything is awaited. A refresh that is mid-flight right now is already stale by
+    // the time this function's first `await` yields, which is the whole point of doing it here.
+    beginTransition()
     const previous = sessionTransition.current
     let release!: () => void
     sessionTransition.current = new Promise<void>((resolve) => { release = resolve })
@@ -205,7 +273,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
      */
     await closeAndDrainPrivateNetwork()
     try { return await work() } finally { release() }
-  }, [])
+  }, [beginTransition])
 
   /**
    * The request layer's identity boundary — opened and closed here, and nowhere else.
@@ -233,6 +301,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refresh = useCallback(async () => {
+    /*
+     * The boundary this read belongs to, taken before the first request goes out.
+     *
+     * Every `setState` and every `confirmIdentity` below is guarded on it still holding. `locked` is
+     * captured in the same breath and is *not* enough on its own: it is a value from the render this
+     * callback was built in, so a lock that happens while the reads are in flight leaves it saying
+     * `false` — which is precisely how a revoked session was reopened by a refresh that started
+     * before the revocation.
+     */
+    const began = boundary.current.current()
     try {
       /*
        * <b>Confirmation first, private data second, and never in one `Promise.all`.</b>
@@ -251,6 +329,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         api.listProfilePicker(),
         api.getSession(),
       ])
+      /*
+       * The boundary moved while this read was in flight, so this read has nothing to say about it.
+       *
+       * Abandoned entirely rather than partially applied: the roster looks harmless and is not, because
+       * `saveIdentity` below would then record whoever this read found as the device's remembered
+       * member — which is the identity the next offline launch comes up as.
+       */
+      if (!stillCurrent(began)) return
       setProfiles(pickerProfiles)
       setActiveProfileId(session.profileId)
       setQueueIdentity(locked ? null : session.profileId)
@@ -282,6 +368,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         settingsOrNullWhenSignedOut(),
         api.listProfiles().catch(() => null),
       ])
+      // Checked again: these two are private reads, so the window they open is a second one.
+      if (!stillCurrent(began)) return
       setSettings(nextSettings)
       // Only on success: a refusal must not blank a roster the picker is drawing from.
       // Same reason as the boot path: truthiness is not a shape check.
@@ -294,15 +382,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       // Unreachable API. The last known identity stays on screen — it was restored at boot and
       // nothing here has learned anything to replace it with.
+      if (!stillCurrent(began)) return
       if (err instanceof ApiError) {
         setOffline(true)
       } else {
         throw err
       }
     } finally {
+      // Not guarded: this only ever takes the boot spinner down, and a superseded read leaving the
+      // panel on it for ever would be a worse failure than the one the guard is for.
       setLoading(false)
     }
-  }, [locked, confirmIdentity])
+  }, [locked, confirmIdentity, stillCurrent])
 
   /*
    * Closed the moment the panel locks, before anything else reacts to it.
@@ -331,22 +422,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    */
   useEffect(() => {
     const onLost = () => {
+      // A revocation, so it takes a number before it touches anything: a session read already in
+      // flight must not finish and re-confirm the identity the server has just refused.
+      beginTransition()
       // Closed, not erased. An expired cookie is a reason to ask for the PIN again; it is not the
       // household saying they are finished with the record, and treating it as one is what used to
       // throw away a night's log because a session timed out. See `careVault.closeCareVault`.
-      closeCareVault()
+      closePrivateStores()
       setQueueIdentity(null)
       setDeviceOnly(false)
       setLocked(true)
     }
     window.addEventListener(SESSION_LOST_EVENT, onLost)
     return () => window.removeEventListener(SESSION_LOST_EVENT, onLost)
-  }, [])
+  }, [beginTransition])
 
   // Initial load. On boot, lock if the active profile opted into a PIN (a rebooted panel
   // should not come up already unlocked into a private profile).
   useEffect(() => {
     let cancelled = false
+    // The boot read is an asynchronous flow like any other, so it is bound the same way. `cancelled`
+    // covers unmount; this covers a lock, a sign-in or a revocation landing while it is still reading.
+    const began = boundary.current.current()
     ;(async () => {
       try {
         /*
@@ -367,7 +464,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           api.listProfilePicker(),
           api.getSession(),
         ])
-        if (cancelled) return
+        if (cancelled || !stillCurrent(began)) return
         setProfiles(nextProfiles)
         setActiveProfileId(session.profileId)
         setIsAdmin(session.isAdmin)
@@ -393,7 +490,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // refusal leaves the picker's version standing rather than blanking it.
           api.listProfiles().catch(() => null),
         ])
-        if (cancelled) return
+        if (cancelled || !stillCurrent(began)) return
         setSettings(nextSettings)
         // `Array.isArray`, not truthiness: `catch(() => null)` guards a refusal, but a malformed or
         // unexpected body is truthy and would replace the roster with something that has no `.find`,
@@ -403,14 +500,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setDeviceOnly(false)
         /*
          * A boot straight into an unlocked session has no PIN in hand — nobody typed one — so it
-         * cannot open a sealed blob. `sealFor` names the three ways that can go; the one worth
-         * knowing is that a PIN-holding profile which skipped the keypad gets a memory-only session
-         * rather than having its records written back in the clear.
+         * cannot open a blob sealed under one. `keyFor` names the three ways that can go; the one
+         * worth knowing is that a PIN-holding profile which skipped the keypad gets a memory-only
+         * session rather than having its records written back in the clear.
          */
         if (mayAccessPrivateCache('server-session', nextLocked) && session.profileId != null) {
-          await openCareVault(session.profileId, sealFor(active, null))
+          const key = await keyFor(active, session.profileId, null)
+          // Opening a store is handing this session the household's records, so the boundary is
+          // re-checked on the far side of the key lookup — which touches IndexedDB and can await.
+          if (cancelled || !stillCurrent(began)) return
+          await openPrivateStores(session.profileId, key)
         } else {
-          closeCareVault()
+          closePrivateStores()
         }
         setLocked(nextLocked)
         setOffline(false)
@@ -418,7 +519,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // as this person rather than anonymous.
         if (session.profileId != null) saveIdentity(session.profileId, nextProfiles)
       } catch (err) {
-        if (!cancelled && err instanceof ApiError) {
+        if (!cancelled && stillCurrent(began) && err instanceof ApiError) {
           setOffline(true)
           /*
            * A cached roster may identify the last selected profile, but it cannot prove the current
@@ -438,7 +539,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             setActiveProfileId(held.profileId)
           }
           setQueueIdentity(null)
-          closeCareVault()
+          closePrivateStores()
           setLocked(true)
         }
       } finally {
@@ -448,7 +549,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [confirmIdentity])
+  }, [confirmIdentity, stillCurrent])
 
   /*
    * Get the last care write sealed and stored before the page goes quiet.
@@ -461,7 +562,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
    * this — see `careVault`.
    */
   useEffect(() => {
-    const flush = () => { void flushCareVault() }
+    // Both stores, because both are sealed now and both have the same window between a change being
+    // in memory and being on the device. The queue is the more important of the two: it is what
+    // actually reaches the server, and `careVault` names it as the durable half of a logged entry.
+    const flush = () => { void flushCareVault(); void flushQueueStore().catch(() => undefined) }
     document.addEventListener('visibilitychange', flush)
     window.addEventListener('pagehide', flush)
     return () => {
@@ -501,16 +605,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
        * A profile with no PIN is admitted with nothing to check, offline as on the panel.
        *
        * It looks like a hole and is not: its rows sign straight in when the server is there, so
-       * there is no gate here for an offline path to get around, and no secret to seal its records
-       * under either. Refusing it would strand the one profile that never asked to be protected.
+       * there is no gate here for an offline path to get around. What it no longer implies is that
+       * there is nothing to seal the records under — this used to open the vault in the clear on that
+       * reasoning, and `keyFor` says at length why the device key is the right answer instead.
+       * Refusing the profile outright would strand the one member who never asked to be protected.
        */
       if (!pin) {
         if (target?.hasPin !== false) throw err
-        await openCareVault(id, { kind: 'plaintext' })
+        await openPrivateStores(id, await keyFor(target, id, null))
       } else {
         const opened = await unlockOffline(id, pin)
         if (!opened.ok) throw new OfflineUnlockError(opened)
-        await openCareVault(id, { kind: 'sealed', key: opened.key })
+        await openPrivateStores(id, opened.key)
       }
 
       setActiveProfileId(id)
@@ -544,9 +650,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
      * may learn to check that PIN for itself. Enrolling anywhere else would be this device deciding
      * what the right PIN is; enrolling here is it remembering what it was told.
      */
-    const active = profilesRef.current.find((p) => p.id === (session.profileId ?? id)) ?? null
-    const key = pin ? await enrol(session.profileId ?? id, pin) : null
-    await openCareVault(session.profileId ?? id, sealFor(active, key))
+    const signedInAs = session.profileId ?? id
+    const active = profilesRef.current.find((p) => p.id === signedInAs) ?? null
+    const proven = pin ? await enrol(signedInAs, pin) : null
+    await openPrivateStores(signedInAs, await keyFor(active, signedInAs, proven))
     setLocked(false)
     setOffline(false)
     // The panel holds a session again, so the next expiry gets announced rather than swallowed.
@@ -605,10 +712,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!online || !deviceOnly || locked || activeProfileId == null) return
     let cancelled = false
+    /*
+     * Bound like every other asynchronous flow, and this one is the sharpest case for it.
+     *
+     * What it does on success is promote a device-proved session to a server-confirmed one, which
+     * opens the write queue and the request boundary. A lock or a sign-out landing while the probe is
+     * in flight must not be undone by the probe's answer arriving afterwards — that is precisely a
+     * closed boundary being reopened from obsolete state.
+     */
+    const began = boundary.current.current()
     ;(async () => {
       try {
         const session = await api.getSession()
-        if (cancelled) return
+        if (cancelled || !stillCurrent(began)) return
         if (session.signedIn && session.profileId === activeProfileId) {
           setIsAdmin(session.isAdmin)
           setQueueIdentity(activeProfileId)
@@ -621,7 +737,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // The cookie expired while the panel was away, or it belongs to somebody else now. The
         // records stay sealed on the device and the PIN reopens them; what cannot happen is this
         // session's queued writes going out under a session nobody checked.
-        closeCareVault()
+        beginTransition()
+        closePrivateStores()
         setDeviceOnly(false)
         setQueueIdentity(null)
         setLocked(true)
@@ -631,15 +748,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     })()
     return () => { cancelled = true }
-  }, [online, deviceOnly, locked, activeProfileId, refresh])
+  }, [online, deviceOnly, locked, activeProfileId, refresh, stillCurrent, beginTransition])
 
   const switchProfile = useCallback(
     async (id: number) => {
       const target = profiles.find((p) => p.id === id) ?? null
       if (id !== activeProfileId) {
-        // Closed rather than erased, and the vault is per profile — so the member being switched
-        // away from keeps their sealed log, and the one being switched to cannot read it.
-        closeCareVault()
+        // Closed rather than erased, and both stores are per profile — so the member being switched
+        // away from keeps their sealed log and their queued writes, and the one being switched to
+        // can read neither.
+        beginTransition()
+        closePrivateStores()
         setDeviceOnly(false)
         await closeQueueExecution()
       }
@@ -661,34 +780,52 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       await completeUnlock(id)
     },
-    [profiles, activeProfileId, completeUnlock],
+    [profiles, activeProfileId, completeUnlock, beginTransition],
   )
 
   /**
-   * Lock on idle — but never into a state whose only exit needs a server.
+   * Lock on idle. <b>Whether or not there is a server.</b>
    *
-   * <b>Two conditions had to be added, and the second is a real defect being closed.</b> Locking is
-   * client-side and instant; unlocking is a round trip to `signIn`, because the PIN is the server's
-   * to check. Offline those two disagree: the idle timer would lock a phone that then could not be
-   * unlocked at all, and the household would find the care log — the thing most worth having
-   * offline — behind a keypad that rejects every correct PIN until the house is back in range.
-   * Suspending the lock while unreachable is the version of this that cannot strand anybody, and it
-   * concedes little: the PIN protects a shared panel from other people in the house, and a phone
-   * already unlocked in somebody's hand is not that.
+   * <b>This used to return without locking whenever the panel was offline, and that was the
+   * defect.</b> The reasoning was sound when it was written and had been overtaken: locking is
+   * client-side and instant, unlocking was a round trip to `signIn` because the PIN is the server's to
+   * check, so an idle timeout with no connection would strand somebody behind a keypad that rejects
+   * every correct PIN. Suspending the lock was the version that could not strand anybody.
    *
-   * Normal locking resumes on the next good probe. The trusted window is the other condition — a
-   * profile that unlocked an hour ago is not asked again for a screen it was just using.
+   * What it also was, once `requirePinWhenIdle` is read as the privacy control it is: a way to switch
+   * the lock off from outside. Pull the router, wait, and a shared wall panel sits indefinitely on a
+   * decrypted care log — the household's own setting quietly not in force at the moment the panel is
+   * least attended. Connectivity is not consent.
+   *
+   * The premise is gone in any case. `offlineUnlock` teaches this device to check the PIN for itself
+   * on the far side of one successful online sign-in, and `completeUnlock` falls through to it when
+   * the server cannot be reached — so an offline lock is answerable by the person who knows the four
+   * digits, which is exactly who it is meant to be answerable by.
+   *
+   * <b>What is fail-closed here, stated rather than implied.</b> A profile that has never signed in
+   * with its PIN on this device is not enrolled, so an offline lock cannot be opened until the house
+   * is back in range. That is the correct direction — the alternative is a lock that this device may
+   * decide for itself to skip — and the Lock screen says so in those words rather than reporting a
+   * wrong PIN (see `OfflineUnlockFailure.not-enrolled`).
+   *
+   * The trusted window is the remaining condition: a profile that unlocked an hour ago is not asked
+   * again for a screen it was just using.
    */
   const lockNow = useCallback(() => {
-    if (!onlineRef.current) return
     const active = profiles.find((p) => p.id === activeProfileId) ?? null
-    if (shouldAskForPin(active)) {
+    // Through `locksWhenIdle` rather than `shouldAskForPin` directly: it takes the connection reading
+    // and ignores it on purpose, so the condition removed from here is a stated non-condition with a
+    // test on it rather than an absence nothing can hold on to.
+    if (locksWhenIdle(active, online)) {
+      // A lock is a revocation, so it takes a number before it does anything else — a session read in
+      // flight must not complete afterwards and reopen what this just shut.
+      beginTransition()
       setQueueIdentity(null)
-      closeCareVault()
+      closePrivateStores()
       setDeviceOnly(false)
       setLocked(true)
     }
-  }, [profiles, activeProfileId])
+  }, [profiles, activeProfileId, online, beginTransition])
 
   const signOut = useCallback(async () => duringSessionTransition(async () => {
     await closeQueueExecution()
@@ -701,7 +838,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
      * blanket purge was making everywhere, correctly here and nowhere else.
      */
     clearCareOfflineData()
+    clearQueueStore()
     clearEnrolment()
+    // The third half of the same secret. A no-PIN profile's records are sealed under the device key
+    // rather than an enrolment, so leaving it behind would be leaving the only thing that opens them.
+    void clearDeviceKeys()
     setDeviceOnly(false)
     setActiveProfileId(null)
     setIsAdmin(false)
