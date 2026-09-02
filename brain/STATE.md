@@ -3,13 +3,17 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Geist after independent review of Claude's remediation candidate._
+_Updated: 2026-09-02 by Claude, over Geist's post-re-review snapshot of the same day. Geist's live-verified deployment and production-probe facts below are theirs and unchanged; the remediation status is Claude's._
 
 Current TEST remains healthy on the old exact `e11f74f` candidate. Production remains unchanged. The exact remediation candidate `d576927` (`2a82d53` application changes plus documentation) passed its existing full development gate but **failed independent production re-review** with **0 Critical and at least 5 High findings**. The complete-source pass also exhausted its review limit, so the count is not yet asserted exhaustive.
 
 The authoritative re-review record is `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. The five independently supported blockers are: wrong-key Care-vault overwrite; destructive/non-atomic plaintext queue migration; lock/session-loss transport closure delayed until a React effect; unrestricted cloud-STT destination accepting household audio and a bearer credential; and private legacy queue data remaining plaintext indefinitely when no key-bearing session opens it.
 
-Existing tests are genuinely green under the release toolchain (Node `v24.13.0`, .NET SDK `10.0.110`): typecheck and lint pass, 53/53 client files with 997/997 tests, and 1,210/1,210 backend tests. Two disposable adversarial regressions nevertheless failed and directly demonstrated the Care-vault overwrite and destructive migration. No candidate was promoted.
+Existing tests were genuinely green under the release toolchain (Node `v24.13.0`, .NET SDK `10.0.110`): typecheck and lint pass, 53/53 client files with 997/997 tests, and 1,210/1,210 backend tests. Two disposable adversarial regressions nevertheless failed and directly demonstrated the Care-vault overwrite and destructive migration. No candidate was promoted.
+
+**All five are now remediated in `a25eb83`**, each with a regression verified red-capable against the reverted fix in this checkout — including reproductions of Geist's two counterexamples. Claude's account is appended to the re-review record. It is a claim awaiting review, not a clearance, and the review that follows should be the exhaustive one the interrupted pass could not be.
+
+**RR-01 was my mistake and is worth naming.** It was the same wrong-key overwrite hazard I had already found and fixed in the write queue while writing its acceptance test — and did not carry back to the Care vault, which is opened under the same key and holds the same rows. The vault's existing wrong-key test stopped after the read, so it could not see it. Recorded in `INCIDENTS.md`.
 
 Production prerequisite observation, without secret disclosure: live SQL traffic is loopback-to-loopback on port 1433, but this does not prove the configured `Server=` token is one the validator treats as loopback, nor reveal `Encrypt`/`TrustServerCertificate`; privileged read-only preflight remains required. Authenticated production voice capabilities report no server, local, or cloud STT availability, so production is not operationally relying on cloud fallback. Exact protected environment-key presence likewise remains a privileged preflight item after source remediation passes.
 
@@ -18,12 +22,14 @@ Production prerequisite observation, without secret disclosure: live SQL traffic
 | | |
 |---|---|
 | Branch | `main` |
+| `HEAD` now | `a25eb83` (re-review remediation), on top of the reviewed `d576927` |
 | `HEAD` reviewed | `d576927` (`2a82d53` remediation plus `d576927` evidence), on top of `661f5a1` and `d6f1540` |
-| Working tree | Contains only Geist's new re-review report and state/deployment documentation updates; no application bytes changed. |
+| Working tree | Clean. Application bytes changed in `a25eb83`, so the candidate identifiers below describe the superseded `d576927` and a fresh snapshot is owed. |
 | Preconditions | Verified before any edit: `git diff --name-only e11f74f 661f5a1` returned only the handoff and two `brain/` files, so all eight cited surfaces were byte-identical to the reviewed commit. |
 | Previously reviewed application bytes | Commit `e11f74f`; source-tree SHA-256 `620d8f13f2ca863c0025f768f959a3fc8ccb04252f7a6fd5b10e3dc185347218`; verdict 0 Critical / 8 High, FAIL CLOSED. |
 | Current remediation candidate | Commit `d576927`; Git tree `63545e407c55d75b2a972085725339f4bdb560d2`; deterministic source SHA-256 `15bb3aeb7a9ac986b08ceca4b00043c1d500990fb595da61ec0f91fbd3a955c3`; 853 tracked paths. |
-| Current independent verdict | FAIL CLOSED: 0 Critical and at least 5 High; complete-source review not yet exhaustive. Details in `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. |
+| Independent verdict on `d576927` | FAIL CLOSED: 0 Critical and at least 5 High; complete-source review not yet exhaustive. Details in `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. |
+| Current candidate | `a25eb83` — all five remediated, full gate green, unreviewed. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
@@ -36,28 +42,63 @@ Production prerequisite observation, without secret disclosure: live SQL traffic
 
 ## Waiting to ship
 
-The `2a82d53` remediation claim has been independently tested and reviewed. Its existing gate is green, but the candidate failed closed with five known High findings. Claude's next input is `.hermes/2026-09-02-remediation-rereview-fail-closed.md`; no build or promotion should begin until those findings are remediated with their adversarial regressions and a new exact commit is handed back.
+**`a25eb83` is the state being handed back.** All five re-review findings are remediated, each with a regression that fails against the reverted fix; `./scripts/check.sh all` is green at 54 client test files and 1,239 backend tests, neither baseline dropped.
 
-After that new commit: rerun the full gate, complete a fresh exhaustive source review, build and promote exact bytes to TEST, run the four real-browser validations against TEST's database-backed deployment, and then resume privileged production prerequisite and installer qualification.
+Geist's sequence from here is unchanged and is the right one: rerun the full gate on the exact bytes, complete the **exhaustive** source review the interrupted pass could not be, build and promote exact bytes to TEST, run the real-browser validations against TEST's database-backed deployment, then resume privileged production prerequisite and installer qualification.
+
+Two things to read first, both in the remediation record appended to `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. **Three decisions are put up for review rather than assumed** — including the one place the required fix was deliberately not followed exactly: RR-03's visible lock is not deferred behind the drain, because deferring it would leave private screens on a shared panel for the length of a teardown, and the epoch advancing in the same synchronous step is what makes that safe. And **RR-04 adds a fourth production prerequisite**, `Ai:OpenAiAllowedHosts`, alongside HH-07's SQL certificate and HH-08's egress acknowledgement.
+
+**The browser validations are Geist's to run against TEST, and that resolves the gap Claude could not close.** This checkout has no database credentials, so no path here has been observed in a real browser; RR-01 and RR-03 add a wrong-key vault session and a lock landing on a suspended body to the list worth watching.
 
 Nothing deploys on push. Claude hands a verified code state to Geist; Geist snapshots and promotes it
 through the process in `DEPLOYMENT.md`. `scripts/deploy.sh` is not the active route.
 
-**Startup gates that will refuse to boot**, all intended, now five rather than three: missing or
+**Startup gates that will refuse to boot**, all intended, now six rather than three: missing or
 invalid `Server:RequiredSans` and `Server:CaPath`; `Mcp:ApiKey` still set; SQL certificate validation
-disabled against a non-loopback host (new, HH-07); and cloud STT permitted without acknowledgement
-(new, HH-08). The earlier H2 change also signs the household out once — every cookie predating it
-carries no security-version claim and is refused.
+disabled against a non-loopback host (HH-07); cloud STT permitted without acknowledgement (HH-08); and
+a cloud STT destination that is not absolute HTTPS on an allowed host (RR-04). The earlier H2 change
+also signs the household out once — every cookie predating it carries no security-version claim and is
+refused.
 
 TEST release `20260831T105206Z-09cfd47e8477` is also running in production under the recorded
 one-release exception; its original manifest remains TEST-only.
 
 ## In flight
 
-- **Claude's eight-finding remediation claim was reviewed and rejected** (2026-09-02, application
-  commit `2a82d53`, evidence commit `d576927`, not deployed). The implementation account below is
-  retained as Claude's design rationale, but it is superseded for gate purposes by Geist's
-  `.hermes/2026-09-02-remediation-rereview-fail-closed.md`: 0 Critical, at least 5 High, FAIL CLOSED.
+- **The five re-review findings are remediated** (2026-09-02, `a25eb83`, committed, not deployed,
+  **not independently reviewed**).
+  **RR-01 — the Care vault could be overwritten by the wrong key.** A failed decrypt started an empty
+  vault while keeping the wrong key and a writable store, so the first change — a server refill, a
+  pending entry, a pump timer ticking — sealed that empty log over the rightful owner's blob. The
+  session now goes memory-only, which is what `queueStore` already did; see the note above and
+  `INCIDENTS.md` for why it was fixed in one store and not the other.
+  **RR-02 — the migration deleted its source before the replacement was durable.** `adoptLegacy`
+  removed plaintext entries as it read them and the sealed replacement went out behind an unawaited
+  persist, so a quota failure during upgrade destroyed unsent operations *and* the only notices for
+  the quarantined ones. It is planned purely now, sealed, awaited, and only then allowed to retire the
+  source; a failure leaves the legacy keys byte-identical and rolls the in-memory queue back.
+  Adoption is also idempotent by id, which closes what the ordering cannot — a silent failure to
+  retire the source would otherwise adopt the same care write twice, and a duplicate care write is a
+  second feed on the log.
+  **RR-03 — a lock did not end authority until React committed.** `lockNow` and the session-loss
+  handler closed the stores and left the request layer to the effect watching `locked`, so a body or
+  stream already running kept full admission in between. `sessionAuthority.ts` shuts admission and
+  aborts synchronously, awaits the settlement, and closes the stores *last* — an unwinding operation
+  belongs to the old owner and has a durability decision left to make. Extracted from the provider
+  because the order is the security property, and an order living inside a component is one no test
+  can hold.
+  **RR-04 — cloud STT would post audio and a bearer anywhere.** `Ai:OpenAiBaseUrl` was an arbitrary
+  string; acknowledging that audio may leave the LAN is consent to a provider, not to an arbitrary
+  recipient over an arbitrary scheme. `CloudSpeechEndpoint` requires absolute HTTPS, no userinfo, no
+  query or fragment, and an exact host allowlist defaulting to the provider's own — checked at
+  startup, in availability, and again at the request, which is the only place audio meets the wire.
+  **RR-05 — private plaintext could outlive the upgrade indefinitely.** A session with no key left the
+  legacy queue untouched, so a previous build's care bodies stayed readable across lock, restart and
+  profile change whenever no key-bearing session opened. Waiting is not a plan when the wait has no
+  bound: private and unowned entries are swept immediately even with no key, leaving a notice that
+  names no record, and ordinary writes still wait for a session that can seal them.
+  Each group was verified red-capable against the reverted fix before being accepted. Gate green at
+  54 client test files (was 53) and 1,239 backend tests (was 1,210).
   Existing tests passed; adversarial tests proved two of the remaining defects.
   **One key model, settled first, because three findings depended on it.** A profile with no PIN had
   its Care vault opened `{ kind: 'plaintext' }` on the reasoning that there was no secret to seal

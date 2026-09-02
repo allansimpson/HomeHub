@@ -95,3 +95,86 @@ Passing existing tests do not close RR-01 or RR-02 because both have independent
 - Authenticated production voice capabilities reported `serverStt=false`, `localStt=false`, `cloudStt=false`, and `serverTts=false`. Production is not currently operationally relying on cloud STT fallback. Direct protected-environment key presence remains unreadable to the restricted deployment identity and must be checked before installing new bytes.
 
 No TEST promotion or production configuration mutation was performed.
+
+---
+
+## Claude's remediation — 2026-09-02, commit `a25eb83`
+
+**Status:** all five implemented, with focused regressions. **Geist's re-review is not marked
+complete and is not claimed.** The browser-evidence gap recorded in the previous handoff is
+unchanged and still open.
+
+All five findings were verified against the code before any edit. None was a misreading, and RR-01
+is a mistake of mine that this record should state plainly: I found that exact hazard while writing
+the queue store's acceptance test, fixed it there, wrote the reasoning down in `queueStore.ts` — and
+did not carry it back to `careVault.ts`, which is opened under the same key and holds the same rows.
+The vault's existing wrong-key test stopped after the read, so it could not catch it. It writes now.
+
+| Finding | Fix | Regressions |
+|---|---|---|
+| RR-01 | `careVault.ts` — a failed decrypt sets `openSeal = { kind: 'memory' }`, so the session is memory-only and the blob is untouched | `careVault.test.ts` → *a session holding the wrong key* (2) |
+| RR-02 | `queueStore.ts` — `planLegacyMigration` (pure) → `persistNow` → `await flushQueueStore()` → `commitLegacyMigration`; rollback of `held` on failure; `byId` makes adoption idempotent | `queueStore.test.ts` → *migration is not allowed to lose the data it is migrating* (6) |
+| RR-03 | `sessionAuthority.ts` (new) — synchronous close/abort, awaited drain, stores closed last; used by `lockNow`, session-loss, profile switch and device-only demotion; the `[locked]` effect is now a backstop | `sessionAuthority.test.ts` (7) |
+| RR-04 | `CloudSpeechEndpoint.cs` (new), `AiOptions.cs` (+`AiOptionsValidator`, `OpenAiAllowedHosts`), `OpenAISpeechToText.cs`, `Program.cs` | `CloudSpeechEndpointTests.cs` (29) |
+| RR-05 | `queueStore.ts` — `sweepPrivateLegacy` removes private and unowned plaintext even with no key, leaving a redacted notice | `queueStore.test.ts` → 5 tests across the no-key and migration groups |
+
+### Red-capable verification
+
+Each group was run against the reverted fix before being accepted, in this checkout, restoring the
+file immediately afterwards:
+
+- RR-01: 1 of 15 failed (`cannot overwrite the rightful owner's blob…`); 15/15 with the fix.
+- RR-02 and RR-05 together: 9 of 28 failed; 28/28 with the fixes.
+- RR-03: 2 of 7 failed (`refuses new authenticated work synchronously…`, `does not close the stores
+  until what was in flight has settled`); 7/7 with the fix.
+
+### Decisions worth reviewing rather than assuming
+
+**RR-03 — the visible lock is deliberately not deferred behind the drain.** The required fix asks
+for the drain to precede "closing old-owner stores or completing the visible transition". The stores
+now wait for the drain; `setLocked(true)` does not. Deferring the visible lock would leave the
+household's private screens on a shared panel for the length of a teardown, which is the thing the
+idle lock exists to prevent. It is safe because the epoch advances in the same synchronous step:
+`authorizedOperation` refuses to hand any in-flight result back to a caller, so nothing old can reach
+the screen whether or not it has finished unwinding. Stated here rather than silently diverging.
+
+**RR-05 — the redacted notice keeps `domain` and `ownerProfileId`.** The label is replaced with a
+fixed sentence, and the body, path and version are dropped entirely. Domain and owner are kept
+because the set-aside strip needs them to show the notice to the right member, and both are far
+weaker than the label — "a care write was set aside for profile 2" rather than "Bottle 120ml for
+Wren". If Geist reads the domain itself as disclosure, it can go, at the cost of the notice being
+un-routable.
+
+**RR-02 — a failed migration leaves the private plaintext in place until the next open.** The
+alternative is deleting it with no durable notice, which is the failure RR-02 is about. The no-key
+sweep from RR-05 does not help here, because this session *has* a key. Stated as a bounded residual:
+one more boot's exposure, versus permanent loss of the telling.
+
+**RR-04 — `Ai:OpenAiAllowedHosts` is a new configuration surface.** Default empty means the
+provider's own host. A deployment using an OpenAI-compatible endpoint elsewhere must name it, which
+is deliberate — the point is that changing the destination is an explicit act on a protected value
+rather than a side effect of editing a URL. This is a fifth thing to check against production
+configuration before promotion, alongside HH-07's SQL certificate and HH-08's egress acknowledgement.
+
+### Full gate
+
+```text
+./scripts/check.sh all
+  ok  typecheck      6s
+  ok  lint           0s
+  ok  tests          5s   Test Files  54 passed (54)
+  ok  backend-tests 48s   Failed: 0, Passed: 1239, Skipped: 0, Total: 1239
+```
+
+Client test files 53 → 54; backend tests 1,210 → 1,239. Neither baseline dropped.
+
+### Still outstanding
+
+The browser/manual evidence remains unproduced, for the same reason and unchanged: every validation
+needs a sign-in, which needs a database, and this checkout has no `ConnectionStrings:HomeHub` and no
+dev credentials. RR-01 and RR-03 add to that list — a wrong-key vault session and an idle lock landing
+on a suspended body are both browser-observable and neither has been observed in one. Given a
+development connection string this runs through `/srv/dev/tools/playwright` and lands under
+`artifacts/homehub-browser-verification/`.
+
+Geist marks the re-review, not this record.

@@ -37,6 +37,29 @@ that probe.
 **Still true after the fix:** it only alerts while the app is open. A backgrounded PWA runs no
 timers, and that needs push notifications rather than a different mount.
 
+## 2026-09-02 · A hazard was fixed in one of two stores that share a key
+
+**What happened.** The write queue and the Care vault are opened for the same profile under the same
+key and hold the same rows — the log the household reads, and the operations carrying those rows to
+the server. While writing the queue's acceptance test I found that a session holding the *wrong* key
+started empty and then sealed that empty state over the rightful owner's blob on its very next write.
+I fixed it in `queueStore.ts`, wrote the reasoning down there at length, and did not carry it back to
+`careVault.ts`, which had the identical defect. Independent review found it (RR-01).
+
+**How it presented.** It did not. The vault's existing wrong-key test passed, because it asserted
+only that the session *reads* empty and then stopped. The queue's equivalent test wrote afterwards,
+which is the only reason the same bug was caught there.
+
+**Root cause of the miss.** Two separate mistakes that happened to compound. Treating "cannot read
+it" as the whole of the claim, when the claim is two: a wrong key must read nothing **and** destroy
+nothing. And fixing a defect at the instance rather than at the class — the second store was never
+re-examined, despite being the one most obviously symmetric with the first.
+
+**Guard.** When a store is fixed, ask which other stores share its key, its lifecycle, or its rows,
+and check each of them explicitly rather than assuming the fix generalised. A test that only reads
+cannot prove a store does not destroy: any test about a wrong key, a wrong owner, or a wrong version
+must write, flush, and then reopen with the rightful credential.
+
 ## 2026-08-20 · 89 files became root-owned and both builds died
 
 **What happened.** Between 22:00 and 22:05, 89 files across `client/src`, `src/HomeHub.Api` and
