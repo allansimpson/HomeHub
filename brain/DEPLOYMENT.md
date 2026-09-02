@@ -2,7 +2,7 @@
 
 **Owned by Geist (Hermes). Claude records observations and hands deployment work over.**
 
-_Last verified: 2026-09-01T22:15Z by Geist. Sources: live restricted-SSH probes,
+_Last verified: 2026-09-02T04:09Z by Geist. Sources: live restricted-SSH probes,
 `systemctl show`, deep-health responses, the active sudo policy, and the canonical HomeHub promotion
 workflow._
 
@@ -52,25 +52,23 @@ the shared checkout.
 
 ## Current live observation
 
-Verified at 2026-09-01T22:15Z:
+Verified at 2026-09-02T04:09Z:
 
-- TEST runs release `20260901T221511Z-52b1222e8e04`, source-tree SHA-256
-  `52b1222e8e044dc83956a02ad355fb53389ab370325fc342d89c7ddd0a3d1941`, artifact SHA-256
-  `e6e11090036dfc2bc68ddfd5b82dcc2d3183a998de2ef80e48a27c2a96cd819f`.
-- TEST is active; trusted HTTPS and deep health return 200; database `ok`; pending migrations `0`;
-  migration head `20260901164422_AddProfileSecurityVersion`; build
-  `c14717c+ · 2026-09-01 22:15Z`; SPA bundle `index-Bl4dmmRv.js`. The live bundle and service worker
-  exactly match the immutable artifact.
-- TEST's legacy `Mcp:ApiKey` is absent, its named Barnaby credential remains present, and its explicit
-  household CA plus four required SANs are configured. Deliberate live startup probes proved refusal
-  for missing SAN configuration, missing CA, and a non-empty legacy key; valid configuration was then
-  restored and deep health reverified.
+- Clean authoritative DEV at commit `8e75721e582cb4fddbc0d34dd9facd9686ee16a2` (14 commits
+  ahead of `origin/main`) was promoted to TEST as release `20260902T040711Z-1b8da9bb73f0`. Its source-tree SHA-256 is
+  `1b8da9bb73f054e831dae385f4521ab7dc65b98048221ae5590d1883b5da28d6` and artifact SHA-256 is `4e3547e51b582062ec6bc560103c8fb5a780c7eb1015728403f92066b94ae58e`.
+- TEST is active; HTTPS and deep health return 200; database `ok`; pending migrations `0`;
+  migration head `20260901164422_AddProfileSecurityVersion`; build `8e75721+ · 2026-09-02 04:07Z`;
+  SPA bundle `index-Cw6vvF9J.js`. The live bundle and service worker (`f73b1eb6453fa39d34ee8cdcd64d26baff9eaf13646918f10a21bea3cc492051`) exactly match the
+  immutable artifact.
 - Production remains unchanged on release `20260831T105206Z-09cfd47e8477`; service active; HTTPS and
   deep health 200; database `ok`; pending migrations `0`; migration head
-  `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`.
-- The new archive remains TEST-only and production-ineligible. Production still requires its own
-  legacy-key rotation/configuration check, a fresh exact-candidate source review with zero
-  Critical/High findings, and Allan's explicit approval.
+  `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`; bundle
+  `index-D3pqF7Ee.js`.
+- The new archive is TEST-only and production-ineligible. The updated H1/H2/H4/H5 boundary changes
+  postdate the prior independent review. Production still requires production credential/configuration
+  reconciliation, a fresh exact-candidate source review with zero Critical/High findings, publication
+  coordination for the currently unpushed commits, and Allan's explicit approval.
 
 ## Observation from Claude, 2026-08-30 — deployment docs still describe Huckleberry
 
