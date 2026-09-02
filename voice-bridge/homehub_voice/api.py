@@ -28,9 +28,13 @@ def approve_origin(api_base_url: str, approved: list[str]) -> str:
 
     * **The origin is exact** — scheme, host *and* port. A host on its own would admit the listener
       on the next port, which is a different program.
-    * **The transport is either loopback or TLS.** A bridge on the same machine as HomeHub is the
-      ordinary arrangement and cleartext there never touches a wire. Anywhere else, the service token
-      is on the network in the clear.
+    * **The transport is loopback or TLS, with no exception.** A bridge on the same machine as
+      HomeHub is the ordinary arrangement and cleartext there never touches a wire. Anywhere else it
+      must be ``https``: an exact origin stops the destination being *rerouted* and authenticates
+      nothing about the machine answering there, while the prompt, the conversation history and the
+      recorded audio all cross the LAN in the clear. Naming a plain-http origin in the allowlist used
+      to be accepted — it is not, because listing a destination is not the same as securing the path
+      to it.
     * **No userinfo, query or fragment**, which have no meaning in a base URL and are the usual way a
       destination is made to read as one host while resolving at another.
     """
@@ -49,6 +53,18 @@ def approve_origin(api_base_url: str, approved: list[str]) -> str:
 
     origin = f"{parts.scheme}://{parts.hostname}:{parts.port or (443 if parts.scheme == 'https' else 80)}"
 
+    # Loopback by literal address, not by name: `localhost` is whatever the resolver says it is, and
+    # the exemption being claimed is "this never touches a wire", which is a claim about an address.
+    loopback = _is_loopback_literal(parts.hostname)
+
+    if parts.scheme != "https" and not loopback:
+        raise UnapprovedDestination(
+            f"{origin} is plain http to a host that is not this machine. The prompt, the conversation "
+            "history and the recorded audio would cross the network in the clear, and nothing would "
+            "authenticate the listener receiving them. Serve HomeHub over https with a certificate "
+            "this device trusts."
+        )
+
     if approved:
         normalised = {_normalise(a) for a in approved}
         if origin not in normalised:
@@ -59,12 +75,29 @@ def approve_origin(api_base_url: str, approved: list[str]) -> str:
         return origin
 
     # No allowlist: loopback only, which is the documented arrangement — the bridge runs on the panel.
-    if parts.hostname not in ("localhost", "127.0.0.1", "::1", "[::1]"):
+    if not loopback:
         raise UnapprovedDestination(
             f"{origin} is not on this machine. A bridge talking to HomeHub across a network must "
-            "name that exact origin in HOMEHUB_ALLOWED_ORIGINS, and should use https."
+            "name that exact https origin in HOMEHUB_ALLOWED_ORIGINS."
         )
     return origin
+
+
+def _is_loopback_literal(hostname: str) -> bool:
+    """Whether this is a loopback *address*, written as one.
+
+    ``localhost`` is deliberately not accepted here. It is a name, and a name is a thing the resolver
+    decides — ``/etc/hosts``, a search domain, a DHCP-supplied suffix. The cleartext exemption is the
+    claim that the traffic never reaches a wire, so it is made about addresses rather than about a
+    string that usually means one. A bridge that wants to write ``localhost`` may still do so over
+    https, like any other name.
+    """
+    import ipaddress
+
+    try:
+        return ipaddress.ip_address(hostname.strip("[]")).is_loopback
+    except ValueError:
+        return False
 
 
 def _normalise(origin: str) -> str:

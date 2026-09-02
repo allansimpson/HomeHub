@@ -483,13 +483,12 @@ public class EgressGuardTests
 
     // ---- Home Assistant ----
 
-    private static HomeAssistantOptions Ha(string baseUrl, string[]? origins = null, bool cleartext = false) =>
+    private static HomeAssistantOptions Ha(string baseUrl, string[]? origins = null) =>
         new()
         {
             BaseUrl = baseUrl,
             Token = "long-lived",
             AllowedOrigins = [.. origins ?? []],
-            AcknowledgeCleartextLan = cleartext,
         };
 
     /*
@@ -516,28 +515,54 @@ public class EgressGuardTests
     }
 
     /*
-     * Over plain http the bearer travels the LAN in the clear on every poll, and anything on that
-     * network can read it and then issue service calls of its own. TLS is the answer; the
-     * acknowledgement exists because household Home Assistant commonly has no certificate, and
-     * refusing that outright would take the climate and the sensors off every panel that has one.
+     * <b>There was an acknowledgement flag here and it is gone.</b> It recorded that a deployment
+     * accepted a readable bearer on its own network, which is a different thing from making the
+     * bearer safe: an exact origin stops the traffic being rerouted and authenticates nothing about
+     * the machine answering there, so a device taking that address by DHCP lease still receives a
+     * long-lived service-call token. Accepting a risk is not closing it, and there is no escape hatch.
      */
     [Fact]
-    public void Cleartext_to_a_non_loopback_home_assistant_needs_saying_out_loud()
+    public void Cleartext_to_a_non_loopback_home_assistant_is_refused_however_it_is_configured()
     {
-        string[] approved = ["http://ha.house.lan:8123"];
+        var refusal = Ha("http://ha.house.lan:8123", ["http://ha.house.lan:8123"]).RefuseDestination();
 
-        var refusal = Ha("http://ha.house.lan:8123", approved).RefuseDestination();
         Assert.NotNull(refusal);
         Assert.Contains("in the clear", refusal);
-
-        Assert.Null(Ha("http://ha.house.lan:8123", approved, cleartext: true).RefuseDestination());
+        // Naming the origin does not buy it a transport. The same origin over https does.
+        Assert.Null(Ha("https://ha.house.lan:8123", ["https://ha.house.lan:8123"]).RefuseDestination());
     }
 
-    [Fact]
-    public void Cleartext_on_this_machine_needs_no_acknowledgement()
+    [Theory]
+    [InlineData("http://192.168.1.20:8123")]
+    [InlineData("http://ha.local:8123")]
+    [InlineData("http://10.0.0.5:8123")]
+    public void No_configuration_admits_a_cleartext_home_assistant_off_this_machine(string baseUrl)
+    {
+        // Approved or not: the refusal is about the transport, not the destination.
+        Assert.NotNull(Ha(baseUrl, [baseUrl]).RefuseDestination());
+        Assert.NotNull(Ha(baseUrl).RefuseDestination());
+    }
+
+    [Theory]
+    [InlineData("http://127.0.0.1:8123")]
+    [InlineData("http://[::1]:8123")]
+    public void Cleartext_to_a_loopback_address_is_permitted(string baseUrl)
     {
         // Nothing touches a wire, so there is nothing to intercept.
-        Assert.Null(Ha("http://127.0.0.1:8123").RefuseDestination());
+        Assert.Null(Ha(baseUrl).RefuseDestination());
+    }
+
+    /*
+     * `localhost` is a name, and `Uri.IsLoopback` says true for it. What the resolver returns is
+     * `/etc/hosts`, a search domain, a DHCP-supplied suffix — none of which this app controls. The
+     * cleartext exemption is the claim that the traffic cannot reach a wire, so it is granted to
+     * addresses that cannot rather than to a string that usually means one.
+     */
+    [Fact]
+    public void Cleartext_to_the_name_localhost_is_not_a_loopback_exemption()
+    {
+        Assert.NotNull(Ha("http://localhost:8123").RefuseDestination());
+        Assert.Null(Ha("https://localhost:8123", ["https://localhost:8123"]).RefuseDestination());
     }
 
     [Fact]

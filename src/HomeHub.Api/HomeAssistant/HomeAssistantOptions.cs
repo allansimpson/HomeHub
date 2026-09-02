@@ -47,29 +47,11 @@ public sealed class HomeAssistantOptions
     /// </para>
     /// <para>
     /// Empty means loopback only. A household running Home Assistant on another box — which is the
-    /// ordinary arrangement — names its origin here, and that naming is the approval.
+    /// ordinary arrangement — names its origin here, and that naming is the approval. It must be an
+    /// <c>https</c> origin: see <see cref="RefuseDestination"/>.
     /// </para>
     /// </remarks>
     public List<string> AllowedOrigins { get; set; } = [];
-
-    /// <summary>
-    /// Permit an approved origin that is not on loopback and not TLS.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Off by default, and its absence is the reason cleartext is refused.</b> Over plain HTTP the
-    /// bearer travels the LAN in the clear on every poll, and anything on that network can read it and
-    /// then issue service calls of its own. TLS is the answer; this exists because Home Assistant on a
-    /// household LAN commonly has no certificate, and refusing that outright would take the climate,
-    /// the scenes and the sensors off every panel that has one.
-    /// </para>
-    /// <para>
-    /// So it is an explicit, protected, logged decision rather than a default — the same shape as
-    /// <c>Voice:Stt:CloudAudioEgressAcknowledged</c>. A deployment that sets it has said out loud that
-    /// it accepts a readable token on its own network; one that does not gets TLS or loopback.
-    /// </para>
-    /// </remarks>
-    public bool AcknowledgeCleartextLan { get; set; }
 
     /// <summary>The rule for Home Assistant, shared by startup, availability and the connection.</summary>
     public EgressRule Rule => AllowedOrigins.Count > 0
@@ -78,20 +60,46 @@ public sealed class HomeAssistantOptions
 
     /// <summary>The reason this configuration may not be used, or null when it may.</summary>
     /// <remarks>
-    /// The transport check is separate from <see cref="Rule"/> because it is a question about the
-    /// household's acceptance rather than about the destination, and only this class knows the answer.
+    /// <para>
+    /// Two questions, and the second is why this is not simply <see cref="Rule"/>. <b>Where</b> the
+    /// listener is, which the rule answers by exact origin; and <b>whether anything authenticates it
+    /// and encrypts what travels to it</b>, which only TLS answers.
+    /// </para>
+    /// <para>
+    /// <b>There was an acknowledgement flag here and it has been removed.</b> It let a deployment
+    /// record that it accepted a readable bearer on its own network, which is a different thing from
+    /// making the bearer safe: an exact origin stops the traffic being rerouted and does not
+    /// authenticate the machine that answers there, so a device taking that address by DHCP lease, or
+    /// claiming the name, still receives a long-lived service-call token. Accepting a risk is not
+    /// closing it, and the transport is the thing to correct rather than the gate.
+    /// </para>
     /// </remarks>
     public string? RefuseDestination()
     {
         if (EgressGuard.Refuse(BaseUrl, Rule) is { } refusal) return refusal;
 
         var uri = new Uri(BaseUrl!, UriKind.Absolute);
-        if (uri.Scheme == Uri.UriSchemeHttps || uri.IsLoopback || AcknowledgeCleartextLan) return null;
+        if (uri.Scheme == Uri.UriSchemeHttps || IsLiteralLoopback(uri)) return null;
 
-        return "HomeAssistant:BaseUrl uses plain http to a host that is not this machine, so the "
-            + "long-lived token travels the network in the clear on every poll. Use https, or set "
-            + "HomeAssistant:AcknowledgeCleartextLan=true to accept that on your own network.";
+        return "HomeAssistant:BaseUrl uses plain http to a host that is not this machine. The "
+            + "long-lived token would travel the network in the clear on every poll, and nothing would "
+            + "authenticate the listener receiving it. Serve Home Assistant over https with a "
+            + "certificate this machine trusts.";
     }
+
+    /// <summary>
+    /// Loopback by literal address, not by name.
+    /// </summary>
+    /// <remarks>
+    /// <c>Uri.IsLoopback</c> is true for the string <c>localhost</c> as well as for <c>127.0.0.1</c>,
+    /// and a name is a thing the resolver decides — <c>/etc/hosts</c>, a search domain, a DHCP-supplied
+    /// suffix. The exemption here is "this traffic never touches a wire", which is a claim about an
+    /// address, so it is made about addresses. A named host must be https like any other, and the
+    /// connect screen settles where it actually went.
+    /// </remarks>
+    private static bool IsLiteralLoopback(Uri uri) =>
+        System.Net.IPAddress.TryParse(uri.Host.Trim('[', ']'), out var address)
+        && System.Net.IPAddress.IsLoopback(address);
 
     /// <summary>
     /// Configured, and pointing somewhere it is allowed to point.

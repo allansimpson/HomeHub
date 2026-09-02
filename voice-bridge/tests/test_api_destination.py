@@ -86,13 +86,20 @@ class _Listener:
 
 
 class ApprovedOrigin(unittest.TestCase):
-    def test_loopback_is_the_default_and_needs_no_configuration(self):
-        self.assertEqual(
-            approve_origin("http://localhost:5220", []), "http://localhost:5220"
-        )
-        self.assertEqual(
-            approve_origin("http://127.0.0.1:5220", []), "http://127.0.0.1:5220"
-        )
+    def test_a_loopback_address_needs_no_configuration(self):
+        for url in ("http://127.0.0.1:5220", "http://[::1]:5220"):
+            with self.subTest(url=url):
+                self.assertTrue(approve_origin(url, []).startswith("http://"))
+
+    def test_localhost_over_http_is_not_a_loopback_exemption(self):
+        """`localhost` is a name, and the exemption is a claim about an address.
+
+        What the resolver returns for it is `/etc/hosts`, a search domain, a DHCP-supplied suffix —
+        none of which this bridge controls. The cleartext exemption says the traffic never touches a
+        wire, so it is granted to addresses that cannot.
+        """
+        with self.assertRaises(UnapprovedDestination):
+            approve_origin("http://localhost:5220", [])
 
     def test_anywhere_else_needs_naming(self):
         with self.assertRaises(UnapprovedDestination):
@@ -112,6 +119,28 @@ class ApprovedOrigin(unittest.TestCase):
             approve_origin("https://homehub.house.lan:5221", approved)
         with self.assertRaises(UnapprovedDestination):
             approve_origin("https://homehub.house.lan", approved)
+
+    def test_naming_a_cleartext_origin_does_not_make_it_acceptable(self):
+        """Listing a destination is not the same as securing the path to it.
+
+        This was accepted until the transport decision: an exact origin stops the destination being
+        *rerouted* and authenticates nothing about the machine answering there, while the prompt, the
+        conversation history and the recorded audio cross the LAN in the clear.
+        """
+        approved = ["http://homehub.house.lan:5220"]
+
+        with self.assertRaises(UnapprovedDestination) as raised:
+            approve_origin("http://homehub.house.lan:5220", approved)
+
+        self.assertIn("plain http", str(raised.exception))
+
+    def test_the_same_origin_over_https_is_accepted(self):
+        approved = ["https://homehub.house.lan:5220"]
+
+        self.assertEqual(
+            approve_origin("https://homehub.house.lan:5220", approved),
+            "https://homehub.house.lan:5220",
+        )
 
     def test_userinfo_query_and_fragment_are_refused(self):
         for url in (

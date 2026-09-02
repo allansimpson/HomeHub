@@ -82,7 +82,10 @@ class Config:
             pass
 
         return Config(
-            api_base_url=_env("HOMEHUB_API_BASE_URL", "http://localhost:5220").rstrip("/"),
+            # `127.0.0.1` rather than `localhost`, and the difference is load-bearing: cleartext
+            # is permitted only to a loopback *address*, because `localhost` is whatever the
+            # resolver says it is. See api.approve_origin.
+            api_base_url=_env("HOMEHUB_API_BASE_URL", "http://127.0.0.1:5220").rstrip("/"),
             # Exact origins this bridge may talk to. Empty means loopback only, which is the
             # documented arrangement: the bridge runs on the panel. See api.approve_origin.
             allowed_origins=_env_list("HOMEHUB_ALLOWED_ORIGINS"),

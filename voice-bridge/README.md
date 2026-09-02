@@ -104,7 +104,8 @@ All settings are environment variables (see `.env.example` and `config.py`). Com
 
 | Var | Default | Purpose |
 |---|---|---|
-| `HOMEHUB_API_BASE_URL` | `http://localhost:5220` | HomeHub API base |
+| `HOMEHUB_API_BASE_URL` | `http://127.0.0.1:5220` | HomeHub API base. Plain `http` is permitted **only** to a loopback address — not to `localhost`, which is a name the resolver decides. Anywhere else must be `https`. |
+| `HOMEHUB_ALLOWED_ORIGINS` | *(empty)* | Exact origins this bridge may talk to, comma-separated, e.g. `https://homehub.house.lan:5220`. Empty means loopback only. Required when HomeHub is on another machine: the bridge refuses to start otherwise, and the Pi must trust that certificate first. |
 | `WAKE_MODEL_PATH` | — | Comma-separated custom `.onnx` paths, one per phrase (falls back to `WAKE_MODEL`) |
 | `WAKE_THRESHOLD` | `0.5` | Detection score cutoff |
 | `MIC_DEVICE` / `APLAY_DEVICE` | default | Specific input/output devices |
