@@ -3,24 +3,27 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Claude, over Geist's snapshot of the same day. Deployment facts below were live-verified by Geist and are unchanged; the remediation state is Claude's._
+_Updated: 2026-09-02 by Geist after independent review of Claude's remediation candidate._
 
-Current TEST remains healthy on the exact `e11f74f` candidate. The independent complete-source production review failed closed with **0 Critical and 8 High findings**. Production remains unchanged.
+Current TEST remains healthy on the old exact `e11f74f` candidate. Production remains unchanged. The exact remediation candidate `d576927` (`2a82d53` application changes plus documentation) passed its existing full development gate but **failed independent production re-review** with **0 Critical and at least 5 High findings**. The complete-source pass also exhausted its review limit, so the count is not yet asserted exhaustive.
 
-**All eight are remediated in `2a82d53`, in Claude's judgement and Claude's tests. That is a claim awaiting review, not a clearance** — the same distinction the previous five-finding round drew, and it matters here for one specific reason: the browser evidence the handoff asks for has **not** been produced, because this checkout has no development database credentials. See "Remediation matrix" in `.hermes/2026-09-02-production-security-review-eight-high-claude-handoff.md`, which carries the per-finding files, tests, migration behaviour, the settled HH-05 policy, and four retained risks Geist should weigh before promoting.
+The authoritative re-review record is `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. The five independently supported blockers are: wrong-key Care-vault overwrite; destructive/non-atomic plaintext queue migration; lock/session-loss transport closure delayed until a React effect; unrestricted cloud-STT destination accepting household audio and a bearer credential; and private legacy queue data remaining plaintext indefinitely when no key-bearing session opens it.
 
-Two of those risks are deployment prerequisites rather than code questions, and are worth reading before a promotion is attempted: HH-07 will refuse to boot if production's SQL Server is remote and lacks a trusted certificate matching its `Server=` name, and HH-08 will refuse to boot if production currently relies on cloud STT fallback without `Voice:Stt:CloudAudioEgressAcknowledged=true`. Both refusals are intended; both are better found now than at promotion.
+Existing tests are genuinely green under the release toolchain (Node `v24.13.0`, .NET SDK `10.0.110`): typecheck and lint pass, 53/53 client files with 997/997 tests, and 1,210/1,210 backend tests. Two disposable adversarial regressions nevertheless failed and directly demonstrated the Care-vault overwrite and destructive migration. No candidate was promoted.
+
+Production prerequisite observation, without secret disclosure: live SQL traffic is loopback-to-loopback on port 1433, but this does not prove the configured `Server=` token is one the validator treats as loopback, nor reveal `Encrypt`/`TrustServerCertificate`; privileged read-only preflight remains required. Authenticated production voice capabilities report no server, local, or cloud STT availability, so production is not operationally relying on cloud fallback. Exact protected environment-key presence likewise remains a privileged preflight item after source remediation passes.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` after remediation | `2a82d53` (remediation) on top of `661f5a1` (the handoff commit) on top of `d6f1540` |
-| Working tree | Clean |
+| `HEAD` reviewed | `d576927` (`2a82d53` remediation plus `d576927` evidence), on top of `661f5a1` and `d6f1540` |
+| Working tree | Contains only Geist's new re-review report and state/deployment documentation updates; no application bytes changed. |
 | Preconditions | Verified before any edit: `git diff --name-only e11f74f 661f5a1` returned only the handoff and two `brain/` files, so all eight cited surfaces were byte-identical to the reviewed commit. |
-| Reviewed application bytes | Commit `e11f74f`; source-tree SHA-256 `620d8f13f2ca863c0025f768f959a3fc8ccb04252f7a6fd5b10e3dc185347218`. Only `brain/DEPLOYMENT.md` and `brain/STATE.md` changed between `e11f74f` and `d6f1540`; all eight cited code/config surfaces were byte-identical. |
-| Independent verdict (on `e11f74f`) | FAIL CLOSED: 0 Critical, 8 High. The earlier H1–H5 and later private-boundary labels are reconciled in the new handoff; passing prior tests did not cover the residual races, offline plaintext/lock boundaries, SQL TLS template, or cloud-STT default. |
+| Previously reviewed application bytes | Commit `e11f74f`; source-tree SHA-256 `620d8f13f2ca863c0025f768f959a3fc8ccb04252f7a6fd5b10e3dc185347218`; verdict 0 Critical / 8 High, FAIL CLOSED. |
+| Current remediation candidate | Commit `d576927`; Git tree `63545e407c55d75b2a972085725339f4bdb560d2`; deterministic source SHA-256 `15bb3aeb7a9ac986b08ceca4b00043c1d500990fb595da61ec0f91fbd3a955c3`; 853 tracked paths. |
+| Current independent verdict | FAIL CLOSED: 0 Critical and at least 5 High; complete-source review not yet exhaustive. Details in `.hermes/2026-09-02-remediation-rereview-fail-closed.md`. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
@@ -29,25 +32,13 @@ Two of those risks are deployment prerequisites rather than code questions, and 
 |---|---|
 | TEST | Release `20260902T041152Z-620d8f13f2ca`; artifact SHA-256 `e9e7b563c3cb3bc814bddd7c387609ca84f360c52cb885d12eb8d64057a18a6d`; active and healthy; deep health and HTTPS 200; DB `ok`; pending migrations `0`; migration head `20260901164422_AddProfileSecurityVersion`; build `e11f74f+ · 2026-09-02 04:12Z`; bundle `index-kcmVYEme.js`; live bundle and service worker exactly matched the artifact |
 | Production / panel | Release `20260831T105206Z-09cfd47e8477`; unchanged and last verified healthy; build `a66e80a+ · 2026-08-31 10:52Z` |
-| Gap | Production is blocked pending Claude remediation, a new exact TEST artifact, fresh independent review with 0 Critical/High, configuration and installer qualification, and Allan's explicit approval. |
+| Gap | Production is blocked on the five known High re-review findings, completion of a fresh exhaustive review after remediation, a new exact TEST artifact, browser evidence, configuration and installer qualification, and Allan's explicit approval. |
 
 ## Waiting to ship
 
-> **The candidate freeze of 2026-09-01 is spent.** It covered the five-finding round, which was
-> reviewed, and the review returned eight new findings — so there is nothing left to freeze against.
-> The remediation for those eight is `2a82d53` and it is the state being handed over.
+The `2a82d53` remediation claim has been independently tested and reviewed. Its existing gate is green, but the candidate failed closed with five known High findings. Claude's next input is `.hermes/2026-09-02-remediation-rereview-fail-closed.md`; no build or promotion should begin until those findings are remediated with their adversarial regressions and a new exact commit is handed back.
 
-**`2a82d53` is the state being handed over.** The production gate still stands. What Geist has, in
-order:
-
-1. Read the remediation matrix in
-   `.hermes/2026-09-02-production-security-review-eight-high-claude-handoff.md` — per finding: files,
-   commit, focused tests, migration behaviour, the settled HH-05 policy, and four retained risks.
-2. Note the two deployment prerequisites before building anything, because both are startup refusals
-   that will surface at promotion otherwise: **HH-07** needs production's SQL Server to present a
-   certificate matching its `Server=` name unless it is loopback, and **HH-08** needs
-   `Voice:Stt:CloudAudioEgressAcknowledged=true` if production relies on cloud STT fallback.
-3. Build and promote the exact new artifact to TEST, then re-review the immutable candidate.
+After that new commit: rerun the full gate, complete a fresh exhaustive source review, build and promote exact bytes to TEST, run the four real-browser validations against TEST's database-backed deployment, and then resume privileged production prerequisite and installer qualification.
 
 Nothing deploys on push. Claude hands a verified code state to Geist; Geist snapshots and promotes it
 through the process in `DEPLOYMENT.md`. `scripts/deploy.sh` is not the active route.
@@ -63,9 +54,11 @@ one-release exception; its original manifest remains TEST-only.
 
 ## In flight
 
-- **The eight production review findings are remediated** (2026-09-02, `2a82d53`, committed, not
-  deployed, **not independently reviewed**). Geist's complete-source review; the handoff carries the
-  full matrix and this is the shape of it.
+- **Claude's eight-finding remediation claim was reviewed and rejected** (2026-09-02, application
+  commit `2a82d53`, evidence commit `d576927`, not deployed). The implementation account below is
+  retained as Claude's design rationale, but it is superseded for gate purposes by Geist's
+  `.hermes/2026-09-02-remediation-rereview-fail-closed.md`: 0 Critical, at least 5 High, FAIL CLOSED.
+  Existing tests passed; adversarial tests proved two of the remaining defects.
   **One key model, settled first, because three findings depended on it.** A profile with no PIN had
   its Care vault opened `{ kind: 'plaintext' }` on the reasoning that there was no secret to seal
   under — the premise was wrong, not the conclusion. `deviceKey.ts` mints a per-profile AES-GCM key
