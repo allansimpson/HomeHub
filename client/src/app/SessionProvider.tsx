@@ -11,7 +11,9 @@ import type { ProfileDto, SettingsDto } from '../api/types'
 import { clearCareOfflineData, flushCareVault, openCareVault } from '../screens/care/careOffline'
 import { closeQueueExecution, setQueueIdentity } from './writeQueue'
 import { createSessionBoundary } from './sessionBoundary'
-import { clearQueueStore, flushQueueStore, openQueueStore, sweepLegacyPlaintext } from './queueStore'
+import {
+  clearQueueStore, flushQueueStore, openQueueStore, revokeQueueDurability, sweepLegacyPlaintext,
+} from './queueStore'
 import { closePrivateStores, endSessionAuthority } from './sessionAuthority'
 import { clearDeviceKeys, deviceKeyFor } from './deviceKey'
 import { clearEnrolment, enrol, OfflineUnlockError, unlockOffline } from './offlineUnlock'
@@ -155,9 +157,22 @@ const keyFor = async (
  * carrying those rows to the server — so sealing one and not the other protects nothing. They were
  * separate for exactly as long as it took for the queue to be the one left in the clear.
  */
-const openPrivateStores = async (profileId: number, key: CryptoKey | null): Promise<void> => {
-  await openCareVault(profileId, key ? { kind: 'sealed', key } : { kind: 'memory' })
-  await openQueueStore(profileId, key)
+const openPrivateStores = async (profileId: number, key: CryptoKey | null): Promise<boolean> => {
+  /*
+   * The queue opens first, and the vault takes its answer.
+   *
+   * <b>Order matters here and it did not before.</b> Opening the queue is what runs the plaintext
+   * migration and the sweep that follows it, so it is the only one of the two that can discover the
+   * device will not let go of a previous build's care records. The vault used to be opened first,
+   * with the key, and kept it whatever the queue then found — so a panel could finish this function
+   * sealing new private rows into a durable blob sitting beside a plaintext original nothing could
+   * delete. Both stores are demoted together now, because they hold the same rows.
+   */
+  const sanitised = await openQueueStore(profileId, key)
+  const durable = sanitised ? key : null
+  if (!sanitised) revokeQueueDurability()
+  await openCareVault(profileId, durable ? { kind: 'sealed', key: durable } : { kind: 'memory' })
+  return sanitised
 }
 
 /**
@@ -236,6 +251,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // matters — the instant a store is about to be opened. Same reason `profilesRef` exists.
   const plaintextSweptRef = useRef(true)
   plaintextSweptRef.current = plaintextSwept
+  /*
+   * The other way this becomes false: a sanitation failure discovered *after* a store was opened.
+   *
+   * The boot sweep answers before anybody signs in; `openPrivateStores` can find the same thing later,
+   * when the sealed migration retires its plaintext source and the removal will not take. Both mean
+   * the same thing to the household and to every store that opens afterwards, so both land here.
+   */
+  const noteStorageUntrusted = useCallback(() => {
+    plaintextSweptRef.current = false
+    setPlaintextSwept(false)
+  }, [])
 
   /*
    * The connection.
@@ -573,7 +599,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // Opening a store is handing this session the household's records, so the boundary is
           // re-checked on the far side of the key lookup — which touches IndexedDB and can await.
           if (cancelled || !stillCurrent(began)) return
-          await openPrivateStores(session.profileId, durableKeyFor(key, plaintextSweptRef.current))
+          if (!await openPrivateStores(session.profileId, durableKeyFor(key, plaintextSweptRef.current))) {
+            noteStorageUntrusted()
+          }
         } else {
           closePrivateStores()
         }
@@ -676,11 +704,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
        */
       if (!pin) {
         if (target?.hasPin !== false) throw err
-        await openPrivateStores(id, durableKeyFor(await keyFor(target, id, null), plaintextSweptRef.current))
+        if (!await openPrivateStores(id, durableKeyFor(await keyFor(target, id, null), plaintextSweptRef.current))) {
+          noteStorageUntrusted()
+        }
       } else {
         const opened = await unlockOffline(id, pin)
         if (!opened.ok) throw new OfflineUnlockError(opened)
-        await openPrivateStores(id, durableKeyFor(opened.key, plaintextSweptRef.current))
+        if (!await openPrivateStores(id, durableKeyFor(opened.key, plaintextSweptRef.current))) {
+          noteStorageUntrusted()
+        }
       }
 
       setActiveProfileId(id)
@@ -717,8 +749,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const signedInAs = session.profileId ?? id
     const active = profilesRef.current.find((p) => p.id === signedInAs) ?? null
     const proven = pin ? await enrol(signedInAs, pin) : null
-    await openPrivateStores(
-      signedInAs, durableKeyFor(await keyFor(active, signedInAs, proven), plaintextSweptRef.current))
+    if (!await openPrivateStores(
+      signedInAs, durableKeyFor(await keyFor(active, signedInAs, proven), plaintextSweptRef.current))) {
+      noteStorageUntrusted()
+    }
     setLocked(false)
     setOffline(false)
     // The panel holds a session again, so the next expiry gets announced rather than swallowed.

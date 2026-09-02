@@ -389,6 +389,92 @@ describe('the boot sweep', () => {
    * itself complete with the plaintext still there. Deduplication stopped the replay and never
    * touched the disclosure.
    */
+  /*
+   * The sanitation answer has to reach the caller, and the store has to stop being durable.
+   *
+   * `commitLegacyMigration` swept after retiring the source and threw the result away, so a store that
+   * had just proved it could not remove a plaintext care record still finished the open with a durable
+   * key — and every private write after it sealed into the blob sitting beside the plaintext original.
+   * Sealing more of the same rows next to a copy nothing can delete is a second copy, not a boundary.
+   */
+  it('reports a failed post-seal sanitation instead of opening as though it succeeded', async () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c'), groceryOp('theirs', 3)]))
+    const real = storage.setItem.bind(storage)
+    // The seal lands; the plaintext source can be neither rewritten nor removed.
+    storage.setItem = (k, v) => {
+      if (k === 'homehub.writequeue.v1') throw new DOMException('quota', 'QuotaExceededError')
+      real(k, v)
+    }
+    storage.removeItem = () => undefined
+
+    const sanitised = await openQueueStore(2, await aKey(), storage)
+
+    expect(sanitised).toBe(false)
+    expect(storage.getItem('homehub.writequeue.v1')).toContain('Bottle')
+  })
+
+  it('writes nothing durable afterwards, having said it could not clean up', async () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c'), groceryOp('theirs', 3)]))
+    const real = storage.setItem.bind(storage)
+    storage.setItem = (k, v) => {
+      if (k === 'homehub.writequeue.v1') throw new DOMException('quota', 'QuotaExceededError')
+      real(k, v)
+    }
+    storage.removeItem = () => undefined
+
+    const key = await aKey()
+    await openQueueStore(2, key, storage)
+    const sealedAtOpen = storage.getItem('homehub.writequeue.sealed.v1.2')
+    persistAhead(store, careOp('after'))
+    await flushQueueStore()
+
+    // In memory for the life of the page, and nowhere else: the durable key was revoked.
+    expect(store.read().map((o) => o.id)).toContain('after')
+    expect(storage.getItem('homehub.writequeue.sealed.v1.2')).toBe(sealedAtOpen)
+
+    /*
+     * The blob written by the migration itself stays, and that is right rather than an oversight. It
+     * is ciphertext, so it discloses nothing — the disclosure is the plaintext original the device
+     * refused to remove — and it holds the household's unsent work. What is withheld is anything
+     * *further*, which is the claim: no more private rows are added to a device that has shown it
+     * cannot clean up after itself.
+     */
+    closeQueueStore()
+    await openQueueStore(2, key, storage)
+    expect(store.read().map((o) => o.id)).not.toContain('after')
+  })
+
+  it('keeps the operations it already held when durability is revoked', async () => {
+    const storage = new MemoryStorage()
+    const key = await aKey()
+    await openQueueStore(2, key, storage)
+    persistAhead(store, groceryOp('earlier'))
+    await flushQueueStore()
+    closeQueueStore()
+
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c'), groceryOp('theirs', 3)]))
+    const real = storage.setItem.bind(storage)
+    storage.setItem = (k, v) => {
+      if (k === 'homehub.writequeue.v1') throw new DOMException('quota', 'QuotaExceededError')
+      real(k, v)
+    }
+    storage.removeItem = () => undefined
+
+    expect(await openQueueStore(2, key, storage)).toBe(false)
+
+    // Revoking durability is not closing the store: unsent work read out of the seal is still here.
+    expect(store.read().map((o) => o.id)).toContain('earlier')
+  })
+
+  it('reports success on an ordinary open, so the caller is not warned for nothing', async () => {
+    const storage = new MemoryStorage()
+
+    expect(await openQueueStore(2, await aKey(), storage)).toBe(true)
+    expect(await openQueueStore(2, null, storage)).toBe(true)
+  })
+
   it('catches a source that outlived a successful seal', async () => {
     const storage = new MemoryStorage()
     const key = await aKey()

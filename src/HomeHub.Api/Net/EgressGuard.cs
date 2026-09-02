@@ -239,6 +239,15 @@ public static class EgressGuard
     public static SocketsHttpHandler CreateHandler(Func<EgressRule> rule) => new()
     {
         AllowAutoRedirect = false,
+        /*
+         * <b>No proxy, and this is not tidiness.</b> A proxy defeats the callback below completely:
+         * the connection is made to the proxy, so the addresses screened are the proxy's, and the
+         * destination is reached by asking it to go there. Every check in this class would pass while
+         * household audio went somewhere else entirely. `HttpClient` picks proxies up from the
+         * environment by default, so leaving this unset means an `HTTP_PROXY` variable — set for a
+         * package manager, inherited from a shell, planted in a unit file — silently reroutes the lot.
+         */
+        UseProxy = false,
         ConnectCallback = async (context, ct) =>
         {
             var current = rule();
@@ -314,6 +323,7 @@ public static class EgressGuard
     public static SocketsHttpHandler CreateBlockingHandler() => new()
     {
         AllowAutoRedirect = false,
+        UseProxy = false,
         ConnectCallback = (context, _) => throw new BlockedAddressException(
             $"'{context.DnsEndPoint.Host}' was reached through an unconfigured HTTP client. Every "
             + "outbound destination needs a named, guarded registration — see EgressGuard."),

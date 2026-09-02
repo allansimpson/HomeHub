@@ -107,7 +107,7 @@ export async function openQueueStore(
   profileId: number,
   key: CryptoKey | null,
   storage: QueueStorage = localStorage,
-): Promise<void> {
+): Promise<boolean> {
   // Swallowed here and only here: a store that refused the *previous* session's last write is a fact
   // its caller was already told, and re-throwing it at whoever opens next would fail an unlock over it.
   await persisting.catch(() => undefined)
@@ -156,10 +156,10 @@ export async function openQueueStore(
    * that can seal it. See {@link sweepPrivateLegacy}.
    */
   if (!openKey) {
-    sweepLegacyPlaintext(storage)
+    const swept = sweepLegacyPlaintext(storage)
     held = opened
     announce()
-    return
+    return swept
   }
 
   /*
@@ -179,7 +179,7 @@ export async function openQueueStore(
   const plan = planLegacyMigration(opened, profileId, storage)
   held = plan.migrated
   announce()
-  if (!plan.changed) return
+  if (!plan.changed) return true
 
   persistNow()
   try {
@@ -187,9 +187,34 @@ export async function openQueueStore(
   } catch {
     held = opened
     announce()
-    return
+    // The seal did not land, so nothing was retired and nothing is claimed about the source either
+    // way: the migration is simply retried on the next open. That is not a sanitation failure.
+    return true
   }
-  commitLegacyMigration(plan, storage)
+
+  /*
+   * <b>The post-seal sanitation answer is returned, not discarded.</b>
+   *
+   * `commitLegacyMigration` sweeps after retiring the source and used to throw the result away, so a
+   * store that had just demonstrated it could not remove a plaintext care record still finished this
+   * function with a durable key active — and every private write after it went on sealing into the
+   * durable blob beside the plaintext original. Sealing more of the same rows next to a copy nothing
+   * can delete is not a privacy boundary; it is a second copy.
+   */
+  const sanitised = commitLegacyMigration(plan, storage)
+  if (!sanitised) revokeQueueDurability()
+  return sanitised
+}
+
+/**
+ * Demote the open store to memory-only, keeping what it already holds.
+ *
+ * <b>Not a close and not a reopen.</b> The queued operations in memory are this session's and belong
+ * to it; reopening with no key would read an empty store back over them and lose unsent work. What is
+ * withdrawn is only the device's right to be written to, which is the thing it has just failed at.
+ */
+export function revokeQueueDurability(): void {
+  openKey = null
 }
 
 /**
@@ -413,10 +438,10 @@ function byId<T extends { id: string }>(items: T[]): T[] {
  * removes the key outright if a rewrite left anything sensitive behind — the sealed copy already
  * exists, so nothing private is lost by being blunt about it.
  */
-function commitLegacyMigration(plan: LegacyMigration, storage: QueueStorage): void {
+function commitLegacyMigration(plan: LegacyMigration, storage: QueueStorage): boolean {
   write(storage, LEGACY_KEY, plan.left)
   write(storage, LEGACY_DROPPED_KEY, plan.noticesLeft)
-  sweepLegacyPlaintext(storage)
+  return sweepLegacyPlaintext(storage)
 }
 
 /** A notice that will be sealed, so it may carry the label the household needs to identify it. */

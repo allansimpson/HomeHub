@@ -521,19 +521,20 @@ else
 // Pending OAuth flows for in-panel account linking. Singleton because a consent begun on one
 // request completes on another, and in-memory because losing them on restart is correct.
 builder.Services.AddSingleton<AccountLinkState>();
-// A plain client for the OAuth token exchange — the provider-specific clients are registered only
-// when that provider is configured, and linking has to work on the way to being configured.
 /*
- * `IHttpClientFactory` itself, with no unnamed default registration behind it.
+ * The unnamed default client, configured to reach nothing.
  *
- * <b>Registering the unnamed client is what made the default reachable.</b> `CreateClient()` with no
- * name hands back the framework's handler — redirects on, no address screen — and the account-link
- * token exchange took it, posting an OAuth client secret and PKCE verifier through it while the
- * providers beside it were guarded. Nothing asks for it any more, and not registering it means a
- * future caller that tries gets a client with no configuration rather than a quietly unguarded one.
- * The named registrations below are what callers ask for by name.
+ * <b>`CreateClient()` with no name is the hole, and the previous attempt at closing it did not.</b>
+ * It returns the client registered under `Options.DefaultName`, which is the empty string — and
+ * registering a *named* client called "unconfigured" left that slot exactly as it was: the framework
+ * default, redirects on, no address screen. The account-link token exchange had been taking it,
+ * posting an OAuth client secret and a PKCE verifier through it. So the deny-all was asserted, was
+ * false, and the class-level regression agreed with it because it only read the registration lines.
+ *
+ * `Options.DefaultName` is the empty string and naming it here is the whole fix: a caller that reaches
+ * for the default now gets a handler that refuses every connection, rather than one that works.
  */
-builder.Services.AddHttpClient(GuardedClients.Unconfigured)
+builder.Services.AddHttpClient(Options.DefaultName)
     .ConfigurePrimaryHttpMessageHandler(EgressGuard.CreateBlockingHandler);
 
 builder.Services.AddScoped<AlertEngine>();
@@ -826,11 +827,12 @@ var homeAssistant = builder.Configuration.GetSection(HomeAssistantOptions.Sectio
 if (homeAssistant?.IsConfigured == true)
 {
     // One HA client shared by every HA-backed provider — climate here, the Litter-Robot below.
-    // A long-lived bearer, the household's state, and the commands that change it. Home Assistant is
-    // on the house network by construction, so the rule is the household boundary rather than a host list.
+    // A long-lived bearer with service-call permission, the household's state, and the commands that
+    // change it. An exact approved origin rather than a reach test: a private address says where a
+    // listener is and not what it is, and any LAN device answering there receives all three.
     builder.Services.AddHttpClient<HomeAssistantClient>()
-        .ConfigurePrimaryHttpMessageHandler(() => EgressGuard.CreateHandler(
-            () => EgressRule.HouseholdLan("HomeAssistant:BaseUrl")));
+        .ConfigurePrimaryHttpMessageHandler(sp => EgressGuard.CreateHandler(
+            () => sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value.Rule));
     builder.Services.AddScoped<HomeAssistantClimateProvider>();
 }
 

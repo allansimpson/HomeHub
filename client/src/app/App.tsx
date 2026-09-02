@@ -131,7 +131,7 @@ export function App() {
      polls the care log for the Dashboard's figures rather than a second reader of its own. */
   const { pumpTimer } = useBaby()
 
-  const { locked, settings } = useSession()
+  const { locked, settings, storageUntrusted } = useSession()
   const { reconnecting, offline } = useConnection()
   const { pendingCount, conflicts, dropped, resolveConflict, dismissDropped } = useWriteQueue()
   const update = useUpdate()
@@ -250,6 +250,30 @@ export function App() {
                 ? 'Offline — saved here, will sync when you’re back'
                 : 'Reconnecting — showing last known'}
             </span>
+          </div>
+        )}
+        {!showLock && storageUntrusted && (
+          /*
+           * This device would not let go of a previous build's plaintext care records, so nothing
+           * private is being written to it durably.
+           *
+           * <b>Said out loud, because the cost is visible and the cause is not.</b> The care log works
+           * for the life of the page and starts empty after a reload, which reads as the panel losing
+           * entries — and a household that cannot see why will stop trusting what they log. The cause
+           * is the browser's own storage refusing a write, a removal and a read-back: a full disk, a
+           * locked-down profile, private browsing in some browsers.
+           *
+           * `role="alert"` rather than `status`: this changes what the panel will remember, and it is
+           * not a passing condition like reconnecting.
+           */
+          <div className="ml-conflict" role="alert">
+            <span className="ml-conflict__title">This device can’t store private entries safely</span>
+            <div className="ml-conflict__row">
+              <span className="ml-conflict__label">
+                Care entries will stay until you reload, then start empty. The browser’s storage
+                refused to save — usually a full disk or private browsing.
+              </span>
+            </div>
           </div>
         )}
         {!showLock && conflicts.length > 0 && (

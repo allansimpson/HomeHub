@@ -20,15 +20,13 @@ public static class GuardedClients
     /// <summary>Microsoft's OAuth and Graph endpoints, shared with the grocery mirror.</summary>
     public const string Microsoft = "guarded-microsoft";
 
-    /// <summary>
-    /// A placeholder registration so that <c>IHttpClientFactory</c> is available without the unnamed
-    /// default being.
-    /// </summary>
-    /// <remarks>
-    /// `AddHttpClient()` registers the factory <i>and</i> a default client that `CreateClient()` with
-    /// no name returns — configured with nothing. Naming this one keeps the factory available to
-    /// injection while leaving the unnamed slot empty, so a caller that reaches for the default gets
-    /// an unconfigured client rather than an unguarded one that works.
-    /// </remarks>
-    public const string Unconfigured = "unconfigured";
+    /*
+     * There was an `Unconfigured` name here and it was the wrong idea.
+     *
+     * It registered a *named* client in the hope of leaving the unnamed default unregistered, which
+     * is not how `IHttpClientFactory` works: `CreateClient()` returns whatever is registered under
+     * `Options.DefaultName` — the empty string — and that slot stayed as the framework left it. The
+     * default is now configured directly, with a handler that refuses every connection. See
+     * `Program.cs`.
+     */
 }

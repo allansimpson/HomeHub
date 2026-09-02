@@ -27,7 +27,8 @@
 # Usage:
 #   scripts/check.sh              # client only — the right default, most changes are client-side
 #   scripts/check.sh backend      # backend only
-#   scripts/check.sh all          # both, for API-contract changes and before a hand-off to Hermes
+#   scripts/check.sh all          # everything, for API-contract changes and before a hand-off to Hermes
+#   scripts/check.sh bridge       # the Python voice bridge only
 #   scripts/check.sh client build # add the production build (slow, and only pre-deploy matters)
 #
 set -uo pipefail
@@ -94,6 +95,17 @@ if [ "$SCOPE" = backend ] || [ "$SCOPE" = all ]; then
   # tests specifically. brain/ENVIRONMENT.md has the long version of both.
   run backend-tests 'Failed:.*Total: *[0-9]*' \
     "cd '$ROOT' && env -u ConnectionStrings__HomeHub DOTNET_hostBuilder__reloadConfigOnChange=false dotnet test HomeHub.slnx --nologo"
+fi
+
+if [ "$SCOPE" = bridge ] || [ "$SCOPE" = all ]; then
+  # The voice bridge is Python and has no test dependency beyond `requests`, which it already needs —
+  # `unittest` is stdlib. Two of its tests stand up real listeners, because the failure they cover is
+  # a redirect being followed and only the second server can say whether it heard the household.
+  #
+  # In `all` rather than only on demand: it is the one component that runs on the kitchen counter with
+  # no screen, so nothing about it going wrong is visible until somebody notices the house is quiet.
+  run bridge-tests 'Ran [0-9]* tests' \
+    "cd '$ROOT/voice-bridge' && python3 -m unittest discover -s tests"
 fi
 
 printf '\n--- check: %s ---\n' "$SCOPE"

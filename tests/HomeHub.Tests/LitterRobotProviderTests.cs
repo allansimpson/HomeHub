@@ -82,10 +82,22 @@ public class LitterRobotProviderTests
             ["api/"] = "{}",
         });
 
+        /*
+         * The shape a real household now has to configure.
+         *
+         * A URL and a token used to be the whole of `IsConfigured`, and these tests said so by
+         * passing without either of the two lines below. Home Assistant holds a long-lived
+         * service-call token, so its origin is approved exactly rather than by reach — and plain http
+         * to a host that is not this machine puts that token on the LAN in the clear, which is a
+         * decision the deployment has to make out loud. Both are stated here for the same reason a
+         * household states them: the alternative is the integration silently not being configured.
+         */
         var ha = new HomeAssistantClient(new HttpClient(handler), Options.Create(new HomeAssistantOptions
         {
             BaseUrl = "http://ha.test:8123",
             Token = "test-token",
+            AllowedOrigins = ["http://ha.test:8123"],
+            AcknowledgeCleartextLan = true,
         }));
 
         var provider = new LitterRobotHomeAssistantProvider(

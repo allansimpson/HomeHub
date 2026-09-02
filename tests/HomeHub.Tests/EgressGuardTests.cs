@@ -1,11 +1,14 @@
 namespace HomeHub.Tests;
 
 using System.Net;
+using System.Net.Sockets;
 using System.Net.Http.Headers;
 using HomeHub.Api.Ai;
 using HomeHub.Api.Calendar;
+using HomeHub.Api.HomeAssistant;
 using HomeHub.Api.Net;
 using HomeHub.Api.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 /// <summary>
@@ -478,6 +481,74 @@ public class EgressGuardTests
         Assert.Null(factory.Create("barnaby"));
     }
 
+    // ---- Home Assistant ----
+
+    private static HomeAssistantOptions Ha(string baseUrl, string[]? origins = null, bool cleartext = false) =>
+        new()
+        {
+            BaseUrl = baseUrl,
+            Token = "long-lived",
+            AllowedOrigins = [.. origins ?? []],
+            AcknowledgeCleartextLan = cleartext,
+        };
+
+    /*
+     * A private address proves where a listener is, not what it is. The reach test that came first
+     * stopped this bearer leaving the house and did nothing about the house itself: any LAN device
+     * answering on the configured address receives a token with service-call permission, the
+     * household's state, and the commands that change it.
+     */
+    [Fact]
+    public void A_home_assistant_merely_somewhere_on_the_LAN_is_refused()
+    {
+        Assert.NotNull(Ha("http://192.168.1.20:8123").RefuseDestination());
+    }
+
+    [Fact]
+    public void An_approved_home_assistant_origin_is_exact()
+    {
+        string[] approved = ["https://ha.house.lan:8123"];
+
+        Assert.Null(Ha("https://ha.house.lan:8123", approved).RefuseDestination());
+        // The listener on the next port is a different program.
+        Assert.NotNull(Ha("https://ha.house.lan:8124", approved).RefuseDestination());
+        Assert.NotNull(Ha("https://ha.attacker.example:8123", approved).RefuseDestination());
+    }
+
+    /*
+     * Over plain http the bearer travels the LAN in the clear on every poll, and anything on that
+     * network can read it and then issue service calls of its own. TLS is the answer; the
+     * acknowledgement exists because household Home Assistant commonly has no certificate, and
+     * refusing that outright would take the climate and the sensors off every panel that has one.
+     */
+    [Fact]
+    public void Cleartext_to_a_non_loopback_home_assistant_needs_saying_out_loud()
+    {
+        string[] approved = ["http://ha.house.lan:8123"];
+
+        var refusal = Ha("http://ha.house.lan:8123", approved).RefuseDestination();
+        Assert.NotNull(refusal);
+        Assert.Contains("in the clear", refusal);
+
+        Assert.Null(Ha("http://ha.house.lan:8123", approved, cleartext: true).RefuseDestination());
+    }
+
+    [Fact]
+    public void Cleartext_on_this_machine_needs_no_acknowledgement()
+    {
+        // Nothing touches a wire, so there is nothing to intercept.
+        Assert.Null(Ha("http://127.0.0.1:8123").RefuseDestination());
+    }
+
+    [Fact]
+    public void A_refused_home_assistant_reads_as_unconfigured_rather_than_being_used()
+    {
+        var options = Ha("http://192.168.1.20:8123");
+
+        // Fail closed: the panel falls back to simulated climate rather than posting the token at it.
+        Assert.False(options.IsConfigured);
+    }
+
     // ---- The sinks that were missed ----
 
     /*
@@ -486,6 +557,47 @@ public class EgressGuardTests
      * bearer and household content, and this sends the OAuth client secret, the authorization code and
      * the PKCE verifier — the whole of what it takes to mint tokens for a member's account.
      */
+    /*
+     * The invariant, resolved through real DI rather than read off a registration line.
+     *
+     * <b>The previous version of this claim was false and the test agreed with it.</b> A named client
+     * called "unconfigured" was registered in the belief that it left the unnamed default
+     * unregistered; `CreateClient()` returns whatever sits under `Options.DefaultName`, which is the
+     * empty string, and that slot was still the framework's. Reading registration lines could not see
+     * that. Asking the container for the thing the caller would actually get can.
+     */
+    [Fact]
+    public async Task The_default_client_refuses_every_connection()
+    {
+        using var app = new HubAppFactory();
+        var factory = app.Services.GetRequiredService<IHttpClientFactory>();
+
+        using var client = factory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(5);
+        var error = await Record.ExceptionAsync(() => client.GetAsync("http://127.0.0.1:9/"));
+
+        Assert.Contains("unconfigured HTTP client", Flatten(error));
+    }
+
+    /*
+     * A proxy defeats the connect callback completely: the connection is made to the proxy, so the
+     * addresses screened are the proxy's, and the destination is reached by asking it to go there.
+     * Every check would pass while the household's audio went elsewhere. `HttpClient` picks proxies up
+     * from the environment by default, so this is not a hypothetical setting somebody has to choose —
+     * it is the one they have to remember to switch off.
+     */
+    [Fact]
+    public void No_confined_handler_will_use_a_proxy()
+    {
+        using var guarded = EgressGuard.CreateHandler(() => Internet);
+        using var blocking = EgressGuard.CreateBlockingHandler();
+        using var fetcher = HomeHub.Api.Meals.RecipeFetcher.CreateGuardedHandler(new HomeHub.Api.Meals.MealsOptions());
+
+        Assert.False(guarded.UseProxy);
+        Assert.False(blocking.UseProxy);
+        Assert.False(fetcher.UseProxy);
+    }
+
     [Fact]
     public void The_account_link_exchange_asks_for_a_guarded_client_by_name()
     {
@@ -523,6 +635,32 @@ public class EgressGuardTests
             unguarded.Count == 0,
             "These HttpClient registrations configure no primary handler, so they follow redirects and "
             + "screen no address:\n  " + string.Join("\n  ", unguarded));
+    }
+
+    /*
+     * And the handler families themselves, since reading registration lines proves only that *a*
+     * handler was configured. Every one this app builds must refuse redirects and refuse a proxy;
+     * a new family that forgets either is a new instance of a fault this has now had three rounds of.
+     */
+    [Fact]
+    public void Every_handler_family_refuses_redirects_and_proxies()
+    {
+        var handlers = new (string Name, SocketsHttpHandler Handler)[]
+        {
+            ("EgressGuard.CreateHandler", EgressGuard.CreateHandler(() => Internet)),
+            ("EgressGuard.CreateBlockingHandler", EgressGuard.CreateBlockingHandler()),
+            ("RecipeFetcher.CreateGuardedHandler",
+                HomeHub.Api.Meals.RecipeFetcher.CreateGuardedHandler(new HomeHub.Api.Meals.MealsOptions())),
+        };
+
+        foreach (var (name, handler) in handlers)
+        {
+            using (handler)
+            {
+                Assert.False(handler.AllowAutoRedirect, $"{name} follows redirects.");
+                Assert.False(handler.UseProxy, $"{name} would use a proxy, which bypasses its address screen.");
+            }
+        }
     }
 
     /// <summary>The repository root, found by walking up from the test binary.</summary>

@@ -73,6 +73,10 @@ public sealed class RecipeFetcher
     public static SocketsHttpHandler CreateGuardedHandler(MealsOptions options) => new()
     {
         AllowAutoRedirect = false,
+        // A proxy would make the connect callback screen the proxy's address instead of the site's,
+        // so every check below would pass while the fetch went wherever it was told. See `EgressGuard`,
+        // which carries the longer note; this handler predates it and had the same gap.
+        UseProxy = false,
         ConnectCallback = async (context, ct) =>
         {
             var host = context.DnsEndPoint.Host;

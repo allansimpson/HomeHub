@@ -68,6 +68,8 @@ class Config:
     # server's /etc/homehub/homehub.env. Empty means every call is refused — the bridge cannot talk
     # to an authenticated API without one, and failing loudly beats appearing to work.
     service_token: str
+    # Exact approved HomeHub origins; empty means loopback only.
+    allowed_origins: tuple[str, ...]
 
     @staticmethod
     def from_env() -> "Config":
@@ -81,6 +83,9 @@ class Config:
 
         return Config(
             api_base_url=_env("HOMEHUB_API_BASE_URL", "http://localhost:5220").rstrip("/"),
+            # Exact origins this bridge may talk to. Empty means loopback only, which is the
+            # documented arrangement: the bridge runs on the panel. See api.approve_origin.
+            allowed_origins=_env_list("HOMEHUB_ALLOWED_ORIGINS"),
             service_token=_env("HOMEHUB_SERVICE_TOKEN", ""),
             http_timeout=float(_env("HOMEHUB_HTTP_TIMEOUT", "30")),
             # Matches the server's own turn ceiling (Hermes:StreamTimeoutSeconds). Two numbers that
