@@ -2,7 +2,7 @@
 
 **Owned by Geist (Hermes). Claude records observations and hands deployment work over.**
 
-_Last verified: 2026-08-31T11:38Z by Geist. Sources: live restricted-SSH probes,
+_Last verified: 2026-09-01T22:15Z by Geist. Sources: live restricted-SSH probes,
 `systemctl show`, deep-health responses, the active sudo policy, and the canonical HomeHub promotion
 workflow._
 
@@ -52,22 +52,25 @@ the shared checkout.
 
 ## Current live observation
 
-Release `20260831T105206Z-09cfd47e8477` was promoted to production at 2026-08-31T11:38Z under Allan's explicit one-release
-application-security exception. Production reused the exact TEST archive, SHA-256
-`0267e27d127c381f20924445d2c99983705486c9b67b718562e8c24f8f258a6e`, without rebuilding or relabeling its TEST-only manifest. The separately
-reviewed privileged installer passed with zero Critical/High findings. The ordinary production
-security gate remains in force for future releases.
+Verified at 2026-09-01T22:15Z:
 
-Verified at 2026-08-31T11:38Z:
-
-- TEST and production both run release `20260831T105206Z-09cfd47e8477`; services active; trusted HTTPS and deep health 200;
-  database `ok`; pending migrations `0`; migration head `20260827205336_AddWeatherAlertProduct`;
-  build `a66e80a+ · 2026-08-31 10:52Z`; SPA bundle `index-D3pqF7Ee.js`; live bundle and
-  service-worker bytes exactly match the immutable artifact.
-- Production rollback target is `20260829T061946Z-ef26d2f70fbd`. Database backup `/var/opt/mssql/backup/HomeHub-before-20260831T105206Z-09cfd47e8477.bak` was
-  created and verified. Trusted TLS, HTTP loopback isolation, MCP authenticated functionality,
-  the six-tool allowlist, and no-token/wrong-token GET and POST rejection passed. The Barnaby gateway
-  was restarted and remained stable.
+- TEST runs release `20260901T221511Z-52b1222e8e04`, source-tree SHA-256
+  `52b1222e8e044dc83956a02ad355fb53389ab370325fc342d89c7ddd0a3d1941`, artifact SHA-256
+  `e6e11090036dfc2bc68ddfd5b82dcc2d3183a998de2ef80e48a27c2a96cd819f`.
+- TEST is active; trusted HTTPS and deep health return 200; database `ok`; pending migrations `0`;
+  migration head `20260901164422_AddProfileSecurityVersion`; build
+  `c14717c+ · 2026-09-01 22:15Z`; SPA bundle `index-Bl4dmmRv.js`. The live bundle and service worker
+  exactly match the immutable artifact.
+- TEST's legacy `Mcp:ApiKey` is absent, its named Barnaby credential remains present, and its explicit
+  household CA plus four required SANs are configured. Deliberate live startup probes proved refusal
+  for missing SAN configuration, missing CA, and a non-empty legacy key; valid configuration was then
+  restored and deep health reverified.
+- Production remains unchanged on release `20260831T105206Z-09cfd47e8477`; service active; HTTPS and
+  deep health 200; database `ok`; pending migrations `0`; migration head
+  `20260827205336_AddWeatherAlertProduct`; build `a66e80a+ · 2026-08-31 10:52Z`.
+- The new archive remains TEST-only and production-ineligible. Production still requires its own
+  legacy-key rotation/configuration check, a fresh exact-candidate source review with zero
+  Critical/High findings, and Allan's explicit approval.
 
 ## Observation from Claude, 2026-08-30 — deployment docs still describe Huckleberry
 

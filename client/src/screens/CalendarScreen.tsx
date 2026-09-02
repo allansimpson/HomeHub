@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { ScreenShell, ScrollArea, SectionLabel } from '../components'
 import { Icon } from '../icons/Icon'
@@ -13,6 +13,40 @@ const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
 /** Re-sync the visible month on a timer so Google-added events appear without navigating away. */
 const REFRESH_MS = 30_000
+
+/** Movement before a horizontal swipe is claimed, so a tap on a day is still a tap. */
+const CLAIM_PX = 8
+
+/** Vertical travel, with no horizontal claim, that hands the gesture back to the page for good. */
+const GIVE_UP_PX = 24
+
+/**
+ * How far horizontal must lead vertical for a drag to count as a swipe.
+ *
+ * Below 1 on purpose, as on the Care pager: a thumb crossing a wall panel arcs, so a gesture a
+ * person reads as sideways is very rarely sideways to the pixel. Demanding strict dominance makes
+ * a swipe feel like it has to be drawn with a ruler.
+ */
+const AXIS_LEAD = 0.7
+
+/**
+ * A flick: short, fast, and over. Under {@link FLICK_MS}, {@link FLICK_PX} is enough to turn the
+ * month — half the grid is a long way to ask a thumb to travel for something the arrows do in a tap.
+ */
+const FLICK_MS = 300
+const FLICK_PX = 36
+
+/** Otherwise, the share of the grid's width the finger has to cover to settle onto the next month. */
+const SETTLE_FRACTION = 0.22
+
+/**
+ * How much of the finger's travel the grid follows.
+ *
+ * The month is hinged rather than carried: there is no next month drawn behind it to be dragged
+ * into view, so a grid that tracked the finger one-to-one would pull a blank column in beside
+ * itself. A third of the travel is enough to say "this is moving, and it is moving that way".
+ */
+const DRAG_FOLLOW = 0.35
 
 /**
  * Calendar (spec 02): month grid + the selected day's agenda. Today is a brass block; days with
@@ -97,6 +131,8 @@ export function CalendarScreen() {
   const grid = useMemo(() => monthGrid(activeMonth), [activeMonth])
   const today = new Date()
 
+  const swipe = useMonthSwipe((delta) => setActiveMonth((m) => addMonths(m, delta)))
+
   const agenda = useMemo(
     () =>
       events
@@ -106,6 +142,8 @@ export function CalendarScreen() {
   )
 
   const pickDay = (day: Date) => {
+    // A swipe lifts off over some day of whichever month it turned to; that is not a choice of day.
+    if (swipe.swiped()) return
     if (day.getMonth() !== activeMonth.getMonth()) setActiveMonth(startOfMonth(day))
     setSelected(day)
   }
@@ -135,13 +173,14 @@ export function CalendarScreen() {
 
   return (
     <ScreenShell header={header}>
-      <div className="ml-calgrid">
+      <div className="ml-calgrid" {...swipe.surface}>
+        {/* The weekday letters are the same in every month, so they hold still while it turns. */}
         <div className="ml-calgrid__dow">
           {DOW.map((d, i) => (
             <span key={i} className="ml-calgrid__dowlabel">{d}</span>
           ))}
         </div>
-        <div className="ml-calgrid__cells">
+        <div {...swipe.cells}>
           {grid.map((day, i) => {
             const inMonth = day.getMonth() === activeMonth.getMonth()
             const isToday = isSameDay(day, today)
@@ -189,6 +228,126 @@ export function CalendarScreen() {
       </ScrollArea>
     </ScreenShell>
   )
+}
+
+/**
+ * Turn the month with a horizontal swipe across the grid, exactly as the header arrows do.
+ *
+ * <b>The gesture is claimed on an axis, not on the first sample.</b> The grid sits above a page
+ * that scrolls, and a thumb reaching across a wall panel almost always opens with a little vertical
+ * drift — deciding on the first move would make the swipe feel dead as often as not. So neither
+ * axis wins until one is clearly ahead: horizontal claims once it passes {@link CLAIM_PX} *and*
+ * leads the vertical by {@link AXIS_LEAD}, and the gesture is only handed back once it has plainly
+ * committed to a scroll ({@link GIVE_UP_PX} of vertical with no horizontal claim). Everything
+ * between the two is still undecided and is re-examined on the next sample.
+ *
+ * <b>A claimed swipe is not a tap.</b> Pointer capture moves the eventual `click` off the day cell
+ * the finger happened to lift over, but that is a browser behaviour rather than a guarantee, so
+ * {@link swiped} is the thing `pickDay` actually asks. It is set the moment the swipe is claimed
+ * and cleared on the next pointer-down, which is always after the click it is there to swallow.
+ *
+ * Months run in both directions without end, so there is nothing to bounce off and no rubber band:
+ * a swipe either turns the month or springs back.
+ */
+function useMonthSwipe(turn: (delta: number) => void) {
+  const cells = useRef<HTMLDivElement | null>(null)
+  const startX = useRef<number | null>(null)
+  const startY = useRef(0)
+  const startedAt = useRef(0)
+  const dragging = useRef(false)
+  const claimed = useRef(false)
+  /** Live finger travel in px while a swipe is in flight; 0 at rest. Raw, not damped — see render. */
+  const [dx, setDx] = useState(0)
+  /** True while the grid is travelling back to centre after a swipe that did not settle. */
+  const [releasing, setReleasing] = useState(false)
+  /** Which way the month that just arrived came from, until its animation finishes. */
+  const [arriving, setArriving] = useState<'back' | 'forward' | null>(null)
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    startX.current = e.clientX
+    startY.current = e.clientY
+    startedAt.current = Date.now()
+    dragging.current = false
+    claimed.current = false
+    setReleasing(false)
+  }
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (startX.current == null) return
+    const moved = e.clientX - startX.current
+    const drift = e.clientY - startY.current
+
+    if (!dragging.current) {
+      const across = Math.abs(moved)
+      const down = Math.abs(drift)
+      // Plainly a scroll: hand it back and stop watching until the next touch.
+      if (down > GIVE_UP_PX && across < down * AXIS_LEAD) {
+        startX.current = null
+        return
+      }
+      // Not yet enough to call either way — wait for the next sample rather than guessing.
+      if (across < CLAIM_PX || across < down * AXIS_LEAD) return
+      dragging.current = true
+      claimed.current = true
+      e.currentTarget.setPointerCapture(e.pointerId)
+      setArriving(null)
+    }
+
+    setDx(moved)
+  }
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    const from = startX.current
+    startX.current = null
+    if (!dragging.current || from == null) return
+    dragging.current = false
+
+    const moved = e.clientX - from
+    const width = cells.current?.getBoundingClientRect().width ?? 0
+    const flicked = Date.now() - startedAt.current < FLICK_MS && Math.abs(moved) > FLICK_PX
+    const far = width > 0 && Math.abs(moved) > width * SETTLE_FRACTION
+
+    if (flicked || far) {
+      // Left takes the month forward, the way the page under a finger dragged leftwards would.
+      const delta = moved < 0 ? 1 : -1
+      // No spring back: the grid snaps to centre with no transition and the month that replaced it
+      // animates in from the side the finger was heading, so one movement continues into the other.
+      setDx(0)
+      turn(delta)
+      setArriving(delta > 0 ? 'forward' : 'back')
+      return
+    }
+
+    setReleasing(true)
+    setDx(0)
+  }
+
+  const onPointerCancel = () => {
+    startX.current = null
+    if (!dragging.current) return
+    dragging.current = false
+    setReleasing(true)
+    setDx(0)
+  }
+
+  return {
+    /** Whether the gesture that just ended was a swipe rather than a tap. */
+    swiped: () => claimed.current,
+    /** Spread on the grid frame: the whole month, weekday letters included, is the swipe surface. */
+    surface: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel },
+    /** Spread on the cells, which are the part that actually moves. */
+    cells: {
+      ref: cells,
+      className:
+        'ml-calgrid__cells' +
+        (releasing ? ' ml-calgrid__cells--releasing' : '') +
+        (arriving ? ` ml-calgrid__cells--from-${arriving}` : ''),
+      style: dx ? { transform: `translateX(${dx * DRAG_FOLLOW}px)` } : undefined,
+      onTransitionEnd: () => setReleasing(false),
+      onAnimationEnd: () => setArriving(null),
+    },
+  }
 }
 
 /**

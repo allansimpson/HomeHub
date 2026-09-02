@@ -2144,11 +2144,43 @@ html[data-vt='slidedown']::view-transition-old(screen) { animation-name: ml-vt-f
   /* Breathing room between the header's double rule and the month grid. */
   padding: 1.75rem var(--gutter) 0.25rem;
   flex: 0 0 auto;
+  /* A horizontal drag here turns the month (CalendarScreen); vertical stays with the page. */
+  touch-action: pan-y;
+  /* The month arrives from off the grid's own edge rather than from under the neighbouring day. */
+  overflow: hidden;
 }
 .ml-calgrid__dow,
 .ml-calgrid__cells {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
+}
+/* Swipe that did not settle: the grid travels back to centre rather than snapping. */
+.ml-calgrid__cells--releasing {
+  transition: transform 180ms ease-out;
+}
+/* Swipe that did settle: the month that replaced it comes in from the way the finger was going. */
+.ml-calgrid__cells--from-forward {
+  animation: ml-month-in-forward 220ms ease-out;
+}
+.ml-calgrid__cells--from-back {
+  animation: ml-month-in-back 220ms ease-out;
+}
+@keyframes ml-month-in-forward {
+  from { transform: translateX(22%); opacity: 0.3; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes ml-month-in-back {
+  from { transform: translateX(-22%); opacity: 0.3; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ml-calgrid__cells--releasing {
+    transition: none;
+  }
+  .ml-calgrid__cells--from-forward,
+  .ml-calgrid__cells--from-back {
+    animation: none;
+  }
 }
 .ml-calgrid__dowlabel {
   text-align: center;
