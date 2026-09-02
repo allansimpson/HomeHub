@@ -3,31 +3,32 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Geist after independent review of exact `ed1cca`._
+_Updated: 2026-09-02 by Claude, over Geist's `ed1cca` review snapshot. Geist's live-verified deployment and production-probe facts are theirs and unchanged; the remediation status is Claude's._
 
-TEST remains healthy on `c0c6234` with zero pending migrations; production remains unchanged and healthy. Exact pushed candidate `ed1cca08144eb42d95facb69dfd71b85a52041e7` (application remediation `6486cdac5fb2bd6e9412c20fa9043f3f466383e7`) is **FAIL CLOSED: 0 Critical, 2 High**, plus incomplete RED evidence for the removed Home Assistant acknowledgement path. It was not deployed.
+**HomeHub is a website.** There is no Pi and no deployed voice bridge. Earlier handoffs listed the Pi's certificate trust and `HOMEHUB_ALLOWED_ORIGINS` as release prerequisites; that was wrong and is corrected. The bridge source and its 12 tests stay — the code is in the tree and is now correct — but it is not a deployment gate.
 
-The five `c0c6234` High findings are closed in source: real-DI default-client denial, proxy refusal, Home Assistant transport checks, voice-bridge origin/redirect/proxy checks, and RR-05 post-seal durability revocation with a visible warning. The new transport implementation itself also correctly refuses non-loopback cleartext for Home Assistant and the standalone bridge.
+TEST is healthy on `c0c6234` with zero pending migrations; production is unchanged and healthy. `ed1cca` **failed independent review: 0 Critical, 2 High release blockers, 1 evidence blocker.** All three are answered in `8ad755a`; the record is `.hermes/2026-09-02-ed1cca-review-claude-remediation.md`. A claim awaiting review, not a clearance.
 
-Two broader exact-origin faults remain:
+**Both blockers were in the previous round's own work.** `EgressGuard.Refuse` returned success the moment a URL matched `AllowedOrigins`, before looking at the transport — so an approved plain-http Hermes gateway received an agent's `API_SERVER_KEY` and the household's conversations in the clear, **and the test written to pin that boundary asserted it as correct**. Separately, `EgressRule.Origins` hard-coded loopback reach, so an approved non-loopback HTTPS origin passed the shape check and was then refused at dial as "not on this machine" — accepted configuration that could never work. Both fixed; origins now carry their own reach, and one `RefuseCleartext` applies to every destination class.
 
-1. `EgressGuard.Refuse` treats any matching `AllowedOrigins` entry as complete authorization before enforcing transport security. Hermes therefore accepts an approved non-loopback `http://` origin and attaches the gateway bearer to cleartext household conversation traffic.
-2. `EgressRule.Origins` hard-codes `EgressReach.Loopback`. The dial-time callback therefore rejects every approved non-loopback HTTPS Home Assistant or Hermes origin after the shape check accepted it. A disposable runtime diagnostic reproduced both contradictory outcomes.
+**The evidence criticism is the most useful of the three and is recorded in `INCIDENTS.md`.** The previous round's five C# failures were a forced fail-open — mutation testing, which shows the tests notice when a method stops working and is not evidence against the prior implementation. The replacement binds the obsolete `AcknowledgeCleartextLan` key through `IConfiguration`, which does not care whether the property still exists. Verifying it exposed a second trap: restoring only the file the finding names was not enough, because the guard had also changed and refused the configuration before the acknowledgement was consulted. A revert must restore every file the behaviour depends on.
 
-The C# prior-policy RED claim is also overstated. With the exact `016c95b` `HomeAssistantOptions` restored under the current tests, a clean rebuild ran 81 `EgressGuardTests`: only the new `localhost` test failed; 80 passed. The tests do not exercise the old acknowledgement through the caller/configuration path. The bridge's exact prior `api.py` did produce the claimed two failures under all 12 current bridge tests.
+**One extension beyond Geist's decision, flagged rather than folded in.** `RefuseCleartext` also applies to `EgressReach.HouseholdLan`, covering the local STT sidecar and Chatterbox — both take the household's recorded audio or the text it is about to speak, to a LAN listener nothing authenticates. Consequence: such an endpoint over http now reads as unconfigured and the panel falls back to browser STT and Piper rather than erroring. Production reports `localStt=false` with Piper primary, so it should be inert there. **If that should be narrowed to Home Assistant only, it is a one-line change.**
 
-HomeHub is currently only a website; there is no Pi or deployed voice bridge. Pi configuration and certificate preflight are therefore out of current scope. Home Assistant listens on the same server, so literal-loopback HTTP is a valid current topology if the protected `BaseUrl` is `127.0.0.1`; protected TEST configuration still requires verification before a later candidate is installed.
+**Preflight for `8ad755a`:** `http://127.0.0.1:8123` is a valid Home Assistant value and needs no `AllowedOrigins` or certificate work, since HA runs on the same server. Any other HA host must be https and named. `Hermes:Agents:*:BaseUrl` must be loopback or an exact https origin in `Hermes:AllowedGatewayOrigins` — a LAN gateway over http no longer starts. A leftover `HomeAssistant:AcknowledgeCleartextLan` is inert and refused anyway.
+
+`./scripts/check.sh all` runs 54 client files, 1,328 backend tests and 12 bridge tests.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `ed1cca08144eb42d95facb69dfd71b85a52041e7`, documentation over application remediation `6486cdac5fb2bd6e9412c20fa9043f3f466383e7` |
+| `HEAD` now | `8ad755a` (approved-origin transport fix) on top of `ed1cca0`, plus this documentation commit |
 | Working tree | Clean before review; only this Geist-owned state update is pending commit. |
 | Reviewed candidate identity | Commit `ed1cca08144eb42d95facb69dfd71b85a52041e7`; Git tree `111d57a36fe3e87f1c5fea1bc5bf8dc1d6ac014e`; 865 tracked entries; 834 UTF-8 text and 31 binary assets; source SHA-256 `74ecf61766fc6835810112765f0affabe6821be05b79ae9f47e60110f035c04b`. |
 | Independent verdict | FAIL CLOSED: 0 Critical / 2 High, plus incomplete C# prior-policy RED proof. |
-| Current candidate | `ed1cca` / `6486cda`; full gate independently green (54 client files, 1,320 backend tests, 12 bridge tests), production-ineligible. |
+| Current candidate | `8ad755a` — both release blockers and the evidence blocker answered; full gate green (54 client files, 1,328 backend tests, 12 bridge tests). Unreviewed. |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed

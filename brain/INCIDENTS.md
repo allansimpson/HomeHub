@@ -67,6 +67,19 @@ was still the framework's. The same round left `UseProxy` unset on every confine
 silently voids the whole address screen: with a proxy the connection is made to the proxy, so the
 addresses screened are the proxy's.
 
+**Mutation testing is not revert testing, 2026-09-02.** To show a regression was red-capable I forced
+`RefuseDestination` to return null and reported the five resulting failures as evidence against the
+previous implementation. It was not: it showed only that the tests notice when the method stops
+working. The tests could not have run against the real prior code, because the property they would
+have to set had been deleted with it. **The regression that does the job goes through configuration
+binding**, which does not care whether a property exists — bind the obsolete key and assert the
+behaviour is refused anyway.
+
+Verifying *that* exposed a second trap. Restoring only the file the finding named still passed, because
+a second file the behaviour depended on had also changed and refused the case earlier. **A revert must
+restore every file the behaviour depends on**, then `clean` and rebuild. Two files, two rounds, and both
+times the shortcut produced a green run that meant nothing.
+
 **A method note from the same round, 2026-09-02.** Verifying a regression is red-capable means
 reverting the fix and watching the test fail — and a revert that does not *compile* looks exactly like
 a fix that works: the runner uses the last good binary and reports everything passing. One revert here
