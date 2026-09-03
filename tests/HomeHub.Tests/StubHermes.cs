@@ -85,7 +85,12 @@ public sealed class StubHermes : IDisposable
     /// find: an orphan whose parent is gone, a parent with two children, a chain that loops, a
     /// session somebody made at the CLI.
     /// </remarks>
-    public IReadOnlyList<StubSession> Sessions { get; init; } = [];
+    /// <remarks>
+    /// Settable rather than <c>init</c> so a test can rewrite the index mid-scenario — a session
+    /// rotating under a challenge that was already issued against the earlier shape, which is the
+    /// only way to prove that a change nobody read invalidates an authorisation granted before it.
+    /// </remarks>
+    public IReadOnlyList<StubSession> Sessions { get; set; } = [];
 
     /// <summary>How many index pages were requested. Proves paging happened rather than one big read.</summary>
     public int SessionPageReads => _sessionPageReads;

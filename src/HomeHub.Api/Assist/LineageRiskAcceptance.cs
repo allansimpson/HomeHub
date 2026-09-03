@@ -55,6 +55,18 @@ public class LineageRiskAcceptance
 
     /// <summary>Set when it has authorised a deletion. Never a second one.</summary>
     public DateTime? ConsumedAtUtc { get; set; }
+
+    /// <summary>
+    /// Concurrency token, so two requests cannot spend one authorisation.
+    /// </summary>
+    /// <remarks>
+    /// The unique index on <see cref="Nonce"/> stops a challenge being accepted twice; this is the
+    /// other end — two deletions racing to consume the same acceptance. The second `SaveChanges`
+    /// fails rather than succeeding quietly, and because the consumption is in the same commit as the
+    /// removal, the losing request deletes nothing.
+    /// </remarks>
+    [System.ComponentModel.DataAnnotations.Timestamp]
+    public byte[]? RowVersion { get; set; }
 }
 
 /// <summary>
@@ -85,6 +97,28 @@ public static class LineageFingerprint
             Field("reachable", agent.Reachable ? "yes" : "no");
             Field("error", agent.Error ?? "");
             Field("truncated", agent.Truncated ? "yes" : "no");
+            /*
+             * The observed session graph, which the first version omitted entirely.
+             *
+             * It hashed adverse findings, and a session that maps cleanly produces none — so a
+             * compression that added a child and rotated a parent moved nothing an acceptance was
+             * bound to, and an authorisation issued before it stayed valid for a deletion that would
+             * now orphan the child. The counts move for the same reason and are hashed beside it.
+             */
+            Field("graph", agent.SessionGraphDigest);
+            Field("sessions", agent.SessionsSeen.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Field("conversations", agent.Conversations.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Field("references", agent.References.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Field("counts", string.Join(',', new[]
+            {
+                agent.Counts.VerifiedAndMapped, agent.Counts.UnmatchedHomeHubSession,
+                agent.Counts.MultipleConversationConflict, agent.Counts.MultipleRootConflict,
+                agent.Counts.BrokenParentChain, agent.Counts.LegacyAmbiguous,
+                agent.Counts.UnexpectedBranchOrFork, agent.Counts.ForeignAncestor,
+                agent.Counts.Cycle, agent.Counts.NonHomeHubSource,
+                agent.Counts.LegacyCompressionChildren, agent.Counts.DuplicateReferences,
+                agent.Counts.ReferencesNotOnAgent, agent.Counts.CurrentReferenceDisagreements,
+            }));
         }
 
         Field("clean", report.Clean ? "yes" : "no");

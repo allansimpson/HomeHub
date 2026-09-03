@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace HomeHub.Api.Migrations
 {
     [DbContext(typeof(HomeHubDbContext))]
-    [Migration("20260903120856_AddLineageReconciliation")]
+    [Migration("20260903140258_AddLineageReconciliation")]
     partial class AddLineageReconciliation
     {
         /// <inheritdoc />
@@ -439,6 +439,11 @@ namespace HomeHub.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.HasKey("Id");
 

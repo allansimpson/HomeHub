@@ -268,6 +268,7 @@ public sealed class LineageAudit
 
         return new AgentLineageReport(
             agentKey, Reachable: true, Error: null,
+            SessionGraphDigest: GraphDigest(sessions, primary),
             SessionsSeen: sessions.Count, PagesRead: pages, Truncated: truncated,
             Conversations: conversations.Count, References: references.Count,
             // Reported rather than only used. The `source` mistake above was invisible until the
@@ -342,6 +343,49 @@ public sealed class LineageAudit
     }
 
     // ---- Walking ----
+
+    /// <summary>
+    /// A digest of every session this agent holds and how they are related.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The whole graph, not only the adverse findings, and that is the correction.</b> An
+    /// acceptance is bound to a fingerprint of the report; the fingerprint hashed findings, and a
+    /// <see cref="LineageClass.VerifiedAndMapped"/> session produces no adverse finding at all. So
+    /// this sequence changed nothing an acceptance was watching: a conversation anchored to session A
+    /// is authorised for deletion; Hermes compresses A into a child B; the next audit maps both A and
+    /// B cleanly through A; the fingerprint is identical; the old authorisation still holds; and
+    /// deleting tombstones A alone and drops the anchor, orphaning B for ever. No race was needed.
+    /// </para>
+    /// <para>
+    /// So what is hashed is the observed graph: every session id, its parent, its lineage root, how it
+    /// ended, and the class it was given. A compression adds a node and an edge and changes a parent's
+    /// end reason, all three of which move this digest. Message counts are deliberately absent — an
+    /// ordinary reply would otherwise lapse every outstanding authorisation, which is churn rather
+    /// than safety.
+    /// </para>
+    /// </remarks>
+    private static string GraphDigest(
+        IReadOnlyList<HermesSessionSummary> sessions, IReadOnlyDictionary<string, LineageClass> primary)
+    {
+        const char separator = '\u001f';
+        var canonical = new System.Text.StringBuilder();
+
+        foreach (var session in sessions.OrderBy(x => x.Id, StringComparer.Ordinal))
+        {
+            canonical
+                .Append(session.Id).Append(separator)
+                .Append(session.ParentSessionId ?? "").Append(separator)
+                .Append(session.LineageRootId ?? "").Append(separator)
+                .Append(session.Source ?? "").Append(separator)
+                .Append(session.EndReason ?? "").Append(separator)
+                .Append(primary.TryGetValue(session.Id, out var cls) ? cls.ToString() : "unclassified")
+                .Append('\n');
+        }
+
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(canonical.ToString())));
+    }
 
     private enum WalkOutcome { Ok, Cycle, MissingParent, ForeignAncestor }
 
@@ -592,6 +636,12 @@ public sealed record AgentLineageReport(
     string AgentKey,
     bool Reachable,
     string? Error,
+    /// <summary>
+    /// A digest of every session on this agent and how they relate — see the note on the method that
+    /// builds it. Opaque, and in the report so that an acceptance can be bound to the graph rather
+    /// than to the subset of it that happened to be a problem.
+    /// </summary>
+    string SessionGraphDigest,
     int SessionsSeen,
     int PagesRead,
     bool Truncated,
@@ -606,7 +656,7 @@ public sealed record AgentLineageReport(
     private static readonly LineageCounts None = new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
     public static AgentLineageReport NotConfigured(string key) =>
-        new(key, false, "not configured", 0, 0, false, 0, 0,
+        new(key, false, "not configured", "", 0, 0, false, 0, 0,
             new Dictionary<string, int>(), None, [], []);
 
     /// <summary>
@@ -618,7 +668,7 @@ public sealed record AgentLineageReport(
     /// be accurate about what it read and wrong about what it means.
     /// </remarks>
     public static AgentLineageReport Unreachable(string key, string error) =>
-        new(key, false, error, 0, 0, false, 0, 0, new Dictionary<string, int>(), None,
+        new(key, false, error, "", 0, 0, false, 0, 0, new Dictionary<string, int>(), None,
             [$"{key}: could not be read ({error}), so nothing about it can be vouched for"], []);
 }
 

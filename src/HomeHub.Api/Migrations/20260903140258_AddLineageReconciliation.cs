@@ -37,7 +37,8 @@ namespace HomeHub.Api.Migrations
                     AcceptedByProfileId = table.Column<int>(type: "int", nullable: true),
                     AcceptedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
                     ExpiresAtUtc = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    ConsumedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true)
+                    ConsumedAtUtc = table.Column<DateTime>(type: "datetime2", nullable: true),
+                    RowVersion = table.Column<byte[]>(type: "rowversion", rowVersion: true, nullable: true)
                 },
                 constraints: table =>
                 {

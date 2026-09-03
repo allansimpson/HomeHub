@@ -111,6 +111,20 @@ public sealed class SessionDeletionWorker : BackgroundService
 
         if (due.Count == 0) return 0;
 
+        /*
+         * Descendants first, because a lineage can grow after the conversation is gone.
+         *
+         * A tombstone names the sessions HomeHub knew about when the row was removed. Hermes rotates a
+         * session into a child when it compresses, and that can happen after the delete, or between
+         * the check that authorised it and the drain — at which point the child is a transcript of the
+         * household's words with nothing left pointing at it. The local anchor is gone by then, so the
+         * only remaining anchor is the tombstone itself, and this is where it can still be followed.
+         *
+         * Once per agent per pass rather than once per row: the index read is the cost, and a household
+         * deleting a long conversation would otherwise pay it for every session in the lineage.
+         */
+        await ExpandLineageAsync(due, roster, db, hermes, ct);
+
         var completed = 0;
         foreach (var row in due)
         {
@@ -161,6 +175,94 @@ public sealed class SessionDeletionWorker : BackgroundService
                 stuck, MaxAttempts);
 
         return completed;
+    }
+
+    /// <summary>
+    /// Add a tombstone for every descendant of a pending one that is not already recorded.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The half of the promise that could not be kept at deletion time.</b> Deleting writes down
+    /// what HomeHub knew; a compression afterwards creates a child it never saw, and the conversation
+    /// row that would have recorded it has been removed. Expanding here means the obligation grows to
+    /// match the lineage instead of being fixed at the moment it was made — and it works while the
+    /// agent is down, because the drain simply retries.
+    /// </para>
+    /// <para>
+    /// Failure is not fatal and not silent: the pass continues with what it has, and the descendants
+    /// are found on a later one. A tombstone that cannot be expanded is still a tombstone.
+    /// </para>
+    /// </remarks>
+    private async Task ExpandLineageAsync(
+        IReadOnlyList<HermesSessionDeletion> due,
+        AgentRoster roster,
+        HomeHubDbContext db,
+        HermesClient hermes,
+        CancellationToken ct)
+    {
+        foreach (var agentKey in due.Select(d => d.AgentKey).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var agent = roster.Find(agentKey);
+            if (agent is null || !agent.IsConfigured) continue;
+
+            List<HermesSessionSummary> sessions;
+            try
+            {
+                sessions = await hermes.AllSessionsAsync(agentKey, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogDebug(ex, "Could not read {Agent}'s session index to expand lineage.", agentKey);
+                continue;
+            }
+            if (sessions.Count == 0) continue;
+
+            var childrenOf = sessions
+                .Where(s => s.ParentSessionId is { Length: > 0 })
+                .GroupBy(s => s.ParentSessionId!, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.Select(s => s.Id).ToList(), StringComparer.Ordinal);
+
+            foreach (var row in due.Where(d => string.Equals(d.AgentKey, agentKey, StringComparison.OrdinalIgnoreCase)))
+            {
+                foreach (var descendant in Descendants(row.SessionId, childrenOf))
+                {
+                    var already = await db.HermesSessionDeletions.AnyAsync(
+                        d => d.AgentKey == agentKey && d.SessionId == descendant, ct);
+                    if (already) continue;
+
+                    db.HermesSessionDeletions.Add(new HermesSessionDeletion
+                    {
+                        ConversationId = row.ConversationId,
+                        AgentKey = agentKey,
+                        SessionId = descendant,
+                        RequestedAtUtc = DateTime.UtcNow,
+                    });
+                    _logger.LogInformation(
+                        "Lineage grew after deletion: session {Session} on {Agent} descends from a "
+                        + "tombstoned one and is now queued for deletion too.",
+                        descendant, agentKey);
+                }
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Every session below this one, breadth-first, cycle-safe.</summary>
+    private static IEnumerable<string> Descendants(
+        string root, IReadOnlyDictionary<string, List<string>> childrenOf)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal) { root };
+        var queue = new Queue<string>([root]);
+        while (queue.Count > 0)
+        {
+            if (!childrenOf.TryGetValue(queue.Dequeue(), out var children)) continue;
+            foreach (var child in children.Where(seen.Add))
+            {
+                queue.Enqueue(child);
+                yield return child;
+            }
+        }
     }
 
     /// <summary>

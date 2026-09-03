@@ -7,6 +7,7 @@ using HomeHub.Api.Data;
 using HomeHub.Api.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using static HomeHub.Tests.StubHermes;
 
 /// <summary>
 /// Deleting a conversation whose lineage nobody has enumerated — the audit-then-delete order.
@@ -300,6 +301,20 @@ public class LineageGateTests
     }
 
     /*
+     * The pre-check above (`AnyAsync` before `Add`) is a courtesy, not the guarantee — two requests
+     * can both pass it before either has saved. What actually stops a challenge being spent twice is
+     * the unique index on Nonce, and a loser hitting *that* has to come back as the same documented
+     * Conflict rather than an unhandled 500 — see `AcceptLineageRisk`'s `catch (DbUpdateException)`.
+     *
+     * <b>Not regression-tested here.</b> Probed directly while writing this: EF Core InMemory does not
+     * enforce `HasIndex(...).IsUnique()` at all — inserting two rows with the same Nonce in two
+     * ordinary, sequential `SaveChanges` calls succeeds both times, no exception, no race required.
+     * The same is true of `HasMaxLength`. Neither is a code defect; both are things only a real
+     * relational provider checks, which is exactly the InMemory-vs-SQL-Server gap flagged against this
+     * area before — see the remarks on `LineageRiskAcceptanceConcurrencyTests`.
+     */
+
+    /*
      * The report changing between authorisation and deletion is the case a stored verdict cannot
      * catch: what was accepted described a lineage, and what matters is whether that is still what
      * deleting would do.
@@ -326,6 +341,65 @@ public class LineageGateTests
         var refused = await client.PostAsJsonAsync("/api/assist/conversations/delete", new { ids = new[] { id } });
 
         Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+    }
+
+    /*
+     * <b>H2a.</b> The report used to fingerprint only its own findings, and a session that maps
+     * cleanly — <see cref="LineageClass.VerifiedAndMapped"/> — produces none. So a compression that
+     * rotated the anchored session into a child moved nothing the digest was watching: same findings,
+     * same fingerprint, and the acceptance granted before it still matched after. Deleting would have
+     * tombstoned the old session and dropped the only anchor pointing near the new one, orphaning it
+     * for good. The fix folds the observed graph — every session, its parent, and its class — into the
+     * digest, so a clean rotation invalidates the acceptance exactly like an adverse one does.
+     */
+    [Fact]
+    public async Task An_acceptance_lapses_when_a_clean_remap_changes_the_graph_underneath_it()
+    {
+        // An unrelated orphaned session keeps the report unclean, so accept-risk stays reachable
+        // while the conversation's own lineage — rooted at "A" — maps cleanly throughout.
+        var orphan = "homehub_barnaby_" + new string('a', 32);
+        using var gateway = new StubHermes { Sessions = [new StubSession(orphan), new StubSession("A")] };
+        using var app = new HubAppFactory { AuditedLineage = false, HermesBaseUrl = gateway.BaseUrl };
+        var client = app.CreateSeededClient();
+
+        int id;
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            db.Conversations.Add(new Conversation
+            {
+                ProfileId = 1,
+                AgentKey = "barnaby",
+                Title = "A conversation",
+                HermesSessionId = "A",
+                StartedAtUtc = DateTime.UtcNow,
+                LastAtUtc = DateTime.UtcNow,
+            });
+            db.SaveChanges();
+            id = db.Conversations.Single().Id;
+        }
+
+        var challenge = await ChallengeFor(client);
+        (await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest(challenge, [id]))).EnsureSuccessStatusCode();
+
+        // Hermes compresses "A" into a child "B" — a clean rotation, no adverse finding — after the
+        // acceptance was granted and before the deletion that would act on it.
+        gateway.Sessions =
+        [
+            new StubSession(orphan),
+            new StubSession("A", EndReason: "compression"),
+            new StubSession("B", Parent: "A"),
+        ];
+
+        var refused = await client.PostAsJsonAsync("/api/assist/conversations/delete", new { ids = new[] { id } });
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        using (var scope = app.Services.CreateScope())
+        {
+            Assert.NotNull(scope.ServiceProvider.GetRequiredService<HomeHubDbContext>()
+                .Conversations.FirstOrDefault(c => c.Id == id));
+        }
     }
 
     /*

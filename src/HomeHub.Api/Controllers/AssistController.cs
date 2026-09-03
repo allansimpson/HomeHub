@@ -244,7 +244,18 @@ public class AssistController : ControllerBase
             AcceptedAtUtc = DateTime.UtcNow,
             ExpiresAtUtc = DateTime.UtcNow.Add(LineageChallenges.AcceptanceLifetime),
         });
-        await _db.SaveChangesAsync(ct);
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // Another request won the same race the AnyAsync check above was trying to avoid — the
+            // unique index on Nonce is what actually stops it, and this is that rejection surfacing
+            // as the same documented Conflict rather than an unhandled 500.
+            return Conflict("That challenge has already been used. Reconcile the lineage again.");
+        }
 
         _logger.LogWarning(
             "Profile {ProfileId} authorised deleting {Count} conversation(s) against an unclean Hermes "
@@ -268,6 +279,8 @@ public class AssistController : ControllerBase
         var wanted = string.Join(',', ids.Distinct().OrderBy(x => x));
         var now = DateTime.UtcNow;
 
+        // Tracked, deliberately: the consumption below has to ride the same `SaveChanges` as the
+        // removal it authorises.
         var candidates = await _db.LineageRiskAcceptances
             .Where(a => a.ConsumedAtUtc == null && a.ExpiresAtUtc > now && a.ConversationIds == wanted)
             .ToListAsync(ct);
@@ -1221,15 +1234,29 @@ public class AssistController : ControllerBase
         // Messages and lineage references go with the conversations by cascade — see HomeHubDbContext,
         // where that cascade is a privacy guarantee rather than a convenience. The tombstones do not
         // cascade, which is the entire point of them.
+        /*
+         * The removal and the acceptance being spent are <b>one commit</b>.
+         *
+         * They were two, and two is a window: a crash, a dropped connection or a lost race between
+         * them left the conversations deleted and the authorisation unspent, ready to authorise a
+         * second deletion it was never granted for. The acceptance is tracked, so setting it here puts
+         * it in the same `SaveChanges` as the `RemoveRange`, and its row version turns a concurrent
+         * consumption into a conflict rather than a duplicate.
+         */
+        if (acceptance is not null) acceptance.ConsumedAtUtc = DateTime.UtcNow;
         _db.Conversations.RemoveRange(rows);
-        await _db.SaveChangesAsync(ct);
 
-        if (acceptance is not null)
+        try
         {
-            // Spent, in the same save as the deletion it authorised. An acceptance that survived the
-            // act it permitted would be the durable authority this replaced.
-            acceptance.ConsumedAtUtc = DateTime.UtcNow;
             await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another request spent the same authorisation between this one reading it and saving.
+            // Nothing was deleted, because the deletion was in the same commit.
+            return Conflict(
+                "That deletion authorisation was used by another request. Reconcile the lineage and "
+                + "authorise again if the deletion is still wanted.");
         }
 
         // Try immediately so the ordinary case — agent up, one or two sessions — is finished by the

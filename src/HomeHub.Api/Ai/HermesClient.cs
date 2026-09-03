@@ -408,6 +408,38 @@ public sealed class HermesClient
     /// one wrong answer this whole exercise exists to prevent.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Every session on this agent, paged to the end. Empty when it cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// For callers that need the shape of the whole index rather than a page of it — the lineage
+    /// audit, and the deletion worker following a lineage that grew after the conversation was gone.
+    /// <b>An unreadable agent returns empty rather than throwing</b>, because both callers already
+    /// treat "could not read it" as a reason to try again later rather than an error to surface: the
+    /// audit reports the agent unreachable and the worker leaves its tombstones queued.
+    /// </remarks>
+    public async Task<List<HermesSessionSummary>> AllSessionsAsync(string agentKey, CancellationToken ct)
+    {
+        const int pageSize = 200;
+        const int maxPages = 50;
+
+        var all = new List<HermesSessionSummary>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var page = 0; page < maxPages; page++)
+        {
+            var read = await ListSessionsAsync(agentKey, pageSize, all.Count, ct);
+            if (read.Error is not null) return page == 0 ? [] : all;
+
+            foreach (var session in read.Sessions)
+                if (seen.Add(session.Id)) all.Add(session);
+
+            if (read.Sessions.Count < pageSize) break;
+        }
+
+        return all;
+    }
+
     public async Task<HermesSessionPage> ListSessionsAsync(
         string agentKey, int limit, int offset, CancellationToken ct)
     {

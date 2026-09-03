@@ -8,6 +8,7 @@ using HomeHub.Api.Assist;
 using HomeHub.Api.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using static HomeHub.Tests.StubHermes;
 
 /// <summary>
 /// The boundary between HomeHub and Hermes: HomeHub selects an <b>agent</b>, and nothing else.
@@ -513,5 +514,65 @@ public class HermesDeletionTests
 
         Assert.NotEmpty(rows);
         Assert.All(rows, d => Assert.NotNull(d.CompletedAtUtc));
+    }
+
+    /*
+     * <b>H2b.</b> A conversation's tombstone names the sessions HomeHub knew about at the moment it
+     * was written. Hermes can rotate a session into a child by compression at any point up to and
+     * including that moment — including after a deletion was authorised but before the delete request
+     * actually ran — and the local anchor that would have revealed the child is gone the instant the
+     * conversation row is removed. The tombstone for the old session is then the only thing left that
+     * points anywhere near the new one, so the drain follows it: before working the queue, it re-reads
+     * each due agent's session index and queues a descendant a tombstoned session has grown, however
+     * many passes it takes to reach it.
+     */
+    [Fact]
+    public async Task A_session_that_compressed_before_the_delete_request_has_its_child_queued_too()
+    {
+        // The agent's actual state by the time the delete request arrives: "A" already ended in
+        // compression and rotated into "B". HomeHub's own row still names only "A" — nothing told it
+        // about the rotation, because only a chat turn would have.
+        using var gateway = new StubHermes
+        {
+            SessionId = "A",
+            Sessions = [new StubSession("A", EndReason: "compression"), new StubSession("B", Parent: "A")],
+        };
+        using var app = new HubAppFactory { HermesBaseUrl = gateway.BaseUrl };
+        var client = app.CreateSeededClient();
+
+        var res = await client.PostAsJsonAsync("/api/assist/chat",
+            new AssistChatRequest(null, "barnaby", "Boiler quotes", null, null, null));
+        var started = (await res.Content.ReadFromJsonAsync<AssistChatResponse>())!;
+
+        (await client.PostAsJsonAsync("/api/assist/conversations/delete",
+            new DeleteConversationsRequest([started.ConversationId]))).EnsureSuccessStatusCode();
+
+        // "A" is gone — the delete request's own immediate drain reached it. "B" is queued but not
+        // yet attempted: it was discovered by that same pass, after the row list it was working from
+        // had already been read.
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            var rows = db.HermesSessionDeletions
+                .Where(d => d.ConversationId == started.ConversationId).ToList();
+
+            var a = Assert.Single(rows, d => d.SessionId == "A");
+            Assert.NotNull(a.CompletedAtUtc);
+
+            var b = Assert.Single(rows, d => d.SessionId == "B");
+            Assert.Null(b.CompletedAtUtc);
+        }
+        Assert.Contains("A", gateway.DeletedSessionIds);
+        Assert.DoesNotContain("B", gateway.DeletedSessionIds);
+
+        // The next pass reaches it.
+        await app.Services.GetRequiredService<SessionDeletionWorker>().DrainAsync(CancellationToken.None);
+
+        Assert.Contains("B", gateway.DeletedSessionIds);
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            Assert.NotNull(db.HermesSessionDeletions.Single(d => d.SessionId == "B").CompletedAtUtc);
+        }
     }
 }
