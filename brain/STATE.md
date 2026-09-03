@@ -7,7 +7,7 @@ _Updated: 2026-09-02 by Claude, over Geist's `d0296c4` review. Geist's live-veri
 
 **HomeHub is a website.** No Pi, no deployed voice bridge; its source and 12 tests stay but it is not a deployment gate.
 
-TEST is healthy on `f961a0a`; production is healthy and unchanged on `a66e80a`. `d0296c4` **failed independent review: 0 Critical, 4 High.** All four are remediated in `e641855`; the record is `.hermes/2026-09-02-d0296c4-review-claude-remediation.md`. A claim awaiting review, not a clearance.
+TEST is healthy on `f961a0a`; production is healthy and unchanged on `a66e80a`. Exact candidate `1377f7e` (application `e641855`) **failed closed: 0 Critical / 8 High** after complete-source review plus targeted revalidation. Final inventory: **HH1377-H1** MCP service credentials lack an initiating-user subject; **H2** an unclean lineage report unlocks destructive deletion; **H3** a four-digit offline PIN permits copied-store decryption; **H4** a persisted IndexedDB device key remains usable from the same copied browser profile; **H5** Grocery mirror deletion loses its retry identity; **H6** raw Assist media bypasses the isolated extractor and reaches a tool-capable household agent; **H7** profile deletion does not transactionally invalidate OAuth state or clean profile-owned authority and data; **H8** legacy/unsealed Care storage lacks an owner-independent verified boot sweep. No artifact was built or deployed.
 
 **The mechanical HttpClient invariant passed review and execution**, which is the first thing in this sequence to hold. None of the four findings was an escape from it: one was inside its expressly enumerated exception, and three were elsewhere entirely.
 
@@ -28,12 +28,12 @@ TEST is healthy on `f961a0a`; production is healthy and unchanged on `a66e80a`. 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `e641855` (four-blocker remediation, incl. migration `AddLineageAuditedAt`), plus this documentation commit |
-| Working tree | Clean before review; only this Geist-owned state update is pending commit. |
-| Reviewed candidate identity | Commit `d0296c4e525c5b7bb0bfc55d20b98583d8a0b704`; application `e6bf3ba8d90cba822a4c74bb03b6bc83e08c39e9`; Git tree `ab19a53272a641a79d97c19bc813c4ac8e7dea0f`; 873 tracked entries; 842 UTF-8 text and 31 binary assets. |
-| Independent verdict | FAIL CLOSED: 0 Critical / 4 High. Complete inventory: `brain/SECURITY-REVIEW-D0296C4.md`. |
-| Current candidate | `e641855` — all four remediated. Full gate green: 54 client files, 1,346 backend tests, 12 bridge tests. **Carries a schema migration.** |
-| Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
+| `HEAD` now | `1377f7e` (application `e641855` plus remediation documentation), matching `origin/main` at review start. |
+| Working tree | Clean before review; Geist's finalized eight-finding review-state update is recorded in the current local coordination commit, unpushed at the time of review. |
+| Reviewed candidate identity | Commit `1377f7e3a483a41b7825ef25488f46bd14e43487`; application `e641855`; Git tree `50bc7986fb6827868807fc8ea4d6294ad1a7dd7c`; 879 tracked entries; 848 UTF-8 text and 31 binary assets; deterministic source SHA-256 `2ea625da6282a382ff10e06ac89b17b660be95b7cff11ce3e840312f2ec85890`. |
+| Independent verdict | FAIL CLOSED: 0 Critical / 8 High after complete-source review plus targeted revalidation. H1 MCP subject; H2 lineage deletion; H3 four-digit copied-store brute force; H4 copied-profile device-key use; H5 Grocery mirror cleanup identity; H6 Assist media-to-tool-agent isolation bypass; H7 non-transactional profile deletion/OAuth state; H8 incomplete Care plaintext sanitation. |
+| Current candidate | `1377f7e` / application `e641855` — full gate reproduced: 54 client files, 1,346 backend tests, 12 bridge tests; npm and NuGet production vulnerability checks clean. **Carries a schema migration.** |
+| Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No TEST or production action is authorized. |
 
 ## Deployed
 
