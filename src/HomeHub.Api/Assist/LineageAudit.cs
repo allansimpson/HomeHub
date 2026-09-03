@@ -631,23 +631,37 @@ public sealed record LineageReport(
     IReadOnlyList<AgentLineageReport> Agents,
     string PermittedDeleteCopy);
 
-/// <summary>What a reconciliation decided, and what remains unresolved.</summary>
+/// <summary>What a reconciliation decided, and what it will take to act on it.</summary>
 /// <param name="State">The household's lineage state after this call.</param>
 /// <param name="Clean">The audit's own verdict, which is what decided the state.</param>
 /// <param name="BlockingReasons">Why it was not clean, in the report's own words.</param>
-/// <param name="UnresolvedSessionIds">
-/// The sessions nothing could vouch for. Also the exact set an administrator must confirm to accept
-/// the risk — naming them is what keeps an acceptance from being a switch somebody flips once.
+/// <param name="UnresolvedSessionIds">The sessions nothing could vouch for. Informational.</param>
+/// <param name="Challenge">
+/// Present only when unclean: the opaque, expiring token an administrator must return to authorise a
+/// specific deletion.
+/// <para>
+/// <b>It replaced the unresolved-session list as the confirmation, which was fail-open.</b> An agent
+/// that cannot be read enumerates nothing, so that list is empty exactly when there is most to accept
+/// — and an empty acknowledgement matched it. This is bound to reachability and blocking reasons too,
+/// so the inability to enumerate is part of what is signed.
+/// </para>
 /// </param>
 public sealed record LineageReconciliation(
     Settings.LineageState State,
     bool Clean,
     IReadOnlyList<string> BlockingReasons,
-    IReadOnlyList<string> UnresolvedSessionIds);
+    IReadOnlyList<string> UnresolvedSessionIds,
+    string? Challenge);
 
-/// <summary>An administrator's deliberate acceptance of an unclean lineage.</summary>
-/// <param name="AcknowledgedSessionIds">
-/// Every unresolved session id from the current report, exactly. A mismatch is refused rather than
-/// tolerated: the point is that the person accepting has read what they are accepting.
+/// <summary>An administrator's authorisation to delete specific conversations.</summary>
+/// <param name="Challenge">The token the reconciliation issued. Proof that a report was read.</param>
+/// <param name="ConversationIds">
+/// Exactly the conversations this authorises. A blanket acceptance is refused: the point is that the
+/// person accepting knows what is being deleted, not merely that something is.
 /// </param>
-public sealed record AcceptLineageRiskRequest(IReadOnlyList<string>? AcknowledgedSessionIds);
+public sealed record AcceptLineageRiskRequest(string? Challenge, IReadOnlyList<int>? ConversationIds);
+
+/// <summary>What was authorised, echoed back so the panel can say so.</summary>
+public sealed record LineageAcceptanceResult(
+    IReadOnlyList<int> AuthorisedConversationIds,
+    IReadOnlyList<string> AcceptedBlockingReasons);

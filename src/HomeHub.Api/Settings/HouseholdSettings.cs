@@ -210,22 +210,12 @@ public class HouseholdSettings
     /// <summary>When the lineage was last reconciled, whatever the verdict was.</summary>
     public DateTime? LineageAuditedAtUtc { get; set; }
 
-    /// <summary>When an administrator accepted an unclean lineage, and who they were.</summary>
-    /// <remarks>
-    /// Kept so the acceptance is auditable rather than merely effective. A household that later finds
-    /// an orphaned transcript should be able to see that somebody chose this, when, and against what.
-    /// </remarks>
-    public DateTime? LineageRiskAcceptedAtUtc { get; set; }
-
-    /// <inheritdoc cref="LineageRiskAcceptedAtUtc"/>
-    public int? LineageRiskAcceptedByProfileId { get; set; }
-
-    /// <summary>The unresolved sessions that were shown and confirmed at the moment of acceptance.</summary>
-    /// <remarks>
-    /// Recorded verbatim, because "an administrator accepted the risk" is not a record of anything
-    /// without what the risk was. It is also what the confirmation is checked against: an acceptance
-    /// names the exact sessions it is accepting, so it cannot be replayed against a lineage that has
-    /// since acquired new damage.
-    /// </remarks>
-    public string? LineageRiskAcceptedSessions { get; set; }
+    /*
+     * There were three `LineageRiskAccepted*` columns here and they are gone.
+     *
+     * They made an acceptance into durable, household-wide deletion authority: manual deletion read
+     * one enum and nothing else, so an acceptance issued once against one report authorised every
+     * later deletion, including of conversations and damage that did not exist when it was granted.
+     * An acceptance is now a scoped, expiring, single-use row — see `LineageRiskAcceptance`.
+     */
 }

@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace HomeHub.Api.Migrations
 {
     [DbContext(typeof(HomeHubDbContext))]
-    [Migration("20260903080457_AddLineageReconciliation")]
+    [Migration("20260903120856_AddLineageReconciliation")]
     partial class AddLineageReconciliation
     {
         /// <inheritdoc />
@@ -399,6 +399,55 @@ namespace HomeHub.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("HermesSessionReferences");
+                });
+
+            modelBuilder.Entity("HomeHub.Api.Assist.LineageRiskAcceptance", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("AcceptedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("AcceptedByProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("BlockingReasons")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime?>("ConsumedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ConversationIds")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Nonce")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ReportDigest")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Nonce")
+                        .IsUnique();
+
+                    b.HasIndex("ConsumedAtUtc", "ExpiresAtUtc");
+
+                    b.ToTable("LineageRiskAcceptances");
                 });
 
             modelBuilder.Entity("HomeHub.Api.Assist.ProfileAgent", b =>
@@ -3471,15 +3520,6 @@ namespace HomeHub.Api.Migrations
 
                     b.Property<DateTime?>("LineageAuditedAtUtc")
                         .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("LineageRiskAcceptedAtUtc")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("LineageRiskAcceptedByProfileId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("LineageRiskAcceptedSessions")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("LineageState")
                         .HasColumnType("int");

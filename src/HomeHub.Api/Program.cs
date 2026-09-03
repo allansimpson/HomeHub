@@ -930,6 +930,7 @@ builder.Services.AddSingleton<HomeHub.Api.Assist.TurnRegistry>();
 // on every agent, which is not something to do on a timer behind a wall panel.
 if (!string.IsNullOrWhiteSpace(connectionString))
     builder.Services.AddScoped<HomeHub.Api.Assist.LineageAudit>();
+    builder.Services.AddScoped<HomeHub.Api.Assist.LineageChallenges>();
 
 // In-app action layer (add a task, …). Resolves the task provider/DB from the request scope, so it
 // degrades gracefully when no database is configured. Runs *before* any agent and works with every

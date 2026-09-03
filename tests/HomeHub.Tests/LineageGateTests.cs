@@ -179,68 +179,175 @@ public class LineageGateTests
 
     // ---- The deliberate override ----
 
-    [Fact]
-    public async Task Accepting_the_risk_requires_confirming_the_exact_unresolved_sessions()
+    private static async Task<string> ChallengeFor(HttpClient client)
     {
-        using var app = Unaudited();
-        var client = app.CreateSeededClient();
-
-        var wrong = await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
-            new AcceptLineageRiskRequest(["a-session-nobody-mentioned"]));
-
-        Assert.Equal(HttpStatusCode.Conflict, wrong.StatusCode);
-
-        using var scope = app.Services.CreateScope();
-        Assert.Equal(
-            LineageState.NotAudited,
-            scope.ServiceProvider.GetRequiredService<HomeHubDbContext>().Settings.First().LineageState);
+        var reconciled = await client.PostAsync("/api/assist/lineage/reconcile", null);
+        reconciled.EnsureSuccessStatusCode();
+        var outcome = await ReadReconciliation(reconciled);
+        Assert.False(outcome.Clean);
+        Assert.NotNull(outcome.Challenge);
+        return outcome.Challenge!;
     }
 
+    /*
+     * <b>The finding this replaces.</b> The confirmation used to be the list of unresolved session
+     * ids, and an agent that cannot be read enumerates nothing — so that list is empty exactly when
+     * there is most to accept, an empty acknowledgement matched it, and an acceptance could be issued
+     * having read nothing at all. Matching an enumeration cannot represent a failure *of* enumeration.
+     */
     [Fact]
-    public async Task Accepting_the_risk_releases_manual_deletion_and_records_who_did_it()
+    public async Task An_acceptance_cannot_be_issued_without_a_challenge()
     {
         using var app = Unaudited();
         var client = app.CreateSeededClient();
         var id = await AnOldConversation(app, client);
 
-        var reconciled = await client.PostAsync("/api/assist/lineage/reconcile", null);
-        var unresolved = (await ReadReconciliation(reconciled)).UnresolvedSessionIds;
+        // No GET, no reconcile — exactly the probe that passed before.
+        var response = await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest(null, [id]));
 
-        var accepted = await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
-            new AcceptLineageRiskRequest(unresolved));
-        accepted.EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
-        var deleted = await client.PostAsJsonAsync("/api/assist/conversations/delete", new { ids = new[] { id } });
-        Assert.Equal(HttpStatusCode.OK, deleted.StatusCode);
+        var refused = await client.PostAsJsonAsync("/api/assist/conversations/delete", new { ids = new[] { id } });
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+    }
 
-        using var scope = app.Services.CreateScope();
-        var settings = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>().Settings.First();
-        Assert.Equal(LineageState.RiskAccepted, settings.LineageState);
-        // Auditable: an acceptance nobody can attribute is not a record of a decision.
-        Assert.Equal(1, settings.LineageRiskAcceptedByProfileId);
-        Assert.NotNull(settings.LineageRiskAcceptedAtUtc);
+    [Fact]
+    public async Task A_forged_challenge_is_refused()
+    {
+        using var app = Unaudited();
+        var client = app.CreateSeededClient();
+        var id = await AnOldConversation(app, client);
+
+        var response = await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest("not-a-challenge-this-panel-issued", [id]));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    /* A blanket acceptance is not one: the point is knowing what is being deleted. */
+    [Fact]
+    public async Task An_acceptance_must_name_the_conversations()
+    {
+        using var app = Unaudited();
+        var client = app.CreateSeededClient();
+        await AnOldConversation(app, client);
+        var challenge = await ChallengeFor(client);
+
+        var response = await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest(challenge, []));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task An_acceptance_authorises_the_conversations_it_names_and_no_others()
+    {
+        using var app = Unaudited();
+        var client = app.CreateSeededClient();
+        var authorised = await AnOldConversation(app, client);
+        var other = await AnOldConversation(app, client);
+        var challenge = await ChallengeFor(client);
+
+        (await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest(challenge, [authorised]))).EnsureSuccessStatusCode();
+
+        // The one it did not name is refused, even though an acceptance exists.
+        var refused = await client.PostAsJsonAsync("/api/assist/conversations/delete", new { ids = new[] { other } });
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+
+        var allowed = await client.PostAsJsonAsync("/api/assist/conversations/delete", new { ids = new[] { authorised } });
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+    }
+
+    /* Spent by the act it permitted. An acceptance that survived it would be durable authority again. */
+    [Fact]
+    public async Task An_acceptance_authorises_one_deletion_only()
+    {
+        using var app = Unaudited();
+        var client = app.CreateSeededClient();
+        var first = await AnOldConversation(app, client);
+        var challenge = await ChallengeFor(client);
+
+        (await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest(challenge, [first]))).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync("/api/assist/conversations/delete",
+            new { ids = new[] { first } })).EnsureSuccessStatusCode();
+
+        // A second conversation, and nothing left to authorise it.
+        var second = await AnOldConversation(app, client);
+        var refused = await client.PostAsJsonAsync("/api/assist/conversations/delete", new { ids = new[] { second } });
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_challenge_cannot_be_used_twice()
+    {
+        using var app = Unaudited();
+        var client = app.CreateSeededClient();
+        var one = await AnOldConversation(app, client);
+        var two = await AnOldConversation(app, client);
+        var challenge = await ChallengeFor(client);
+
+        (await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest(challenge, [one]))).EnsureSuccessStatusCode();
+
+        var replayed = await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest(challenge, [two]));
+
+        Assert.Equal(HttpStatusCode.Conflict, replayed.StatusCode);
     }
 
     /*
-     * The distinction the fourth state exists for. Somebody accepting a named risk for a conversation
-     * they are deleting is a decision; a timer acting on that acceptance for every conversation in the
-     * household for ever is a different one, and nobody made it.
+     * The report changing between authorisation and deletion is the case a stored verdict cannot
+     * catch: what was accepted described a lineage, and what matters is whether that is still what
+     * deleting would do.
      */
     [Fact]
-    public async Task Accepting_the_risk_does_not_start_background_retention()
+    public async Task An_acceptance_lapses_when_the_lineage_changes_underneath_it()
+    {
+        using var app = Unaudited();
+        var client = app.CreateSeededClient();
+        var id = await AnOldConversation(app, client);
+        var challenge = await ChallengeFor(client);
+
+        (await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
+            new AcceptLineageRiskRequest(challenge, [id]))).EnsureSuccessStatusCode();
+
+        // A new anchor appears — a conversation re-sessioned after the administrator read the report.
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            db.Conversations.First(c => c.Id == id).HermesSessionId = "moved-since-you-looked";
+            db.SaveChanges();
+        }
+
+        var refused = await client.PostAsJsonAsync("/api/assist/conversations/delete", new { ids = new[] { id } });
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+    }
+
+    /*
+     * The household's state never leaves Blocked, which is what keeps an acceptance from reaching the
+     * background pass at all: retention reads the enum and an acceptance is not one.
+     */
+    [Fact]
+    public async Task An_acceptance_never_starts_background_retention()
     {
         using var app = Unaudited();
         var client = app.CreateSeededClient();
         var id = await AnOldConversation(app, client);
         await SetRetention(client, 1);
+        var challenge = await ChallengeFor(client);
 
-        var reconciled = await client.PostAsync("/api/assist/lineage/reconcile", null);
-        var unresolved = (await ReadReconciliation(reconciled)).UnresolvedSessionIds;
         (await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
-            new AcceptLineageRiskRequest(unresolved))).EnsureSuccessStatusCode();
+            new AcceptLineageRiskRequest(challenge, [id]))).EnsureSuccessStatusCode();
 
         using var scope = app.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+        Assert.Equal(LineageState.Blocked, db.Settings.First().LineageState);
+
         var swept = await scope.ServiceProvider.GetRequiredService<AssistRetention>()
             .SweepHouseholdAsync(db.Settings.First(), CancellationToken.None);
 
@@ -255,29 +362,9 @@ public class LineageGateTests
         var member = app.CreateSeededClient(2);
 
         var response = await member.PostAsJsonAsync("/api/assist/lineage/accept-risk",
-            new AcceptLineageRiskRequest([]));
+            new AcceptLineageRiskRequest("anything", [1]));
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
-    }
-
-    /* A routine re-run must not quietly undo a deliberate override. */
-    [Fact]
-    public async Task Reconciling_again_does_not_revoke_an_acceptance()
-    {
-        using var app = Unaudited();
-        var client = app.CreateSeededClient();
-
-        var first = await client.PostAsync("/api/assist/lineage/reconcile", null);
-        var unresolved = (await ReadReconciliation(first)).UnresolvedSessionIds;
-        (await client.PostAsJsonAsync("/api/assist/lineage/accept-risk",
-            new AcceptLineageRiskRequest(unresolved))).EnsureSuccessStatusCode();
-
-        (await client.PostAsync("/api/assist/lineage/reconcile", null)).EnsureSuccessStatusCode();
-
-        using var scope = app.Services.CreateScope();
-        Assert.Equal(
-            LineageState.RiskAccepted,
-            scope.ServiceProvider.GetRequiredService<HomeHubDbContext>().Settings.First().LineageState);
     }
 
     // ---- And an ordinary household is not asked about any of this ----

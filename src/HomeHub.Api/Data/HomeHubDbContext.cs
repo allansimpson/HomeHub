@@ -183,6 +183,9 @@ public class HomeHubDbContext : DbContext
     /// <summary>Promises to remove Hermes transcripts, outliving the conversations they belonged to.</summary>
     public DbSet<HermesSessionDeletion> HermesSessionDeletions => Set<HermesSessionDeletion>();
 
+    /// <summary>One administrator's scoped, single-use authorisation to delete against unclean lineage.</summary>
+    public DbSet<LineageRiskAcceptance> LineageRiskAcceptances => Set<LineageRiskAcceptance>();
+
     /// <summary>
     /// Care logging HomeHub owns outright — ten types, a real time, and rows that can be corrected.
     /// </summary>
@@ -957,6 +960,21 @@ public class HomeHubDbContext : DbContext
 
             // The worker's only query: what is due, oldest first.
             entity.HasIndex(d => new { d.CompletedAtUtc, d.NextAttemptUtc });
+        });
+
+        modelBuilder.Entity<LineageRiskAcceptance>(entity =>
+        {
+            entity.Property(a => a.Nonce).HasMaxLength(64).IsRequired();
+            entity.Property(a => a.ReportDigest).HasMaxLength(64).IsRequired();
+            entity.Property(a => a.ConversationIds).HasMaxLength(2000).IsRequired();
+            entity.Property(a => a.BlockingReasons).HasMaxLength(2000);
+
+            // Unique, which is what makes single use a property of the schema rather than of a check
+            // somebody remembered to write: a replayed challenge cannot insert its nonce twice.
+            entity.HasIndex(a => a.Nonce).IsUnique();
+
+            // The deletion path's only query: unspent, unexpired, for exactly these conversations.
+            entity.HasIndex(a => new { a.ConsumedAtUtc, a.ExpiresAtUtc });
         });
 
         modelBuilder.Entity<ProfileAgent>(entity =>

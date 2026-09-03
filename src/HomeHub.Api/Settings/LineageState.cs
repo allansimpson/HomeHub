@@ -26,14 +26,13 @@ public enum LineageState
     /// <summary>Reconciled and clean. Retention and deletion proceed normally.</summary>
     Clean = 2,
 
-    /// <summary>
-    /// An administrator has deliberately accepted an unclean lineage.
-    /// </summary>
-    /// <remarks>
-    /// <b>Manual deletion only.</b> Background retention stays paused: somebody accepting a named
-    /// risk for a conversation they are deleting is a decision, and a timer quietly acting on that
-    /// acceptance for every conversation in the household for ever is not the same decision. The
-    /// distinction is the whole reason this is a separate state rather than an alias for Clean.
-    /// </remarks>
-    RiskAccepted = 3,
+    /*
+     * `RiskAccepted` was a fourth state here and it was the wrong shape.
+     *
+     * A state is durable and household-wide, which is exactly what an acceptance must not be: it
+     * authorised every later deletion from one reading of one report. Acceptance is a scoped,
+     * expiring, single-use row instead — `LineageRiskAcceptance` — so the household's *state* stays
+     * `Blocked` and each destructive act is separately authorised against the evidence current at the
+     * time. Retention reads this enum and therefore can never be released by an acceptance at all.
+     */
 }

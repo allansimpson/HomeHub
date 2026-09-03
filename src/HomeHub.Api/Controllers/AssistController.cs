@@ -40,6 +40,8 @@ public class AssistController : ControllerBase
     private readonly TurnRegistry _turnRegistry;
     private readonly ConversationTitler _titler;
     private readonly AssistRetention _retention;
+    private readonly LineageChallenges _challenges;
+    private readonly LineageAudit _audit;
     private readonly ILogger<AssistController> _logger;
 
     public AssistController(
@@ -53,6 +55,8 @@ public class AssistController : ControllerBase
         TurnRegistry turnRegistry,
         ConversationTitler titler,
         AssistRetention retention,
+        LineageChallenges challenges,
+        LineageAudit audit,
         ILogger<AssistController> logger)
     {
         _db = db;
@@ -65,6 +69,8 @@ public class AssistController : ControllerBase
         _turnRegistry = turnRegistry;
         _titler = titler;
         _retention = retention;
+        _challenges = challenges;
+        _audit = audit;
         _logger = logger;
     }
 
@@ -137,102 +143,184 @@ public class AssistController : ControllerBase
     /// <see cref="ReconcileLineage"/>, which is a POST and says what it did.
     /// </remarks>
     [HttpGet("lineage/report")]
-    public Task<LineageReport> LineageReport([FromServices] LineageAudit audit, CancellationToken ct) =>
-        audit.RunAsync(ct);
+    public Task<LineageReport> LineageReport(CancellationToken ct) => _audit.RunAsync(ct);
 
     /// <summary>
     /// Run the audit and record what it found, which is what releases deletion when it is clean.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A POST because it decides something. The verdict is the audit's, not the caller's: a clean
-    /// reconciliation moves the household to <see cref="LineageState.Clean"/> and an unclean one to
+    /// A POST because it decides something. The verdict is the audit's, not the caller's: clean moves
+    /// the household to <see cref="LineageState.Clean"/> and unclean to
     /// <see cref="LineageState.Blocked"/>, which keeps deletion refused. Running it again after
     /// repairing the agent is how a blocked household gets out; running it repeatedly does not wear it
     /// down.
     /// </para>
     /// <para>
-    /// Deliberately not weakened to "it ran". If HomeHub cannot prove that all historical lineage is
-    /// known, the local rows are the recovery anchors for the transcripts it cannot see, and they are
-    /// retained.
+    /// An unclean result also issues a <b>challenge</b> — the opaque, expiring token an administrator
+    /// must return to authorise a specific deletion. It is bound to a digest of the whole report, so
+    /// it can only have come from reading one, and only from reading <i>this</i> one.
     /// </para>
     /// </remarks>
     [HttpPost("lineage/reconcile")]
-    public async Task<LineageReconciliation> ReconcileLineage(
-        [FromServices] LineageAudit audit, CancellationToken ct)
+    public async Task<LineageReconciliation> ReconcileLineage(CancellationToken ct)
     {
-        var report = await audit.RunAsync(ct);
+        var report = await _audit.RunAsync(ct);
         var settings = await TrackedSettingsAsync(ct);
 
-        // Never downgrades an acceptance: an administrator's deliberate override is not undone by a
-        // routine re-run, which would silently re-block a household that had chosen otherwise.
-        if (settings.LineageState != LineageState.RiskAccepted)
-            settings.LineageState = report.Clean ? LineageState.Clean : LineageState.Blocked;
-
+        settings.LineageState = report.Clean ? LineageState.Clean : LineageState.Blocked;
         settings.LineageAuditedAtUtc = DateTime.UtcNow;
         await _db.SaveChangesAsync(ct);
 
-        return new LineageReconciliation(
-            settings.LineageState, report.Clean, report.BlockingReasons, UnresolvedSessions(report));
+        return await ReconciliationOf(report, settings.LineageState, ct);
     }
 
     /// <summary>
-    /// Accept an unclean lineage deliberately, so that manual deletion may proceed. <b>Administrators only.</b>
+    /// Authorise the deletion of named conversations against an unclean lineage. <b>Administrators only.</b>
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The way out of <see cref="LineageState.Blocked"/> when the damage cannot be repaired, and it is
-    /// built to be hard to do by accident. The caller must send back the exact set of unresolved
-    /// session ids the report names — so an acceptance cannot be replayed against a lineage that has
-    /// since acquired new damage, and cannot be issued by something that never read what it was
-    /// accepting. Who accepted, when, and against what are all recorded.
+    /// The way past <see cref="LineageState.Blocked"/> when the damage cannot be repaired, and it is
+    /// built to be hard to do by accident or at a distance.
     /// </para>
     /// <para>
-    /// <b>It releases manual deletion and not retention.</b> Accepting a named risk for a conversation
-    /// somebody is deleting is a decision; a background timer acting on that acceptance for every
-    /// conversation in the household for ever is not the same decision, and nobody made it.
+    /// <b>The confirmation is the challenge, not the session list.</b> It was the session list, and
+    /// that was fail-open in exactly the case that matters most: an agent that cannot be read
+    /// enumerates no sessions, so the unresolved set is empty, so an empty acknowledgement matched it
+    /// — and an acceptance could be issued having read nothing at all. Matching an enumeration cannot
+    /// represent a failure *of* enumeration. The challenge is bound to reachability and blocking
+    /// reasons as well, so the inability to enumerate is part of what is signed.
+    /// </para>
+    /// <para>
+    /// <b>And it authorises a deletion rather than a household.</b> It names the conversations, it is
+    /// used once, it expires, and it is refused if the report has changed since it was issued. It
+    /// never releases background retention: that reads the household's state, which stays
+    /// <see cref="LineageState.Blocked"/> throughout.
     /// </para>
     /// </remarks>
     [HttpPost("lineage/accept-risk")]
     [Authorize(Policy = Household.AdminPolicy)]
-    public async Task<ActionResult<LineageReconciliation>> AcceptLineageRisk(
-        [FromServices] LineageAudit audit, AcceptLineageRiskRequest req, CancellationToken ct)
+    public async Task<ActionResult<LineageAcceptanceResult>> AcceptLineageRisk(
+        AcceptLineageRiskRequest req, CancellationToken ct)
     {
-        var report = await audit.RunAsync(ct);
+        var conversationIds = (req.ConversationIds ?? []).Distinct().OrderBy(x => x).ToList();
+        if (conversationIds.Count == 0)
+            return BadRequest("Name the conversations this authorises. A blanket acceptance is not one.");
+
+        if (string.IsNullOrWhiteSpace(req.Challenge))
+            return BadRequest("Reconcile the lineage first and return the challenge it issues.");
+
+        var report = await _audit.RunAsync(ct);
         if (report.Clean)
         {
             return BadRequest(
-                "This household's lineage is already reconciled clean; there is nothing to accept. "
-                + "Reconcile instead.");
+                "This household's lineage is reconciled clean; there is nothing to accept. Reconcile "
+                + "instead and delete normally.");
         }
 
-        var unresolved = UnresolvedSessions(report);
-        var confirmed = (req.AcknowledgedSessionIds ?? []).Distinct(StringComparer.Ordinal).ToList();
-        if (!unresolved.OrderBy(x => x, StringComparer.Ordinal)
-                .SequenceEqual(confirmed.OrderBy(x => x, StringComparer.Ordinal), StringComparer.Ordinal))
+        var digest = await FingerprintAsync(report, ct);
+        if (_challenges.Open(req.Challenge) is not { } challenge)
+            return Conflict("That challenge is not readable. Reconcile the lineage and use the challenge it returns.");
+        if (challenge.ExpiresAtUtc <= DateTime.UtcNow)
+            return Conflict("That challenge has expired. Reconcile the lineage again.");
+        if (!string.Equals(challenge.Digest, digest, StringComparison.Ordinal))
         {
-            // Not a formality. It is what makes this an acceptance of *these* transcripts rather than
-            // a switch somebody can flip once and forget.
-            return Conflict(new LineageReconciliation(
-                LineageState.Blocked, false,
-                ["The sessions confirmed do not match the ones currently unresolved. Read the report again."],
-                unresolved));
+            return Conflict(
+                "The lineage has changed since that challenge was issued, so it no longer describes "
+                + "what would be accepted. Reconcile again and read the new report.");
         }
 
-        var settings = await TrackedSettingsAsync(ct);
-        settings.LineageState = LineageState.RiskAccepted;
-        settings.LineageAuditedAtUtc = DateTime.UtcNow;
-        settings.LineageRiskAcceptedAtUtc = DateTime.UtcNow;
-        settings.LineageRiskAcceptedByProfileId = this.CallerId();
-        settings.LineageRiskAcceptedSessions = string.Join(',', unresolved);
+        // Replay is refused by the nonce being unique, not by hoping it is not reused.
+        if (await _db.LineageRiskAcceptances.AnyAsync(a => a.Nonce == challenge.Nonce, ct))
+            return Conflict("That challenge has already been used. Reconcile the lineage again.");
+
+        _db.LineageRiskAcceptances.Add(new LineageRiskAcceptance
+        {
+            Nonce = challenge.Nonce,
+            ReportDigest = digest,
+            ConversationIds = string.Join(',', conversationIds),
+            BlockingReasons = string.Join(" | ", report.BlockingReasons),
+            AcceptedByProfileId = this.CallerId(),
+            AcceptedAtUtc = DateTime.UtcNow,
+            ExpiresAtUtc = DateTime.UtcNow.Add(LineageChallenges.AcceptanceLifetime),
+        });
         await _db.SaveChangesAsync(ct);
 
         _logger.LogWarning(
-            "Profile {ProfileId} accepted an unclean Hermes lineage: {Count} unresolved session(s) may "
-            + "be orphaned by manual deletion. Background retention remains paused.",
-            this.CallerId(), unresolved.Count);
+            "Profile {ProfileId} authorised deleting {Count} conversation(s) against an unclean Hermes "
+            + "lineage. Background retention remains paused.",
+            this.CallerId(), conversationIds.Count);
 
-        return new LineageReconciliation(settings.LineageState, false, report.BlockingReasons, unresolved);
+        return new LineageAcceptanceResult(conversationIds, report.BlockingReasons);
+    }
+
+    /// <summary>
+    /// The unspent acceptance that authorises deleting exactly these conversations, or why there is none.
+    /// </summary>
+    /// <remarks>
+    /// The audit runs here, and that is deliberate: "the report has not changed" cannot be established
+    /// from a stored digest alone. It is the exceptional path — an unclean household deleting by hand —
+    /// so the cost falls where the risk is rather than on every ordinary deletion.
+    /// </remarks>
+    private async Task<(LineageRiskAcceptance? Acceptance, string? Refusal)> AuthorisedByAcceptanceAsync(
+        IReadOnlyList<int> ids, CancellationToken ct)
+    {
+        var wanted = string.Join(',', ids.Distinct().OrderBy(x => x));
+        var now = DateTime.UtcNow;
+
+        var candidates = await _db.LineageRiskAcceptances
+            .Where(a => a.ConsumedAtUtc == null && a.ExpiresAtUtc > now && a.ConversationIds == wanted)
+            .ToListAsync(ct);
+
+        if (candidates.Count == 0)
+        {
+            return (null, "This panel's assistant lineage is not reconciled clean, so deleting could "
+                + "leave transcripts on the assistant that nothing could find afterwards. Reconcile the "
+                + "lineage; if it cannot be repaired, an administrator can authorise these exact "
+                + "conversations after reading the report.");
+        }
+
+        // The digest is recomputed rather than trusted: an acceptance describes the lineage as it was,
+        // and what matters is whether that is still what deleting would do.
+        var report = await _audit.RunAsync(ct);
+        var digest = await FingerprintAsync(report, ct);
+        var usable = candidates.FirstOrDefault(a => string.Equals(a.ReportDigest, digest, StringComparison.Ordinal));
+
+        return usable is null
+            ? (null, "The assistant's lineage has changed since that deletion was authorised, so the "
+                + "authorisation no longer describes what would happen. Reconcile again and read the "
+                + "new report.")
+            : (usable, null);
+    }
+
+    /// <summary>Everything a reconciliation reports, including a challenge when it is not clean.</summary>
+    private async Task<LineageReconciliation> ReconciliationOf(
+        LineageReport report, LineageState state, CancellationToken ct) =>
+        new(state,
+            report.Clean,
+            report.BlockingReasons,
+            UnresolvedSessions(report),
+            report.Clean ? null : _challenges.Issue(await FingerprintAsync(report, ct)));
+
+    /// <summary>
+    /// The report's fingerprint, including the local anchors it would have been reconciled against.
+    /// </summary>
+    /// <remarks>
+    /// The anchors are in the digest because a conversation created or re-sessioned after the
+    /// administrator read the report is damage they did not accept.
+    /// </remarks>
+    private async Task<string> FingerprintAsync(LineageReport report, CancellationToken ct)
+    {
+        var anchors = await _db.Conversations
+            .AsNoTracking()
+            .Select(c => c.Id + ":" + (c.HermesSessionId ?? ""))
+            .ToListAsync(ct);
+        var references = await _db.HermesSessionReferences
+            .AsNoTracking()
+            .Select(r => r.ConversationId + ">" + r.SessionId)
+            .ToListAsync(ct);
+
+        return LineageFingerprint.Of(report, anchors.Concat(references));
     }
 
     /// <summary>Every session the report could not vouch for, deduplicated across agents.</summary>
@@ -1073,17 +1161,21 @@ public class AssistController : ControllerBase
          * permanently while this endpoint reports success. Refusing is the fail-closed answer and it is
          * not a dead end: the report is one request away and releases this for good.
          */
+        /*
+         * Clean, or a single acceptance that names exactly these conversations.
+         *
+         * The previous version read one enum: the household sat in a `RiskAccepted` state and every
+         * later deletion was authorised by an acceptance granted once, against a report that may have
+         * described a different set of conversations and a different set of damage. An acceptance
+         * authorises a deletion now, and is spent by it.
+         */
         var household = await GetSettings(ct);
-        if (household.LineageState is not (LineageState.Clean or LineageState.RiskAccepted))
+        LineageRiskAcceptance? acceptance = null;
+        if (household.LineageState != LineageState.Clean)
         {
-            return Conflict(household.LineageState == LineageState.Blocked
-                ? "This panel's assistant lineage was reconciled and came back incomplete, so deleting "
-                  + "now would leave transcripts on the assistant that nothing could find afterwards. "
-                  + "Repair the agent and reconcile again, or have an administrator accept the risk "
-                  + "for the sessions the report names."
-                : "This panel's conversation history has not been reconciled against the assistant, so "
-                  + "deleting now could leave transcripts behind that nothing could find afterwards. "
-                  + "Reconcile the lineage first.");
+            var authorisation = await AuthorisedByAcceptanceAsync(ids, ct);
+            if (authorisation.Refusal is { } refusal) return Conflict(refusal);
+            acceptance = authorisation.Acceptance;
         }
 
         var callerId = this.CallerId();
@@ -1131,6 +1223,14 @@ public class AssistController : ControllerBase
         // cascade, which is the entire point of them.
         _db.Conversations.RemoveRange(rows);
         await _db.SaveChangesAsync(ct);
+
+        if (acceptance is not null)
+        {
+            // Spent, in the same save as the deletion it authorised. An acceptance that survived the
+            // act it permitted would be the durable authority this replaced.
+            acceptance.ConsumedAtUtc = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+        }
 
         // Try immediately so the ordinary case — agent up, one or two sessions — is finished by the
         // time the response lands. Whatever does not succeed is already queued and will be retried.
