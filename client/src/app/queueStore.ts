@@ -277,31 +277,61 @@ export function sweepLegacyPlaintext(storage: QueueStorage = localStorage): bool
   return ops.swept && notices
 }
 
-/** The operation half. Returns whether it can vouch for the result, and what to announce. */
-function sweepLegacyOperations(storage: QueueStorage): { swept: boolean; notices: DroppedOp[] } {
-  /*
-   * <b>Read raw, because "nothing there" and "could not look" are different answers.</b>
-   *
-   * `readJson` returns `[]` for both — a store that throws on `getItem`, a value that is not JSON, a
-   * value that is JSON but not an array — and this used to take that empty list as proof there was
-   * nothing to sweep and report success. Every one of those is a state in which a care record may be
-   * sitting in the store unexamined, which is the opposite of what was being claimed.
-   */
+/**
+ * What a legacy store turned out to hold, with the answers that are not "some rows" kept apart.
+ *
+ * <b>These four cases were the finding, twice.</b> `readJson` collapses them all into `[]` — a store
+ * that throws on `getItem`, a value that is not JSON, a value that is JSON but not an array, and a key
+ * that genuinely is not there — and only the last means there is nothing to sweep. The other three are
+ * states in which a care record may be sitting unexamined, and reporting success about them is the
+ * function claiming something it never checked.
+ *
+ * It was fixed for the operation store and left in the notice sweep beside it, in the same function,
+ * in the same commit. So the read is one function now rather than a rule to apply twice: a caller
+ * cannot get the collapsed answer, because there is nowhere to get it from.
+ */
+type LegacyRead<T> =
+  | { kind: 'absent' }
+  /** The store would not be read. Nothing can be proved about what is in it. */
+  | { kind: 'unreadable' }
+  /** Present and unclassifiable: half-written JSON, or a shape from something else entirely. */
+  | { kind: 'malformed' }
+  | { kind: 'entries'; entries: T[] }
+
+function readLegacy<T>(storage: QueueStorage, key: string): LegacyRead<T> {
   let raw: string | null
   try {
-    raw = storage.getItem(LEGACY_KEY)
+    raw = storage.getItem(key)
   } catch {
-    // The store refused to be read. Nothing can be proved about what is in it, so nothing is claimed.
-    return { swept: false, notices: [] }
+    return { kind: 'unreadable' }
   }
-  if (raw == null) return { swept: true, notices: [] }
+  if (raw == null) return { kind: 'absent' }
 
-  let parsed: unknown
   try {
-    parsed = JSON.parse(raw)
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? { kind: 'entries', entries: parsed as T[] } : { kind: 'malformed' }
   } catch {
-    parsed = undefined
+    return { kind: 'malformed' }
   }
+}
+
+/** Whether this key still holds anything the sweep refuses to leave behind. */
+function stillHolds<T>(storage: QueueStorage, key: string, sensitive: (entry: T) => boolean): boolean {
+  const read = readLegacy<T>(storage, key)
+  switch (read.kind) {
+    // Unreadable is indistinguishable from unswept, and only one of them is safe to assume.
+    case 'unreadable': return true
+    case 'malformed': return true
+    case 'absent': return false
+    case 'entries': return read.entries.some(sensitive)
+  }
+}
+
+/** The operation half. Returns whether it can vouch for the result, and what to announce. */
+function sweepLegacyOperations(storage: QueueStorage): { swept: boolean; notices: DroppedOp[] } {
+  const read = readLegacy<QueuedOp>(storage, LEGACY_KEY)
+  if (read.kind === 'unreadable') return { swept: false, notices: [] }
+  if (read.kind === 'absent') return { swept: true, notices: [] }
 
   /*
    * A shape this cannot classify is treated as if it held the worst thing it could hold.
@@ -311,9 +341,9 @@ function sweepLegacyOperations(storage: QueueStorage): { swept: boolean; notices
    * key goes. It is the same confidentiality-over-availability trade the refused-rewrite path makes,
    * reached for the same reason: what cannot be examined cannot be vouched for.
    */
-  if (!Array.isArray(parsed)) return { swept: purge(storage), notices: [] }
+  if (read.kind === 'malformed') return { swept: purge(storage, LEGACY_KEY), notices: [] }
 
-  const legacy = parsed as QueuedOp[]
+  const legacy = read.entries
   const isSensitive = (op: QueuedOp) =>
     // A malformed entry among well-formed ones is sensitive by the same reasoning as above.
     op == null || typeof op !== 'object' || op.ownerProfileId == null || isPrivateDomain(op.domain)
@@ -326,7 +356,9 @@ function sweepLegacyOperations(storage: QueueStorage): { swept: boolean; notices
    * Read back rather than trusted. `write` is best-effort because the legacy store is on its way out
    * either way — which is fine for the ordinary half and not fine for this one.
    */
-  if (stillSensitive(storage, isSensitive) && !purge(storage)) return { swept: false, notices: [] }
+  if (stillHolds(storage, LEGACY_KEY, isSensitive) && !purge(storage, LEGACY_KEY)) {
+    return { swept: false, notices: [] }
+  }
 
   return {
     swept: true,
@@ -349,15 +381,30 @@ function sweepLegacyOperations(storage: QueueStorage): { swept: boolean; notices
  * checkable: {@link REDACTED_LABEL} is the only label this module ever writes.
  */
 function sweepLegacyNotices(storage: QueueStorage, adding: DroppedOp[]): boolean {
-  const held = readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY)
-  const kept = held.filter((notice) => !isLegibleNotice(notice))
-  write(storage, LEGACY_DROPPED_KEY, [...kept, ...adding].slice(-MAX_DROPPED))
+  const read = readLegacy<DroppedOp>(storage, LEGACY_DROPPED_KEY)
+
+  // Cannot be read, so cannot be vouched for — and the notices this sweep is adding have nowhere
+  // safe to go either, since writing them would mean rewriting a key whose contents are unknown.
+  if (read.kind === 'unreadable') return false
+
+  /*
+   * Unclassifiable, so the whole key goes, exactly as the operation store's does. A notice carries a
+   * label written to be read by a person; half of one is half of that.
+   */
+  if (read.kind === 'malformed') {
+    if (!purge(storage, LEGACY_DROPPED_KEY)) return false
+    write(storage, LEGACY_DROPPED_KEY, adding)
+    return !stillHolds<DroppedOp>(storage, LEGACY_DROPPED_KEY, isLegibleNotice)
+  }
+
+  const held = read.kind === 'entries' ? read.entries : []
+  write(storage, LEGACY_DROPPED_KEY,
+    [...held.filter((notice) => !isLegibleNotice(notice)), ...adding].slice(-MAX_DROPPED))
 
   // Read back rather than trusted, as the operation store is. A notice that survived a refused write
   // is the same disclosure it was before the sweep claimed to have removed it.
-  if (readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY).some(isLegibleNotice)) {
-    remove(storage, LEGACY_DROPPED_KEY)
-    if (readJson<DroppedOp>(storage, LEGACY_DROPPED_KEY).some(isLegibleNotice)) return false
+  if (stillHolds<DroppedOp>(storage, LEGACY_DROPPED_KEY, isLegibleNotice)) {
+    if (!purge(storage, LEGACY_DROPPED_KEY)) return false
   }
   return true
 }
@@ -370,30 +417,13 @@ function isLegibleNotice(notice: DroppedOp): boolean {
 }
 
 /** Remove the whole key, and say whether it is actually gone. */
-function purge(storage: QueueStorage): boolean {
-  remove(storage, LEGACY_KEY)
+function purge(storage: QueueStorage, key: string): boolean {
+  remove(storage, key)
   try {
-    return storage.getItem(LEGACY_KEY) == null
+    return storage.getItem(key) == null
   } catch {
     // Cannot read it back, so cannot claim it is gone.
     return false
-  }
-}
-
-/** Whether anything the sweep refuses to leave behind survived the rewrite. */
-function stillSensitive(storage: QueueStorage, isSensitive: (op: QueuedOp) => boolean): boolean {
-  let raw: string | null
-  try {
-    raw = storage.getItem(LEGACY_KEY)
-  } catch {
-    return true // Unreadable is indistinguishable from unswept, and only one of them is safe to assume.
-  }
-  if (raw == null) return false
-  try {
-    const parsed = JSON.parse(raw)
-    return !Array.isArray(parsed) || (parsed as QueuedOp[]).some(isSensitive)
-  } catch {
-    return true
   }
 }
 

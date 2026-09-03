@@ -393,6 +393,68 @@ public class HermesDeletionTests
         Assert.Contains("s-B", gateway.DeletedSessionIds);
     }
 
+    /*
+     * A tombstone that has given up must still be a tombstone that tries again.
+     *
+     * The drain used to exclude rows once `Attempts >= MaxAttempts`, which made "never discarded" true
+     * and beside the point: a Hermes that was down for a day, or a gateway whose credential was
+     * rotated and then fixed, left the household's transcripts on the agent for ever with nothing that
+     * would ever retry. The threshold still means something — past it the backoff widens to a day and
+     * the warning is logged — but it no longer means stop.
+     */
+    [Fact]
+    public async Task A_tombstone_past_its_attempt_limit_is_still_retried()
+    {
+        using var app = new HubAppFactory { HermesBaseUrl = "http://127.0.0.1:1" };
+        var client = app.CreateSeededClient();
+
+        var res = await client.PostAsJsonAsync("/api/assist/chat",
+            new AssistChatRequest(null, "barnaby", "Boiler quotes", null, null, null));
+        var started = (await res.Content.ReadFromJsonAsync<AssistChatResponse>())!;
+
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            db.Conversations.First(c => c.Id == started.ConversationId).HermesSessionId = "s-unreachable";
+            db.SaveChanges();
+        }
+
+        (await client.PostAsJsonAsync("/api/assist/conversations/delete",
+            new DeleteConversationsRequest([started.ConversationId]))).EnsureSuccessStatusCode();
+
+        // A row that has spent its budget, and whose next attempt is due.
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            foreach (var row in db.HermesSessionDeletions.Where(d => d.CompletedAtUtc == null))
+            {
+                row.Attempts = SessionDeletionWorker.MaxAttempts + 3;
+                row.NextAttemptUtc = DateTime.UtcNow.AddMinutes(-1);
+            }
+            db.SaveChanges();
+        }
+
+        var before = AttemptsOf(app);
+        await app.Services.GetRequiredService<SessionDeletionWorker>().DrainAsync(CancellationToken.None);
+
+        // Tried again, and scheduled to be tried again after that.
+        Assert.True(AttemptsOf(app) > before, "A tombstone past its attempt limit was never retried.");
+        using (var scope = app.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+            Assert.All(
+                db.HermesSessionDeletions.Where(d => d.CompletedAtUtc == null).ToList(),
+                row => Assert.NotNull(row.NextAttemptUtc));
+        }
+    }
+
+    private static int AttemptsOf(HubAppFactory app)
+    {
+        using var scope = app.Services.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<HomeHubDbContext>()
+            .HermesSessionDeletions.Where(d => d.CompletedAtUtc == null).Sum(d => d.Attempts);
+    }
+
     [Fact]
     public async Task An_agent_that_is_down_leaves_a_retryable_tombstone()
     {

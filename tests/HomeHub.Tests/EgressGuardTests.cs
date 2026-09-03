@@ -698,6 +698,42 @@ public class EgressGuardTests
         Assert.Null(typeof(HomeAssistantOptions).GetProperty("AcknowledgeCleartextLan"));
     }
 
+    // ---- The recipe fetcher's own switch ----
+
+    /*
+     * `Meals:AllowPrivateAddresses` disables both of `RecipeFetcher`'s address defences at once. The
+     * fetcher follows a URL a household member types, so with it on an authenticated recipe import
+     * becomes a way to make the server request anything on its own loopback or LAN — a router's admin
+     * page, a database, Home Assistant, the Hermes gateway. "It must stay off in a real deployment"
+     * was a sentence in a comment that a deployment could bind straight past.
+     */
+    [Fact]
+    public void A_deployment_may_not_re_arm_the_recipe_fetchers_private_address_access()
+    {
+        var errors = new HomeHub.Api.Meals.MealsOptionsValidator(requiresDeploymentSafeguards: true)
+            .Validate(null, new HomeHub.Api.Meals.MealsOptions { AllowPrivateAddresses = true })
+            .Failures ?? [];
+
+        Assert.Contains(errors, e => e.Contains("Meals:AllowPrivateAddresses"));
+    }
+
+    [Fact]
+    public void The_ordinary_deployment_setting_passes()
+    {
+        Assert.True(new HomeHub.Api.Meals.MealsOptionsValidator(requiresDeploymentSafeguards: true)
+            .Validate(null, new HomeHub.Api.Meals.MealsOptions())
+            .Succeeded);
+    }
+
+    /* It exists so a test can point the fetcher at a stub on loopback, and a developer at the same. */
+    [Fact]
+    public void A_developer_may_still_use_it()
+    {
+        Assert.True(new HomeHub.Api.Meals.MealsOptionsValidator(requiresDeploymentSafeguards: false)
+            .Validate(null, new HomeHub.Api.Meals.MealsOptions { AllowPrivateAddresses = true })
+            .Succeeded);
+    }
+
     // ---- The sinks that were missed ----
 
     /*

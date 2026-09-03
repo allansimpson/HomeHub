@@ -121,6 +121,13 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
     /// <summary>Optional physical web root for static-file integration tests.</summary>
     public string? WebRootPath { get; init; }
 
+    /// <summary>
+    /// Whether this household's historical Hermes lineage counts as audited. True for almost every
+    /// test; false is how <c>LineageGateTests</c> models a panel upgraded from before lineage
+    /// recording, where deleting a conversation could orphan a transcript nothing could find again.
+    /// </summary>
+    public bool AuditedLineage { get; init; } = true;
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(EnvironmentName);
@@ -271,7 +278,24 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
     {
         var host = base.CreateHost(builder);
         using var scope = host.Services.CreateScope();
-        scope.ServiceProvider.GetRequiredService<HomeHubDbContext>().Database.EnsureCreated();
+        var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
+        db.Database.EnsureCreated();
+
+        /*
+         * An audited household, which is the ordinary state and the one almost every test means.
+         *
+         * Deleting a conversation is gated on `LineageAuditedAtUtc` — a database that predates lineage
+         * recording can hold chains whose intermediate Hermes sessions nobody enumerated, and deleting
+         * the local row destroys the only anchor by which they could be found. The app stamps a fresh
+         * database at startup, which runs behind `Migrate()`; these tests use `EnsureCreated`, so it is
+         * stamped here instead. `LineageGateTests` is where the null case is exercised deliberately.
+         */
+        if (AuditedLineage && db.Settings.FirstOrDefault() is { LineageAuditedAtUtc: null } settings)
+        {
+            settings.LineageAuditedAtUtc = DateTime.UtcNow;
+            db.SaveChanges();
+        }
+
         return host;
     }
 

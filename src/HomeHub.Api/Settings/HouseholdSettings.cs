@@ -183,4 +183,25 @@ public class HouseholdSettings
     /// </para>
     /// </remarks>
     public int ConversationRetentionDays { get; set; } = 30;
+
+    /// <summary>
+    /// When this database's historical Hermes lineage was audited and found complete. Null until it has been.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The gate on deleting a conversation whose intermediates nobody has enumerated.</b> The
+    /// lineage table works prospectively — each turn records the session Hermes answered in — and that
+    /// cannot rebuild a chain that already existed. A conversation that became <c>A → B → C</c> while
+    /// HomeHub stored only <c>A</c> resolves to <c>C</c>: deleting it tombstones A and C and leaves B
+    /// on the agent with its messages, permanently, while the panel reports the deletion as done.
+    /// <see cref="Assist.LineageAudit"/> is the read-only report that finds those; this is the record
+    /// that it has been run and come back clean.
+    /// </para>
+    /// <para>
+    /// <b>Null on an upgraded database and stamped on a fresh one.</b> A database with no
+    /// conversations has no history to be incomplete about, so startup stamps it rather than making a
+    /// new household run an audit over nothing. Everything else waits until somebody has looked.
+    /// </para>
+    /// </remarks>
+    public DateTime? LineageAuditedAtUtc { get; set; }
 }

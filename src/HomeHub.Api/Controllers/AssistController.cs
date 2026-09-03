@@ -129,9 +129,37 @@ public class AssistController : ControllerBase
     /// a worse privacy trade than the one it exists to fix.
     /// </para>
     /// </remarks>
+    /// <remarks>
+    /// <b>Running it is what releases deletion on an upgraded database.</b> The report is read-only and
+    /// stays so; what is written afterwards is a single timestamp on household settings saying somebody
+    /// has looked. Until then retention pauses and an explicit delete is refused, because deleting the
+    /// local row destroys the only anchor by which an unknown intermediate transcript could ever be
+    /// found — audit-then-delete is recoverable and delete-then-audit is not.
+    /// </remarks>
     [HttpGet("lineage/report")]
-    public Task<LineageReport> LineageReport([FromServices] LineageAudit audit, CancellationToken ct) =>
-        audit.RunAsync(ct);
+    public async Task<LineageReport> LineageReport([FromServices] LineageAudit audit, CancellationToken ct)
+    {
+        var report = await audit.RunAsync(ct);
+
+        /*
+         * Stamped whatever the verdict. The gate is "somebody has looked", not "it came back clean":
+         * a household that has read the damage is making an informed choice, which is the whole
+         * difference between this and the silent orphaning it replaces.
+         *
+         * Tracked deliberately, and not through `GetSettings` — that reads `AsNoTracking`, so writing
+         * to what it returns changes nothing and saves nothing. It did exactly that for one revision,
+         * and the only reason it is not still doing it is that the release test asserted the second
+         * delete succeeded rather than asserting the stamp was set.
+         */
+        var settings = await _db.Settings.FirstOrDefaultAsync(x => x.Id == 1, ct);
+        if (settings is { LineageAuditedAtUtc: null })
+        {
+            settings.LineageAuditedAtUtc = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return report;
+    }
 
     /// <summary>The archive (ASSIST.md · `1h`) — same rows, opposite side of the flag.</summary>
     [HttpGet("conversations/archived")]
@@ -941,6 +969,24 @@ public class AssistController : ControllerBase
         var ids = (req.Ids ?? []).Distinct().ToList();
         if (ids.Count == 0) return new DeleteConversationsResponse(0, 0);
 
+        /*
+         * Refused until this database's lineage has been audited — see `LineageReport`.
+         *
+         * The tombstones written below cover every session HomeHub knows about, and on a database that
+         * predates lineage recording that is not every session there is. Deleting the local row
+         * destroys the anchor, so an intermediate transcript nobody enumerated stays on the agent
+         * permanently while this endpoint reports success. Refusing is the fail-closed answer and it is
+         * not a dead end: the report is one request away and releases this for good.
+         */
+        var household = await GetSettings(ct);
+        if (household.LineageAuditedAtUtc is null)
+        {
+            return Conflict(
+                "This panel's conversation history predates lineage recording, so deleting now could "
+                + "leave transcripts on the assistant that nothing could find afterwards. Open the "
+                + "lineage report once to check what is there; deleting is enabled straight after.");
+        }
+
         var callerId = this.CallerId();
         var rows = await _db.Conversations
             // Scoped to the caller (AUDIT A1.2). Filtered rather than refused: a batch containing an
@@ -1222,7 +1268,7 @@ public class AssistController : ControllerBase
     /// </para>
     /// </remarks>
     private Task SweepAsync(int? profileId, HouseholdSettings settings, CancellationToken ct) =>
-        _retention.SweepForAsync(profileId, settings.ConversationRetentionDays, ct);
+        _retention.SweepForAsync(settings, profileId, ct);
 
     /// <summary>
     /// The agents this member may switch between, with their unread counts.

@@ -1,6 +1,7 @@
 namespace HomeHub.Api.Assist;
 
 using HomeHub.Api.Data;
+using HomeHub.Api.Settings;
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
@@ -44,18 +45,42 @@ public sealed class AssistRetention
     }
 
     /// <summary>Forget this member's expired conversations. Returns how many were removed.</summary>
-    public Task<int> SweepForAsync(int? profileId, int retentionDays, CancellationToken ct) =>
-        SweepAsync(retentionDays, c => c.ProfileId == profileId, ct);
+    public Task<int> SweepForAsync(HouseholdSettings settings, int? profileId, CancellationToken ct) =>
+        SweepAsync(settings, c => c.ProfileId == profileId, ct);
 
     /// <summary>Forget every member's expired conversations. For the background pass only.</summary>
-    public Task<int> SweepHouseholdAsync(int retentionDays, CancellationToken ct) =>
-        SweepAsync(retentionDays, _ => true, ct);
+    public Task<int> SweepHouseholdAsync(HouseholdSettings settings, CancellationToken ct) =>
+        SweepAsync(settings, _ => true, ct);
 
     private async Task<int> SweepAsync(
-        int retentionDays,
+        HouseholdSettings settings,
         System.Linq.Expressions.Expression<Func<Conversation, bool>> scope,
         CancellationToken ct)
     {
+        var retentionDays = settings.ConversationRetentionDays;
+
+        /*
+         * <b>Nothing is deleted until somebody has looked at this database's lineage.</b>
+         *
+         * The tombstones below cover every session HomeHub knows about, and on a database that
+         * predates lineage recording that is not every session there is: a chain that became
+         * <c>A → B → C</c> while only <c>A</c> was stored resolves to <c>C</c>, so B is never
+         * tombstoned and stays on the agent with its messages once the local row is gone. Deleting
+         * first and auditing afterwards cannot recover it — the anchor is the thing being deleted.
+         *
+         * Retention is automatic, so it is the path where that would happen without anybody choosing
+         * it. It waits. `LineageAuditedAtUtc` is stamped at startup for a database with no history to
+         * be incomplete about, and by running the lineage report otherwise.
+         */
+        if (settings.LineageAuditedAtUtc is null)
+        {
+            _logger.LogWarning(
+                "Assist retention is paused: this database's historical Hermes lineage has not been "
+                + "audited, so deleting a conversation could leave intermediate transcripts on the "
+                + "agent with nothing left to find them by. Run the lineage report to release it.");
+            return 0;
+        }
+
         // Zero days means never, and it is a real setting rather than an absent one: a household that
         // wants to keep its own conversations indefinitely should not have to express that as "365
         // days and remember to come back". Nothing is swept in that state — not "swept less often".
@@ -153,7 +178,7 @@ public sealed class AssistRetentionWorker : BackgroundService
                 if (settings is not null)
                 {
                     await scope.ServiceProvider.GetRequiredService<AssistRetention>()
-                        .SweepHouseholdAsync(settings.ConversationRetentionDays, ct);
+                        .SweepHouseholdAsync(settings, ct);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

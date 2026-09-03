@@ -37,5 +37,38 @@ public sealed class MealsOptions
     /// real deployment** — it exists so tests can point the fetcher at a local stub server. Turning
     /// it on re-arms the SSRF primitive D4 exists to disarm.
     /// </summary>
+    /// <remarks>
+    /// <b>"Must stay off" was a sentence in a comment, and a deployment could bind it to true.</b>
+    /// The fetcher takes a URL a household member types and follows it; with this on, both address
+    /// defences are gone and an authenticated recipe import becomes a way to make the server request
+    /// anything on its own loopback or LAN — the admin panel of a router, a database, Home Assistant,
+    /// the Hermes gateway. It is now refused at startup outside Development and the automated Test
+    /// environment, so the comment is enforced rather than trusted. See
+    /// <see cref="MealsOptionsValidator"/>.
+    /// </remarks>
     public bool AllowPrivateAddresses { get; set; }
+}
+
+/// <summary>
+/// Refuses to start a deployment that has re-armed the recipe fetcher's SSRF primitive.
+/// </summary>
+/// <remarks>
+/// The one setting in this file that is a security boundary rather than a preference, so it is the
+/// one with a validator. Development and the automated Test environment are exempt for the reason the
+/// setting exists at all: a test needs to point the fetcher at a stub on loopback, and a developer
+/// needs the same. A deployment does not.
+/// </remarks>
+public sealed class MealsOptionsValidator(bool requiresDeploymentSafeguards)
+    : Microsoft.Extensions.Options.IValidateOptions<MealsOptions>
+{
+    public Microsoft.Extensions.Options.ValidateOptionsResult Validate(string? name, MealsOptions options)
+    {
+        if (!requiresDeploymentSafeguards || !options.AllowPrivateAddresses)
+            return Microsoft.Extensions.Options.ValidateOptionsResult.Success;
+
+        return Microsoft.Extensions.Options.ValidateOptionsResult.Fail(
+            "Meals:AllowPrivateAddresses lets the recipe fetcher reach this machine and this network, "
+            + "so a household member pasting a link could make the server request anything on it. It "
+            + "exists for local stub servers in tests and must be unset in a deployment.");
+    }
 }

@@ -423,6 +423,57 @@ describe('the boot sweep', () => {
     expect(storage.getItem('homehub.writequeue.dropped.v1')).toBe(afterFirst)
   })
 
+  /*
+   * The same four answers the operation store had to tell apart, in the notice store — which is where
+   * they were left collapsed after being fixed next door, in the same function, in the same commit.
+   * `readJson` returns `[]` for a store that throws, for half-written JSON and for a value that is not
+   * an array, and only one of those means there is nothing to sweep.
+   */
+  it('does not read an unreadable notice store as an empty one', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.dropped.v1', JSON.stringify([
+      { id: 'c', label: 'Bottle 120ml for Wren', domain: 'care', ownerProfileId: 2, reason: 'rejected', at: 1 },
+    ]))
+    const real = storage.getItem.bind(storage)
+    storage.getItem = (key) => {
+      if (key === 'homehub.writequeue.dropped.v1') throw new DOMException('denied', 'SecurityError')
+      return real(key)
+    }
+
+    expect(sweepLegacyPlaintext(storage)).toBe(false)
+  })
+
+  it('does not read malformed notices as an empty store, and does not leave them there', () => {
+    const storage = new MemoryStorage()
+    // A tab killed mid-write, with the tail of a care label still legible in it.
+    storage.setItem('homehub.writequeue.dropped.v1',
+      '[{"id":"c","label":"Bottle 120ml for Wren","domain":"car')
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.dropped.v1') ?? '').not.toContain('Wren')
+  })
+
+  it('does not read a non-array notice value as an empty store', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.dropped.v1', '{"label":"Bottle 120ml for Wren"}')
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    expect(storage.getItem('homehub.writequeue.dropped.v1') ?? '').not.toContain('Wren')
+  })
+
+  it('still records its own notices after clearing a malformed store', () => {
+    const storage = new MemoryStorage()
+    storage.setItem('homehub.writequeue.v1', JSON.stringify([careOp('c')]))
+    storage.setItem('homehub.writequeue.dropped.v1', 'not json at all')
+
+    expect(sweepLegacyPlaintext(storage)).toBe(true)
+
+    // The household still gets told, even though what was there before had to go wholesale.
+    expect(storage.getItem('homehub.writequeue.dropped.v1') ?? '').toContain('could not be carried over')
+  })
+
   it('reports failure when a legible notice cannot be removed', () => {
     const storage = new MemoryStorage()
     storage.setItem('homehub.writequeue.dropped.v1', JSON.stringify([

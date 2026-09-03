@@ -25,13 +25,34 @@ public sealed class SessionDeletionWorker : BackgroundService
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(2);
 
     /// <summary>
-    /// Attempts before a row is left alone and reported.
+    /// Attempts before a row is reported as stuck and its retries slow to a daily cadence.
     /// </summary>
     /// <remarks>
-    /// It is never discarded. A tombstone that has given up is the record that a transcript is still
-    /// out there — deleting it would turn a known problem into an invisible one.
+    /// <para>
+    /// <b>It is never discarded, and it is no longer excluded either.</b> The row used to drop out of
+    /// the query at this count — kept as a record, and inert. So a Hermes that was down for a day, or
+    /// a gateway whose credential was rotated and then fixed, left the household's transcripts on the
+    /// agent for ever with nothing that would ever try again. "Never discarded" was true and was not
+    /// the promise that mattered.
+    /// </para>
+    /// <para>
+    /// Past this count the backoff goes to {@link StuckRetry} and the warning is logged, which is what
+    /// the threshold is actually for: telling somebody. The retry continues, because the transcript is
+    /// still there and the agent may come back at any time.
+    /// </para>
     /// </remarks>
     public const int MaxAttempts = 12;
+
+    /// <summary>
+    /// How often a row that has passed {@link MaxAttempts} tries again.
+    /// </summary>
+    /// <remarks>
+    /// Daily rather than hourly: at this point the agent has refused a dozen times over several hours,
+    /// so the next attempt is not about to succeed, and a household's deleted transcript surviving one
+    /// more day on a machine in their own house is the lesser of the two costs. What matters is that
+    /// there is a next attempt at all.
+    /// </remarks>
+    private static readonly TimeSpan StuckRetry = TimeSpan.FromHours(24);
 
     private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<SessionDeletionWorker> _logger;
@@ -73,9 +94,16 @@ public sealed class SessionDeletionWorker : BackgroundService
         var roster = scope.ServiceProvider.GetRequiredService<AgentRoster>();
         var now = DateTime.UtcNow;
 
+        /*
+         * Every incomplete row, however many times it has failed.
+         *
+         * `d.Attempts < MaxAttempts` used to be here, and it made a tombstone that had given up into a
+         * tombstone that would never be tried again — the household's transcript left on the agent
+         * with no path back even once Hermes recovered. The count still means something: past it the
+         * backoff widens to a day and the warning is logged. It no longer means "stop".
+         */
         var due = await db.HermesSessionDeletions
             .Where(d => d.CompletedAtUtc == null
-                && d.Attempts < MaxAttempts
                 && (d.NextAttemptUtc == null || d.NextAttemptUtc <= now))
             .OrderBy(d => d.RequestedAtUtc)
             .Take(50)
@@ -135,7 +163,15 @@ public sealed class SessionDeletionWorker : BackgroundService
         return completed;
     }
 
-    /// <summary>Exponential, capped at an hour. Cleanup nobody is waiting for can afford to be patient.</summary>
+    /// <summary>
+    /// Exponential to an hour, then daily once the row is reported stuck.
+    /// </summary>
+    /// <remarks>
+    /// Cleanup nobody is waiting for can afford to be patient — and must not stop. The daily tier is
+    /// what replaced excluding the row from the query entirely; see {@link MaxAttempts}.
+    /// </remarks>
     private static TimeSpan Backoff(int attempts) =>
-        TimeSpan.FromSeconds(Math.Min(3600, 30 * Math.Pow(2, Math.Min(attempts, 7))));
+        attempts >= MaxAttempts
+            ? StuckRetry
+            : TimeSpan.FromSeconds(Math.Min(3600, 30 * Math.Pow(2, Math.Min(attempts, 7))));
 }

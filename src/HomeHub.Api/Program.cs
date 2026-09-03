@@ -564,7 +564,13 @@ builder.Services.AddScoped<WeatherRefresher>();
 // callback that screens every address at dial time, and `AllowAutoRedirect = false` — redirects are
 // followed by hand inside the fetcher (see D4) so each hop is re-checked. Both properties are the
 // guard, so they are declared next to it and not in this file, where a later edit would not know.
-builder.Services.Configure<MealsOptions>(builder.Configuration.GetSection(MealsOptions.Section));
+// Validated at boot: `AllowPrivateAddresses` re-arms the SSRF primitive the guarded handler exists to
+// disarm, and "must stay off in a real deployment" was a comment a deployment could ignore.
+builder.Services.AddSingleton<IValidateOptions<MealsOptions>>(
+    new MealsOptionsValidator(requiresDeploymentSafeguards));
+builder.Services.AddOptions<MealsOptions>()
+    .Bind(builder.Configuration.GetSection(MealsOptions.Section))
+    .ValidateOnStart();
 builder.Services.AddHttpClient<RecipeFetcher>()
     .ConfigurePrimaryHttpMessageHandler(sp =>
         RecipeFetcher.CreateGuardedHandler(sp.GetRequiredService<IOptions<MealsOptions>>().Value));
@@ -1202,6 +1208,23 @@ if (!string.IsNullOrWhiteSpace(connectionString)
         var db = scope.ServiceProvider.GetRequiredService<HomeHubDbContext>();
         db.Database.Migrate();
         logger.LogInformation("Database migrations applied.");
+
+        /*
+         * A database with no conversations has no history to be incomplete about.
+         *
+         * `LineageAuditedAtUtc` gates deleting a conversation whose intermediate Hermes sessions
+         * nobody has enumerated — a real hazard on a panel upgraded from before lineage recording, and
+         * a meaningless one on a fresh install, which has recorded every session prospectively from
+         * its first turn. Stamping it here is what keeps a new household from being asked to audit
+         * nothing. It is deliberately not stamped when rows exist, however few.
+         */
+        var householdSettings = db.Settings.FirstOrDefault();
+        if (householdSettings is { LineageAuditedAtUtc: null } && !db.Conversations.Any())
+        {
+            householdSettings.LineageAuditedAtUtc = DateTime.UtcNow;
+            db.SaveChanges();
+            logger.LogInformation("No conversation history to audit; assistant deletion is enabled.");
+        }
 
         // Runs after Migrate() because it writes to columns the schema has to already have, and
         // separately from it because encrypting data with a runtime key is not a schema change.
