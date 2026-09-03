@@ -3,34 +3,36 @@
 What is true right now. **Overwrite this file** — it is a snapshot, not a log. Anything worth
 keeping once it stops being current belongs in `DECISIONS.md` or `INCIDENTS.md`.
 
-_Updated: 2026-09-02 by Claude. Geist's live-verified deployment and production-probe facts are theirs and unchanged._
+_Updated: 2026-09-02 by Claude, over Geist's `d0296c4` review. Geist's live-verified deployment facts are theirs and unchanged._
 
 **HomeHub is a website.** No Pi, no deployed voice bridge; its source and 12 tests stay but it is not a deployment gate.
 
-TEST is production-ineligible; production is unchanged and healthy. Exact candidate `d0296c4` (application `e6bf3ba`) passed the independent full gate but **failed closed: 0 Critical / 4 High**. The durable inventory is `brain/SECURITY-REVIEW-D0296C4.md`: residual RR-05 notice sanitation; deletion before historical lineage audit/backfill; tombstones permanently excluded after 12 attempts; and a production-bindable RecipeFetcher SSRF bypass.
+TEST is healthy on `f961a0a`; production is healthy and unchanged on `a66e80a`. `d0296c4` **failed independent review: 0 Critical, 4 High.** All four are remediated in `e641855`; the record is `.hermes/2026-09-02-d0296c4-review-claude-remediation.md`. A claim awaiting review, not a clearance.
 
-**Five reviews each found one instance of one class, and each round Claude closed the instance.** Hand-maintained inventories failed five times, so the class is now a mechanism: `EgressRequestGuard` shape-checks every request's origin where the scheme is visible — the connect callback cannot see it, which is how Chatterbox was screened at the socket and cleartext anyway — and `AddGuardedHttpClient` attaches both guards or neither, so "is every client guarded" becomes a question a regex and a runtime sweep can answer.
+**The mechanical HttpClient invariant passed review and execution**, which is the first thing in this sequence to hold. None of the four findings was an escape from it: one was inside its expressly enumerated exception, and three were elsewhere entirely.
 
-**Two tests replace the inventory.** One reads every `.cs` file and fails on a bare `AddHttpClient`. The other discovers every registered client from the container at runtime and drives each at a live listener whose origin no rule permits, asserting zero requests and zero bytes — fifteen today, and a registration added next year is in it without anybody adding it.
+**⚠ This candidate carries a schema migration.** `AddLineageAuditedAt` adds one nullable column to `Settings`. Pending migrations against the existing TEST database will read **1**, not 0 — and because the column is null on an upgraded database by design, **assistant deletion and retention are paused on TEST until the lineage report is opened once**. Intended, and worth knowing before it looks like a fault.
 
-**Worth reading before the review:** the sweep's first listener was `HttpListener` and the test was vacuous. Its prefixes match on the `Host` header, so a probe addressed to `localhost` against a listener bound to `127.0.0.1` was rejected inside the framework and never counted; it passed whether or not the guard did anything. Found only by running the revert, which is now routine for exactly this reason. It is a raw socket now, and with the request guard removed it names the four clients that escape.
+**The lineage gate is the substantive change.** The lineage table works prospectively, so on a database that predates it a chain that became `A → B → C` while only `A` was stored resolves to `C` — deleting tombstones A and C and leaves B on the agent for ever, because the local row that pointed anywhere near it is gone. Audit-then-delete is recoverable; delete-then-audit is not. Retention pauses, the explicit delete returns 409 naming the report, and running the report — read-only, one request — releases both permanently. A fresh database is stamped at startup.
 
-**What the invariant does not cover**, said plainly because the failure it replaces was a boundary believed complete: an `HttpClient` constructed directly with `new`, and any non-HTTP egress. Nothing does either today; if that changes, extend the enumeration rather than the inventory.
+**One decision put up for review:** the gate is per-database and requires the report to have been *run*, not to have come back *clean*. A local check cannot establish completeness — the audit is what walks Hermes's own parent links — and blocking on a clean verdict would be a dead end until a backfill exists. If it should be stricter, it is a one-line change.
 
-**Preflight for `e6bf3ba`** is unchanged from the last round: `HomeAssistant:BaseUrl` of `http://127.0.0.1:8123` is valid and needs nothing; `Hermes:Agents:*:BaseUrl` must be loopback or an exact https origin in `Hermes:AllowedGatewayOrigins`; `Voice:Tts:Chatterbox:Endpoint` and `Voice:Stt:LocalEndpoint` must be loopback or https.
+**Finding 1 was the same fail-open Claude had fixed one function away**, in the same file and the same commit: `readJson` collapses "store threw", "half-written JSON", "not an array" and "absent" into one empty list, and only the last means nothing to sweep. It is a single `readLegacy` now, so a caller cannot obtain the collapsed answer.
 
-`./scripts/check.sh all` runs 54 client files, 1,336 backend tests and 12 bridge tests.
+**Two things the tests caught that Claude had wrong**, both worth reading: the lineage stamp was written through `GetSettings`, which is `AsNoTracking`, so the release silently saved nothing; and nine existing deletion tests inherited the new gate because the in-memory database is `EnsureCreated` and never stamped.
+
+`./scripts/check.sh all` runs 54 client files, 1,346 backend tests and 12 bridge tests.
 
 ## Source
 
 | | |
 |---|---|
 | Branch | `main` |
-| `HEAD` now | `d0296c4` (application `e6bf3ba` plus documentation), matching `origin/main` at review start. |
+| `HEAD` now | `e641855` (four-blocker remediation, incl. migration `AddLineageAuditedAt`), plus this documentation commit |
 | Working tree | Clean before review; only this Geist-owned state update is pending commit. |
 | Reviewed candidate identity | Commit `d0296c4e525c5b7bb0bfc55d20b98583d8a0b704`; application `e6bf3ba8d90cba822a4c74bb03b6bc83e08c39e9`; Git tree `ab19a53272a641a79d97c19bc813c4ac8e7dea0f`; 873 tracked entries; 842 UTF-8 text and 31 binary assets. |
 | Independent verdict | FAIL CLOSED: 0 Critical / 4 High. Complete inventory: `brain/SECURITY-REVIEW-D0296C4.md`. |
-| Current candidate | `d0296c4` — full gate independently reproduced: 54 client files, 1,336 backend tests, 12 bridge tests; npm and NuGet production vulnerability checks clean. |
+| Current candidate | `e641855` — all four remediated. Full gate green: 54 client files, 1,346 backend tests, 12 bridge tests. **Carries a schema migration.** |
 | Coordination | Claude owns code remediation and development evidence. Geist owns immutable-candidate re-review and deployment. No production action is authorized. |
 
 ## Deployed
