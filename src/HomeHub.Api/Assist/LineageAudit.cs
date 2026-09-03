@@ -630,3 +630,24 @@ public sealed record LineageReport(
     IReadOnlyList<string> BlockingReasons,
     IReadOnlyList<AgentLineageReport> Agents,
     string PermittedDeleteCopy);
+
+/// <summary>What a reconciliation decided, and what remains unresolved.</summary>
+/// <param name="State">The household's lineage state after this call.</param>
+/// <param name="Clean">The audit's own verdict, which is what decided the state.</param>
+/// <param name="BlockingReasons">Why it was not clean, in the report's own words.</param>
+/// <param name="UnresolvedSessionIds">
+/// The sessions nothing could vouch for. Also the exact set an administrator must confirm to accept
+/// the risk — naming them is what keeps an acceptance from being a switch somebody flips once.
+/// </param>
+public sealed record LineageReconciliation(
+    Settings.LineageState State,
+    bool Clean,
+    IReadOnlyList<string> BlockingReasons,
+    IReadOnlyList<string> UnresolvedSessionIds);
+
+/// <summary>An administrator's deliberate acceptance of an unclean lineage.</summary>
+/// <param name="AcknowledgedSessionIds">
+/// Every unresolved session id from the current report, exactly. A mismatch is refused rather than
+/// tolerated: the point is that the person accepting has read what they are accepting.
+/// </param>
+public sealed record AcceptLineageRiskRequest(IReadOnlyList<string>? AcknowledgedSessionIds);

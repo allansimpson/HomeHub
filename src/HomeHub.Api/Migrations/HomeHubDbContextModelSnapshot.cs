@@ -3469,6 +3469,18 @@ namespace HomeHub.Api.Migrations
                     b.Property<DateTime?>("LineageAuditedAtUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("LineageRiskAcceptedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("LineageRiskAcceptedByProfileId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("LineageRiskAcceptedSessions")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("LineageState")
+                        .HasColumnType("int");
+
                     b.Property<int>("LitterFullPercent")
                         .HasColumnType("int");
 
@@ -3501,6 +3513,7 @@ namespace HomeHub.Api.Migrations
                             IdleDimmingEnabled = true,
                             IdleTimeoutMinutes = 5,
                             KeepEventPhotos = true,
+                            LineageState = 0,
                             LitterFullPercent = 80,
                             NightDimEnd = new TimeOnly(6, 0, 0),
                             NightDimStart = new TimeOnly(22, 0, 0),

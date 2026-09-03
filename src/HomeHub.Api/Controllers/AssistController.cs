@@ -130,36 +130,131 @@ public class AssistController : ControllerBase
     /// </para>
     /// </remarks>
     /// <remarks>
-    /// <b>Running it is what releases deletion on an upgraded database.</b> The report is read-only and
-    /// stays so; what is written afterwards is a single timestamp on household settings saying somebody
-    /// has looked. Until then retention pauses and an explicit delete is refused, because deleting the
-    /// local row destroys the only anchor by which an unknown intermediate transcript could ever be
-    /// found — audit-then-delete is recoverable and delete-then-audit is not.
+    /// <b>Read-only, and it changes no authority.</b> One revision of this stamped the household's
+    /// deletion gate as a side effect of the GET, which is wrong twice over: a GET that changes global
+    /// destructive authority is a thing a link preview or a refresh can trigger, and "somebody opened
+    /// the report" was never the safety property anyway. Reconciling is
+    /// <see cref="ReconcileLineage"/>, which is a POST and says what it did.
     /// </remarks>
     [HttpGet("lineage/report")]
-    public async Task<LineageReport> LineageReport([FromServices] LineageAudit audit, CancellationToken ct)
+    public Task<LineageReport> LineageReport([FromServices] LineageAudit audit, CancellationToken ct) =>
+        audit.RunAsync(ct);
+
+    /// <summary>
+    /// Run the audit and record what it found, which is what releases deletion when it is clean.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A POST because it decides something. The verdict is the audit's, not the caller's: a clean
+    /// reconciliation moves the household to <see cref="LineageState.Clean"/> and an unclean one to
+    /// <see cref="LineageState.Blocked"/>, which keeps deletion refused. Running it again after
+    /// repairing the agent is how a blocked household gets out; running it repeatedly does not wear it
+    /// down.
+    /// </para>
+    /// <para>
+    /// Deliberately not weakened to "it ran". If HomeHub cannot prove that all historical lineage is
+    /// known, the local rows are the recovery anchors for the transcripts it cannot see, and they are
+    /// retained.
+    /// </para>
+    /// </remarks>
+    [HttpPost("lineage/reconcile")]
+    public async Task<LineageReconciliation> ReconcileLineage(
+        [FromServices] LineageAudit audit, CancellationToken ct)
     {
         var report = await audit.RunAsync(ct);
+        var settings = await TrackedSettingsAsync(ct);
 
-        /*
-         * Stamped whatever the verdict. The gate is "somebody has looked", not "it came back clean":
-         * a household that has read the damage is making an informed choice, which is the whole
-         * difference between this and the silent orphaning it replaces.
-         *
-         * Tracked deliberately, and not through `GetSettings` — that reads `AsNoTracking`, so writing
-         * to what it returns changes nothing and saves nothing. It did exactly that for one revision,
-         * and the only reason it is not still doing it is that the release test asserted the second
-         * delete succeeded rather than asserting the stamp was set.
-         */
-        var settings = await _db.Settings.FirstOrDefaultAsync(x => x.Id == 1, ct);
-        if (settings is { LineageAuditedAtUtc: null })
+        // Never downgrades an acceptance: an administrator's deliberate override is not undone by a
+        // routine re-run, which would silently re-block a household that had chosen otherwise.
+        if (settings.LineageState != LineageState.RiskAccepted)
+            settings.LineageState = report.Clean ? LineageState.Clean : LineageState.Blocked;
+
+        settings.LineageAuditedAtUtc = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return new LineageReconciliation(
+            settings.LineageState, report.Clean, report.BlockingReasons, UnresolvedSessions(report));
+    }
+
+    /// <summary>
+    /// Accept an unclean lineage deliberately, so that manual deletion may proceed. <b>Administrators only.</b>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The way out of <see cref="LineageState.Blocked"/> when the damage cannot be repaired, and it is
+    /// built to be hard to do by accident. The caller must send back the exact set of unresolved
+    /// session ids the report names — so an acceptance cannot be replayed against a lineage that has
+    /// since acquired new damage, and cannot be issued by something that never read what it was
+    /// accepting. Who accepted, when, and against what are all recorded.
+    /// </para>
+    /// <para>
+    /// <b>It releases manual deletion and not retention.</b> Accepting a named risk for a conversation
+    /// somebody is deleting is a decision; a background timer acting on that acceptance for every
+    /// conversation in the household for ever is not the same decision, and nobody made it.
+    /// </para>
+    /// </remarks>
+    [HttpPost("lineage/accept-risk")]
+    [Authorize(Policy = Household.AdminPolicy)]
+    public async Task<ActionResult<LineageReconciliation>> AcceptLineageRisk(
+        [FromServices] LineageAudit audit, AcceptLineageRiskRequest req, CancellationToken ct)
+    {
+        var report = await audit.RunAsync(ct);
+        if (report.Clean)
         {
-            settings.LineageAuditedAtUtc = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
+            return BadRequest(
+                "This household's lineage is already reconciled clean; there is nothing to accept. "
+                + "Reconcile instead.");
         }
 
-        return report;
+        var unresolved = UnresolvedSessions(report);
+        var confirmed = (req.AcknowledgedSessionIds ?? []).Distinct(StringComparer.Ordinal).ToList();
+        if (!unresolved.OrderBy(x => x, StringComparer.Ordinal)
+                .SequenceEqual(confirmed.OrderBy(x => x, StringComparer.Ordinal), StringComparer.Ordinal))
+        {
+            // Not a formality. It is what makes this an acceptance of *these* transcripts rather than
+            // a switch somebody can flip once and forget.
+            return Conflict(new LineageReconciliation(
+                LineageState.Blocked, false,
+                ["The sessions confirmed do not match the ones currently unresolved. Read the report again."],
+                unresolved));
+        }
+
+        var settings = await TrackedSettingsAsync(ct);
+        settings.LineageState = LineageState.RiskAccepted;
+        settings.LineageAuditedAtUtc = DateTime.UtcNow;
+        settings.LineageRiskAcceptedAtUtc = DateTime.UtcNow;
+        settings.LineageRiskAcceptedByProfileId = this.CallerId();
+        settings.LineageRiskAcceptedSessions = string.Join(',', unresolved);
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogWarning(
+            "Profile {ProfileId} accepted an unclean Hermes lineage: {Count} unresolved session(s) may "
+            + "be orphaned by manual deletion. Background retention remains paused.",
+            this.CallerId(), unresolved.Count);
+
+        return new LineageReconciliation(settings.LineageState, false, report.BlockingReasons, unresolved);
     }
+
+    /// <summary>Every session the report could not vouch for, deduplicated across agents.</summary>
+    private static IReadOnlyList<string> UnresolvedSessions(LineageReport report) =>
+        [.. report.Agents
+            .SelectMany(a => a.Findings)
+            .Select(f => f.SessionId)
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(id => id, StringComparer.Ordinal)];
+
+    /// <summary>
+    /// The settings row, tracked.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not <see cref="GetSettings"/>, which reads <c>AsNoTracking</c> — writing to what
+    /// that returns changes nothing and saves nothing. One revision of the lineage stamp did exactly
+    /// that and was a silent no-op.
+    /// </remarks>
+    private async Task<HouseholdSettings> TrackedSettingsAsync(CancellationToken ct) =>
+        await _db.Settings.FirstOrDefaultAsync(x => x.Id == 1, ct)
+        ?? throw new InvalidOperationException("Household settings row is missing.");
 
     /// <summary>The archive (ASSIST.md · `1h`) — same rows, opposite side of the flag.</summary>
     [HttpGet("conversations/archived")]
@@ -979,12 +1074,16 @@ public class AssistController : ControllerBase
          * not a dead end: the report is one request away and releases this for good.
          */
         var household = await GetSettings(ct);
-        if (household.LineageAuditedAtUtc is null)
+        if (household.LineageState is not (LineageState.Clean or LineageState.RiskAccepted))
         {
-            return Conflict(
-                "This panel's conversation history predates lineage recording, so deleting now could "
-                + "leave transcripts on the assistant that nothing could find afterwards. Open the "
-                + "lineage report once to check what is there; deleting is enabled straight after.");
+            return Conflict(household.LineageState == LineageState.Blocked
+                ? "This panel's assistant lineage was reconciled and came back incomplete, so deleting "
+                  + "now would leave transcripts on the assistant that nothing could find afterwards. "
+                  + "Repair the agent and reconcile again, or have an administrator accept the risk "
+                  + "for the sessions the report names."
+                : "This panel's conversation history has not been reconciled against the assistant, so "
+                  + "deleting now could leave transcripts behind that nothing could find afterwards. "
+                  + "Reconcile the lineage first.");
         }
 
         var callerId = this.CallerId();

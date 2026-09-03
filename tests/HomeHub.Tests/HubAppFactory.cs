@@ -122,8 +122,8 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
     public string? WebRootPath { get; init; }
 
     /// <summary>
-    /// Whether this household's historical Hermes lineage counts as audited. True for almost every
-    /// test; false is how <c>LineageGateTests</c> models a panel upgraded from before lineage
+    /// Whether this household's historical Hermes lineage counts as reconciled clean. True for almost
+    /// every test; false is how <c>LineageGateTests</c> models a panel upgraded from before lineage
     /// recording, where deleting a conversation could orphan a transcript nothing could find again.
     /// </summary>
     public bool AuditedLineage { get; init; } = true;
@@ -290,8 +290,10 @@ public sealed class HubAppFactory : WebApplicationFactory<Program>
          * database at startup, which runs behind `Migrate()`; these tests use `EnsureCreated`, so it is
          * stamped here instead. `LineageGateTests` is where the null case is exercised deliberately.
          */
-        if (AuditedLineage && db.Settings.FirstOrDefault() is { LineageAuditedAtUtc: null } settings)
+        if (AuditedLineage
+            && db.Settings.FirstOrDefault() is { LineageState: HomeHub.Api.Settings.LineageState.NotAudited } settings)
         {
+            settings.LineageState = HomeHub.Api.Settings.LineageState.Clean;
             settings.LineageAuditedAtUtc = DateTime.UtcNow;
             db.SaveChanges();
         }

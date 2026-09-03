@@ -26,6 +26,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using HomeHub.Api.Net;
+using HomeHub.Api.Settings;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.Server;
 
@@ -1219,11 +1220,12 @@ if (!string.IsNullOrWhiteSpace(connectionString)
          * nothing. It is deliberately not stamped when rows exist, however few.
          */
         var householdSettings = db.Settings.FirstOrDefault();
-        if (householdSettings is { LineageAuditedAtUtc: null } && !db.Conversations.Any())
+        if (householdSettings is { LineageState: LineageState.NotAudited } && !db.Conversations.Any())
         {
+            householdSettings.LineageState = LineageState.Clean;
             householdSettings.LineageAuditedAtUtc = DateTime.UtcNow;
             db.SaveChanges();
-            logger.LogInformation("No conversation history to audit; assistant deletion is enabled.");
+            logger.LogInformation("No conversation history to reconcile; assistant deletion is enabled.");
         }
 
         // Runs after Migrate() because it writes to columns the schema has to already have, and

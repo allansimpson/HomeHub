@@ -72,12 +72,23 @@ public sealed class AssistRetention
          * it. It waits. `LineageAuditedAtUtc` is stamped at startup for a database with no history to
          * be incomplete about, and by running the lineage report otherwise.
          */
-        if (settings.LineageAuditedAtUtc is null)
+        if (settings.LineageState != LineageState.Clean)
         {
+            /*
+             * <b>Clean, and nothing weaker.</b> An earlier version released this as soon as somebody
+             * had *opened* the report, which mistook being informed for being safe: an administrator
+             * reading that transcripts will be orphaned is not a reason to orphan them.
+             *
+             * `RiskAccepted` does not release it either, and that is the point of it being its own
+             * state. Somebody accepting a named risk for a conversation they are deleting is a
+             * decision; a timer acting on that acceptance for every conversation in the household for
+             * ever is a different one nobody made.
+             */
             _logger.LogWarning(
-                "Assist retention is paused: this database's historical Hermes lineage has not been "
-                + "audited, so deleting a conversation could leave intermediate transcripts on the "
-                + "agent with nothing left to find them by. Run the lineage report to release it.");
+                "Assist retention is paused ({State}): this database's historical Hermes lineage is "
+                + "not reconciled clean, so deleting a conversation could leave intermediate "
+                + "transcripts on the agent with nothing left to find them by.",
+                settings.LineageState);
             return 0;
         }
 

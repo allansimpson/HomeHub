@@ -185,7 +185,7 @@ public class HouseholdSettings
     public int ConversationRetentionDays { get; set; } = 30;
 
     /// <summary>
-    /// When this database's historical Hermes lineage was audited and found complete. Null until it has been.
+    /// Whether this database's historical Hermes lineage is known well enough to delete against.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -193,15 +193,39 @@ public class HouseholdSettings
     /// lineage table works prospectively — each turn records the session Hermes answered in — and that
     /// cannot rebuild a chain that already existed. A conversation that became <c>A → B → C</c> while
     /// HomeHub stored only <c>A</c> resolves to <c>C</c>: deleting it tombstones A and C and leaves B
-    /// on the agent with its messages, permanently, while the panel reports the deletion as done.
-    /// <see cref="Assist.LineageAudit"/> is the read-only report that finds those; this is the record
-    /// that it has been run and come back clean.
+    /// on the agent with its messages, permanently, while the panel reports the deletion as done. The
+    /// local row is the only anchor by which B could ever have been found, so the order is one-way —
+    /// reconcile then delete is recoverable, delete then reconcile is not.
     /// </para>
     /// <para>
-    /// <b>Null on an upgraded database and stamped on a fresh one.</b> A database with no
-    /// conversations has no history to be incomplete about, so startup stamps it rather than making a
-    /// new household run an audit over nothing. Everything else waits until somebody has looked.
+    /// <b>An earlier version released this the moment somebody opened the report, clean or not.</b>
+    /// That was the wrong bar: being informed that transcripts will be orphaned is not a reason to
+    /// orphan them, and an irreversible action does not become safe by being announced. Blocked stays
+    /// blocked, which is a dead end until a backfill exists and is the correct one —
+    /// <see cref="LineageState.RiskAccepted"/> is the deliberate way out, not a side effect.
     /// </para>
     /// </remarks>
+    public LineageState LineageState { get; set; } = LineageState.NotAudited;
+
+    /// <summary>When the lineage was last reconciled, whatever the verdict was.</summary>
     public DateTime? LineageAuditedAtUtc { get; set; }
+
+    /// <summary>When an administrator accepted an unclean lineage, and who they were.</summary>
+    /// <remarks>
+    /// Kept so the acceptance is auditable rather than merely effective. A household that later finds
+    /// an orphaned transcript should be able to see that somebody chose this, when, and against what.
+    /// </remarks>
+    public DateTime? LineageRiskAcceptedAtUtc { get; set; }
+
+    /// <inheritdoc cref="LineageRiskAcceptedAtUtc"/>
+    public int? LineageRiskAcceptedByProfileId { get; set; }
+
+    /// <summary>The unresolved sessions that were shown and confirmed at the moment of acceptance.</summary>
+    /// <remarks>
+    /// Recorded verbatim, because "an administrator accepted the risk" is not a record of anything
+    /// without what the risk was. It is also what the confirmation is checked against: an acceptance
+    /// names the exact sessions it is accepting, so it cannot be replayed against a lineage that has
+    /// since acquired new damage.
+    /// </remarks>
+    public string? LineageRiskAcceptedSessions { get; set; }
 }
